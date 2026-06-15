@@ -26,7 +26,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.syncPostsPage()
-		return m, nil
+		return m, m.imageRefreshCmd(nil)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -84,7 +84,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Posts.PostListHasMore = msg.HasMore
 		}
 		m.syncPostsPage()
-		return m, nil
+		return m, m.imageRefreshCmd(nil)
 
 	case LoadCommentsMsg:
 		m.Posts.CommentListLoading = false
@@ -106,7 +106,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Posts.CommentSortAsc = msg.SortAsc
 		}
 		m.syncPostsPage()
-		return m, nil
+		return m, m.imageRefreshCmd(nil)
 
 	case SearchPostsMsg:
 		m.Posts.PostListLoading = false
@@ -131,7 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Posts.PostsMode = PostsModeSearchResults
 		}
 		m.syncPostsPage()
-		return m, nil
+		return m, m.imageRefreshCmd(nil)
 
 	case LoadPostDetailMsg:
 		m.Posts.CommentListLoading = false
@@ -382,7 +382,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Posts.SearchField, cmd = m.Posts.SearchField.Update(msg)
 			m.Posts.SearchInput = m.Posts.SearchField.Value()
 			m.syncPostsPage()
-			return m, cmd
+			return m, m.imageRefreshCmd(cmd)
 		}
 	}
 
@@ -402,7 +402,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.Posts.PostsMode = PostsModeList
 			}
 			m.syncPostsPage()
-			return m, nil
+			return m, m.imageRefreshCmd(nil)
 		case "tab":
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.DetailFocus = DetailFocusComments
@@ -498,7 +498,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 		m.syncPostsPage()
-		return m, nil
+		return m, m.imageRefreshCmd(nil)
 	}
 
 	switch msg.String() {
@@ -572,7 +572,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Posts.PostBodyViewport.GotoTop()
 			m.Posts.DetailFocus = DetailFocusComments
 			m.syncPostsPage()
-			return m, loadPostDetailCmd(m.Provider, post.Pid, true)
+			return m, m.imageRefreshCmd(loadPostDetailCmd(m.Provider, post.Pid, true))
 		}
 	case "pgup":
 		m.Posts.pageMove(-1)
@@ -587,7 +587,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	m.syncPostsPage()
-	return m, nil
+	return m, m.imageRefreshCmd(nil)
 }
 
 func (m Model) cancelSearchInput() (Model, tea.Cmd) {
@@ -600,7 +600,7 @@ func (m Model) cancelSearchInput() (Model, tea.Cmd) {
 		m.Posts.PostsMode = PostsModeList
 	}
 	m.syncPostsPage()
-	return m, nil
+	return m, m.imageRefreshCmd(nil)
 }
 
 func (m Model) clearActiveFilters() (Model, tea.Cmd) {
@@ -614,7 +614,7 @@ func (m Model) clearActiveFilters() (Model, tea.Cmd) {
 	m.Posts.PostListLoading = true
 	m.Posts.resetList()
 	m.syncPostsPage()
-	return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0)
+	return m, m.imageRefreshCmd(loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
 }
 
 func (m *Model) syncPostsPage() {

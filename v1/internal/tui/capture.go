@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-var ansiControlPattern = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])`)
+var ansiControlPattern = regexp.MustCompile(`(?:\x1b_G.*?\x1b\\)|(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_]))`)
 
 type CaptureSink struct {
 	mu       sync.Mutex

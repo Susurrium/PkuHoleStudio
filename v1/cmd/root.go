@@ -106,6 +106,7 @@ func runTUI() error {
 	}
 
 	model := tui.NewModel(database, client, cfg, session)
+	model.Images = tui.NewKittyImageRenderer()
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 
 	capture, err := tui.NewCaptureSink(tuiCaptureDir)
@@ -115,7 +116,13 @@ func runTUI() error {
 	if capture != nil {
 		defer capture.Close()
 		model.Capture = capture
-		opts = append(opts, tea.WithOutput(capture.OutputWriter(os.Stdout)))
+		output := capture.OutputWriter(os.Stdout)
+		if model.Images != nil {
+			output = model.Images.OutputWriter(output)
+		}
+		opts = append(opts, tea.WithOutput(output))
+	} else if model.Images != nil {
+		opts = append(opts, tea.WithOutput(model.Images.OutputWriter(os.Stdout)))
 	}
 
 	p := tea.NewProgram(model, opts...)
