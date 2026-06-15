@@ -53,7 +53,10 @@ func (m Model) View() string {
 		Render(truncateVisibleLine(footerText, w, "..."))
 
 	contentHeight := m.contentAreaHeightForSize(w, h)
-	content := m.renderContent(contentHeight)
+	content, placements := m.renderContent(contentHeight)
+	for i := range placements {
+		placements[i].top += lipgloss.Height(tabBar)
+	}
 	contentBlock := lipgloss.Place(
 		w,
 		contentHeight,
@@ -78,6 +81,9 @@ func (m Model) View() string {
 		body,
 	)
 	rendered = baseStyle.Render(rendered)
+	if m.Images != nil && m.Images.Enabled() {
+		m.Images.SetFrame(placements)
+	}
 	if m.Capture != nil {
 		m.Capture.RecordFrame(rendered)
 	}
@@ -103,14 +109,14 @@ func (m Model) contentAreaHeightForSize(width, height int) int {
 	return contentHeight
 }
 
-func (m Model) renderContent(contentHeight int) string {
+func (m Model) renderContent(contentHeight int) (string, []imagePlacement) {
 	switch m.Page {
 	case PageHome:
-		return m.renderHome(contentHeight)
+		return m.renderHome(contentHeight), nil
 	case PagePosts:
 		return m.renderPosts(contentHeight)
 	default:
-		return "Unknown page"
+		return "Unknown page", nil
 	}
 }
 
@@ -139,7 +145,7 @@ func (m Model) renderHome(contentHeight int) string {
 	return m.Home.View(m.Width, contentHeight)
 }
 
-func (m Model) renderPosts(contentHeight int) string {
+func (m Model) renderPosts(contentHeight int) (string, []imagePlacement) {
 	return m.Posts.View(m.Width, contentHeight)
 }
 

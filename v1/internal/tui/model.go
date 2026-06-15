@@ -222,6 +222,7 @@ type Model struct {
 
 	LastError string
 	Capture   *CaptureSink
+	Images    *KittyImageRenderer
 }
 
 func NewModel(database *db.Database, client *client.Client, cfg *config.Config, session SessionState) Model {
@@ -303,9 +304,19 @@ func (m *Model) ensureDialogModels() {
 	if !m.TagsDialog.initialized() {
 		m.TagsDialog = NewTagsDialog()
 	}
+	if m.Images != nil {
+		m.Posts.ImagePreview = m.Images.Enabled()
+	}
+	if m.Posts.ImageClient == nil {
+		m.Posts.ImageClient = m.Client
+	}
 	m.Posts.ensureInitialized()
 }
 
 func (m Model) calcPostViewportHeight() int {
 	return m.Posts.calcPostViewportHeight(m.Height)
+}
+
+func (m Model) imageRefreshCmd(cmd tea.Cmd) tea.Cmd {
+	return cmd
 }

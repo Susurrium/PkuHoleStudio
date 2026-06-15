@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"treehole/internal/client"
 	"treehole/internal/models"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -51,6 +52,8 @@ type PostsPageModel struct {
 	SessionMode  SessionMode
 	CanWrite     bool
 	StatusText   string
+	ImagePreview bool
+	ImageClient  *client.Client
 }
 
 func NewPostsPageModel() PostsPageModel {
@@ -107,7 +110,7 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 
 	if !p.ShowPostDetail && len(p.PostList) > 0 {
 		p.syncCursorToSelection()
-		newContent := p.buildPostListContent(contentWidth)
+		newContent, _ := p.buildPostListContent(contentWidth)
 		if p.postContent != newContent || p.PostViewport.Width != contentWidth || p.PostViewport.Height != postHeight {
 			p.PostViewport.Width = contentWidth
 			p.PostViewport.Height = postHeight
@@ -118,7 +121,7 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 
 	if p.ShowPostDetail && p.CurrentPost != nil {
 		bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
-		bodyContent := p.buildDetailBodyContent(contentWidth)
+		bodyContent, _ := p.buildDetailBodyContent(contentWidth)
 		if p.postBodyContent != bodyContent || p.PostBodyViewport.Width != contentWidth || p.PostBodyViewport.Height != bodyHeight {
 			p.PostBodyViewport.Width = contentWidth
 			p.PostBodyViewport.Height = bodyHeight
@@ -137,7 +140,7 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 	}
 }
 
-func (p PostsPageModel) View(width, height int) string {
+func (p PostsPageModel) View(width, height int) (string, []imagePlacement) {
 	p.ensureInitialized()
 	if p.ShowPostDetail {
 		return p.renderPostDetail(width, height)
@@ -145,8 +148,9 @@ func (p PostsPageModel) View(width, height int) string {
 	return p.renderPosts(width, height)
 }
 
-func (p PostsPageModel) renderPosts(width, height int) string {
+func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement) {
 	var b strings.Builder
+	var placements []imagePlacement
 
 	if p.SearchActive {
 		b.WriteString(vTitleStyle.Render(fmt.Sprintf("搜索结果: %s", p.SearchInput)))
@@ -187,7 +191,7 @@ func (p PostsPageModel) renderPosts(width, height int) string {
 
 	if p.PostListLoading && len(p.PostList) == 0 {
 		b.WriteString(vLoadingStyle.Render("加载中..."))
-		return b.String()
+		return b.String(), nil
 	}
 
 	if p.PostListError != "" {
@@ -197,15 +201,18 @@ func (p PostsPageModel) renderPosts(width, height int) string {
 
 	if len(p.PostList) == 0 {
 		b.WriteString(vEmptyStyle.Render("暂无数据"))
-		return b.String()
+		return b.String(), nil
 	}
 
 	contentWidth := pageWidth
 	vp := viewport.New(contentWidth, p.calcPostViewportHeight(height))
-	vp.SetContent(p.buildPostListContent(contentWidth))
+	content, postPlacements := p.buildPostListContent(contentWidth)
+	vp.SetContent(content)
 	if p.PostViewport != nil {
 		vp.SetYOffset(p.PostViewport.YOffset)
 	}
+	prefixHeight := lipgloss.Height(b.String())
+	placements = append(placements, visiblePlacements(postPlacements, vp.YOffset, vp.Height, prefixHeight)...)
 	b.WriteString(vp.View())
 	b.WriteString("\n")
 	postAction := "n: 发帖"
@@ -217,14 +224,15 @@ func (p PostsPageModel) renderPosts(width, height int) string {
 		status += " | 正在加载更多..."
 	}
 	b.WriteString(vPaginationStyle.Render(status))
-	return b.String()
+	return b.String(), placements
 }
 
-func (p PostsPageModel) renderPostDetail(width, height int) string {
+func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlacement) {
 	var b strings.Builder
+	var placements []imagePlacement
 
 	if p.CurrentPost == nil {
-		return "无帖子数据"
+		return "无帖子数据", nil
 	}
 	b.WriteString(p.renderDetailHeader(width))
 	b.WriteString("\n")
@@ -250,10 +258,13 @@ func (p PostsPageModel) renderPostDetail(width, height int) string {
 	}
 	bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
 	bodyViewport := viewport.New(contentWidth, bodyHeight)
-	bodyViewport.SetContent(p.buildDetailBodyContent(contentWidth))
+	bodyContent, bodyPlacements := p.buildDetailBodyContent(contentWidth)
+	bodyViewport.SetContent(bodyContent)
 	if p.PostBodyViewport != nil {
 		bodyViewport.SetYOffset(p.PostBodyViewport.YOffset)
 	}
+	prefixHeight := lipgloss.Height(b.String())
+	placements = append(placements, visiblePlacements(bodyPlacements, bodyViewport.YOffset, bodyViewport.Height, prefixHeight)...)
 	b.WriteString(bodySectionStyle.Render(bodyViewport.View()))
 	b.WriteString("\n")
 
@@ -276,21 +287,22 @@ func (p PostsPageModel) renderPostDetail(width, height int) string {
 
 	b.WriteString("\n")
 	b.WriteString(p.renderDetailShortcut(width))
-	return b.String()
+	return b.String(), placements
 }
 
-func (p PostsPageModel) buildDetailBodyContent(contentWidth int) string {
+func (p PostsPageModel) buildDetailBodyContent(contentWidth int) (string, []imagePlacement) {
 	if p.CurrentPost == nil {
-		return ""
+		return "", nil
 	}
 	textWidth := p.detailBodyTextWidth(contentWidth)
-	return vPostTextStyle.Render(strings.Join(
-		p.wrapPlainTextLines(p.postDisplayText(*p.CurrentPost), textWidth),
-		"\n",
-	))
+	lines, placements := p.postDetailLines(*p.CurrentPost, textWidth)
+	for i := range placements {
+		placements[i].left += 4
+	}
+	return vPostTextStyle.Render(strings.Join(lines, "\n")), placements
 }
 
-func (p PostsPageModel) buildPostListContent(contentWidth int) string {
+func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imagePlacement) {
 	selStyle := lipgloss.NewStyle().
 		Foreground(colorAccent).
 		Bold(true).
@@ -300,6 +312,7 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) string {
 		Render
 
 	var content strings.Builder
+	var placements []imagePlacement
 	lineNo := 0
 	for i, post := range p.PostList {
 		if i > 0 {
@@ -310,7 +323,8 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) string {
 		selected := i == p.SelectedPostIdx
 		lineWidth := p.listLineTextWidth(contentWidth, selected)
 		headerLines := p.postHeaderLines(post, lineWidth)
-		textLines := p.wrapPlainTextLines(p.postDisplayText(post), lineWidth)
+		textLines, imagePlacements := p.postListTextLines(post, lineWidth, lineNo+len(headerLines))
+		placements = append(placements, imagePlacements...)
 
 		if selected {
 			for _, line := range headerLines {
@@ -318,7 +332,7 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) string {
 				lineNo++
 			}
 			for _, line := range textLines {
-				content.WriteString(selStyle(p.linePrefix(lineNo)+line) + "\n")
+				content.WriteString(p.linePrefix(lineNo) + line + "\n")
 				lineNo++
 			}
 		} else {
@@ -332,7 +346,7 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) string {
 			}
 		}
 	}
-	return content.String()
+	return content.String(), placements
 }
 
 func (p PostsPageModel) buildCommentContent(contentWidth int) string {
@@ -634,8 +648,9 @@ func (p *PostsPageModel) postRenderedLinesAt(index int) int {
 	selected := index == p.SelectedPostIdx
 	lineWidth := p.listLineTextWidth(p.currentListContentWidth(), selected)
 	headerLines := len(p.postHeaderLines(post, lineWidth))
-	textLines := len(p.wrapPlainTextLines(p.postDisplayText(post), lineWidth))
-	return headerLines + textLines
+	textLines, _ := p.postListTextLines(post, lineWidth, 0)
+	textLineCount := len(textLines)
+	return headerLines + textLineCount
 }
 
 func (p *PostsPageModel) atLastContentLine() bool {
@@ -887,7 +902,8 @@ func (p *PostsPageModel) detailBodyLineCount() int {
 	if p.PostBodyViewport != nil && p.PostBodyViewport.Width > 0 {
 		width = p.PostBodyViewport.Width
 	}
-	return len(p.wrapPlainTextLines(p.postDisplayText(*p.CurrentPost), p.detailBodyTextWidth(width)))
+	lines, _ := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(width))
+	return len(lines)
 }
 
 func (p *PostsPageModel) commentLineCount() int {
@@ -931,6 +947,58 @@ func (p PostsPageModel) currentListContentWidth() int {
 		return p.PostViewport.Width
 	}
 	return 20
+}
+
+func (p PostsPageModel) postListTextLines(post models.Post, width, topOffset int) ([]string, []imagePlacement) {
+	text := normalizeRenderedText(post.Text)
+	lines := p.wrapPlainTextLines(text, width)
+	if strings.TrimSpace(text) == "" {
+		lines = nil
+	}
+	if !p.hasPostMedia(post) {
+		if len(lines) == 0 {
+			return []string{""}, nil
+		}
+		return lines, nil
+	}
+
+	images := resolveMediaPathsWithClient(p.ImageClient, post.MediaIds, false)
+	if !p.ImagePreview || len(images) == 0 {
+		return p.wrapPlainTextLines(p.postDisplayText(post), width), nil
+	}
+
+	layout := buildImageLayout(images, width, listImageCellSize, 2, topOffset+len(lines))
+	lines = append(lines, layout.lines...)
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	return lines, layout.placements
+}
+
+func (p PostsPageModel) postDetailLines(post models.Post, width int) ([]string, []imagePlacement) {
+	text := normalizeRenderedText(post.Text)
+	lines := p.wrapPlainTextLines(text, width)
+	if strings.TrimSpace(text) == "" {
+		lines = nil
+	}
+	if !p.hasPostMedia(post) {
+		if len(lines) == 0 {
+			return []string{""}, nil
+		}
+		return lines, nil
+	}
+
+	images := resolveMediaPathsWithClient(p.ImageClient, post.MediaIds, true)
+	if !p.ImagePreview || len(images) == 0 {
+		return p.wrapPlainTextLines(p.postDisplayText(post), width), nil
+	}
+
+	layout := buildImageLayout(images, width, detailImageCellSize, 0, len(lines))
+	lines = append(lines, layout.lines...)
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	return lines, layout.placements
 }
 
 func (p PostsPageModel) postDisplayText(post models.Post) string {

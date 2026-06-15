@@ -201,7 +201,7 @@ func TestBuildPostListContentWrapsToViewportWidth(t *testing.T) {
 	m.syncPostsPage()
 
 	contentWidth := m.Posts.currentListContentWidth()
-	content := m.Posts.buildPostListContent(contentWidth)
+	content, _ := m.Posts.buildPostListContent(contentWidth)
 	stripped := stripANSI(content)
 
 	if !strings.Contains(stripped, strings.Repeat("A", 16)) {
@@ -240,7 +240,8 @@ func TestBuildPostListContentNormalizesKeycapSequences(t *testing.T) {
 	m.syncPostsPage()
 
 	contentWidth := m.Posts.currentListContentWidth()
-	content := stripANSI(m.Posts.buildPostListContent(contentWidth))
+	contentRaw, _ := m.Posts.buildPostListContent(contentWidth)
+	content := stripANSI(contentRaw)
 
 	if strings.Contains(content, "\uFE0F") || strings.Contains(content, "\u20E3") {
 		t.Fatalf("rendered content should strip keycap combining runes, got %q", content)
@@ -263,7 +264,7 @@ func TestBuildDetailBodyContentWrapsToInnerWidth(t *testing.T) {
 	m.syncPostsPage()
 
 	contentWidth := m.Posts.PostBodyViewport.Width
-	content := m.Posts.buildDetailBodyContent(contentWidth)
+	content, _ := m.Posts.buildDetailBodyContent(contentWidth)
 	lines := strings.Split(strings.TrimRight(stripANSI(content), "\n"), "\n")
 	maxWidth := m.Posts.detailBodyTextWidth(contentWidth) + vPostTextStyle.GetHorizontalFrameSize()
 
@@ -1407,6 +1408,59 @@ func TestViewPostDetailCommentShowsImagePlaceholder(t *testing.T) {
 	output := m.View()
 	if !strings.Contains(strings.Join(visibleLines(output), "\n"), "[图片]") {
 		t.Fatalf("comment should show image placeholder, got:\n%s", output)
+	}
+}
+
+func TestBuildPostListContentUsesThumbnailBlocksWhenPreviewEnabled(t *testing.T) {
+	m := newTestModel()
+	m.Posts.ImagePreview = true
+	m.Posts.PostList = []models.Post{
+		{Pid: 1, Text: "带图帖子", Timestamp: 1000, MediaIds: "30518"},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+	m.syncPostsPage()
+
+	contentWidth := m.Posts.currentListContentWidth()
+	content, placements := m.Posts.buildPostListContent(contentWidth)
+	if strings.Contains(stripANSI(content), "[图片]") {
+		t.Fatalf("thumbnail preview should replace placeholder, got:\n%s", stripANSI(content))
+	}
+	if len(placements) != 1 {
+		t.Fatalf("placements = %d, want 1", len(placements))
+	}
+	if placements[0].cols != listImageCellSize || placements[0].rows != listImageCellSize {
+		t.Fatalf("thumbnail placement size = %dx%d, want %dx%d", placements[0].cols, placements[0].rows, listImageCellSize, listImageCellSize)
+	}
+	if got := m.Posts.postRenderedLinesAt(0); got < 6 {
+		t.Fatalf("postRenderedLinesAt(0) = %d, want image block to contribute rows", got)
+	}
+}
+
+func TestBuildDetailBodyContentPlacesMultipleImagesHorizontally(t *testing.T) {
+	m := newTestModel()
+	m.Posts.ImagePreview = true
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{
+		Pid: 42, Text: "详情图", Timestamp: 1000, MediaIds: "30518,30669",
+	}
+	m.Width = 100
+	m.Height = 30
+	m.syncPostsPage()
+
+	content, placements := m.Posts.buildDetailBodyContent(m.Posts.PostBodyViewport.Width)
+	if strings.Contains(stripANSI(content), "[图片]") {
+		t.Fatalf("detail preview should replace placeholder, got:\n%s", stripANSI(content))
+	}
+	if len(placements) != 2 {
+		t.Fatalf("placements = %d, want 2", len(placements))
+	}
+	if placements[0].top != placements[1].top {
+		t.Fatalf("placements should share the same row for horizontal layout: %+v", placements)
+	}
+	if placements[1].left <= placements[0].left {
+		t.Fatalf("second placement should be to the right of the first: %+v", placements)
 	}
 }
 
