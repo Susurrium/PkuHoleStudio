@@ -42,21 +42,30 @@ func (m Model) View() string {
 }
 
 func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
+	var body string
+	var placements []imagePlacement
+
 	switch m.Dialog {
 	case DialogHelp:
-		return m.renderHelpScreen(width, height)
+		body, placements = m.renderHelpScreen(width, height)
 	case DialogConfig:
-		return m.renderPanelScreen(width, height, m.renderConfigPanelContent)
+		body, placements = m.renderPanelScreen(width, height, m.renderConfigPanelContent)
 	case DialogLogs:
-		return m.renderPanelScreen(width, height, m.renderLogsPanelContent)
+		body, placements = m.renderPanelScreen(width, height, m.renderLogsPanelContent)
+	default:
+		base, p := m.renderMainLayout(width, height)
+		placements = p
+		if m.Dialog != DialogNone {
+			dialog := m.renderDialog()
+			base = lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+		}
+		body = lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, base)
 	}
 
-	body, placements := m.renderMainLayout(width, height)
-	if m.Dialog != DialogNone {
-		dialog := m.renderDialog()
-		body = lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+	if m.ToastMsg != "" {
+		body = m.overlayToast(width, body)
 	}
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+	return body, placements
 }
 
 func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
@@ -155,6 +164,15 @@ func (m Model) renderConfigPanelContent(panelW, panelH int) string {
 
 func (m Model) renderLogsPanelContent(panelW, panelH int) string {
 	return m.LogsDialog.View(panelW, panelH)
+}
+
+func (m Model) overlayToast(screenWidth int, body string) string {
+	toastW := max(screenWidth/4, 20)
+	toast := toastStyle.Width(toastW).Render(m.ToastMsg)
+
+	baseLayer := lipgloss2.NewLayer(body)
+	toastLayer := lipgloss2.NewLayer(toast).X(screenWidth - toastW - 2).Y(1).Z(2)
+	return lipgloss2.NewCompositor(baseLayer, toastLayer).Render()
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
@@ -358,9 +376,6 @@ func (m Model) currentPageLabel() string {
 func (m Model) currentStatusSummary() string {
 	if m.LastError != "" {
 		return "错误: " + m.LastError
-	}
-	if m.Posts.StatusText != "" {
-		return m.Posts.StatusText
 	}
 	if m.Dialog != DialogNone {
 		return m.dialogStatusSummary()

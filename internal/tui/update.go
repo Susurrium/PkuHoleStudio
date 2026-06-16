@@ -18,6 +18,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type clearToastMsg struct{}
+
+const toastDuration = 3 * time.Second
+
+func (m *Model) showToast(text string) tea.Cmd {
+	m.ToastMsg = text
+	m.ToastExpiresAt = time.Now().Add(toastDuration)
+	return tea.Tick(toastDuration, func(t time.Time) tea.Msg {
+		return clearToastMsg{}
+	})
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.ensureDialogModels()
 
@@ -27,6 +39,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Height = msg.Height
 		m.syncPostsPage()
 		return m, m.imageRefreshCmd(nil)
+
+	case clearToastMsg:
+		if !m.ToastExpiresAt.IsZero() && time.Now().After(m.ToastExpiresAt) {
+			m.ToastMsg = ""
+			m.ToastExpiresAt = time.Time{}
+		}
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -180,7 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SessionRefreshMsg:
-		m.applySessionState(msg.State)
+		sessionCmd := m.applySessionState(msg.State)
 		if msg.State.Challenge != AuthChallengeTypeNone {
 			m.AuthDialog.ApplyState(msg.State)
 			m.Dialog = DialogAuthChallenge
@@ -193,9 +212,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error == nil && msg.State.CanReadOnline {
 			m.Posts.resetList()
 			m.Posts.PostListLoading = true
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+			return m, tea.Batch(sessionCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID))
 		}
-		return m, nil
+		return m, sessionCmd
 
 	case AuthChallengeResultMsg:
 		m.AuthDialog.SetSubmitting(false)
@@ -203,16 +222,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.AuthDialog.SetError(msg.Error)
 			return m, nil
 		}
-		m.applySessionState(msg.State)
+		sessionCmd := m.applySessionState(msg.State)
 		if msg.State.CanReadOnline {
 			m.Dialog = DialogNone
 			m.Posts.resetList()
 			m.Posts.PostListLoading = true
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+			return m, tea.Batch(sessionCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID))
 		}
 		m.AuthDialog.ApplyState(msg.State)
 		m.Dialog = DialogAuthChallenge
-		return m, nil
+		return m, sessionCmd
 
 	case AuthSMSSentMsg:
 		m.AuthDialog.SetSubmitting(false)
@@ -234,7 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.LastError = ""
 			m.Dialog = DialogNone
-			m.Posts.StatusText = msg.Message
+			toastCmd := m.showToast(msg.Message)
 			if msg.Post != nil {
 				m.Posts.updatePost(msg.Post)
 				if m.Posts.CurrentPost != nil && m.Posts.CurrentPost.Pid == msg.Post.Pid {
@@ -244,14 +263,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Kind == "post" {
 				m.Posts.resetList()
 				m.Posts.PostListLoading = true
-				return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+				return m, tea.Batch(toastCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID))
 			}
 			if m.Posts.CurrentPost != nil {
 				m.Posts.CommentListLoading = true
-				return m, loadPostDetailCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc)
+				return m, tea.Batch(toastCmd, loadPostDetailCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc))
 			}
+			return m, toastCmd
 		}
-		return m, nil
 
 	case LoadTagsMsg:
 		if msg.Error != nil {
@@ -431,24 +450,21 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case "p":
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
-					m.setWriteUnavailableStatus()
-					return m, nil
+					return m, m.setWriteUnavailableStatus()
 				}
 				return m, togglePraiseCmd(m.Provider, m.Posts.CurrentPost.Pid)
 			}
 		case "f":
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
-					m.setWriteUnavailableStatus()
-					return m, nil
+					return m, m.setWriteUnavailableStatus()
 				}
 				return m, toggleAttentionCmd(m.Provider, m.Posts.CurrentPost.Pid)
 			}
 		case "c":
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
-					m.setWriteUnavailableStatus()
-					return m, nil
+					return m, m.setWriteUnavailableStatus()
 				}
 				m.Composer.Configure(ComposerModeComment)
 				m.Dialog = DialogComposer
@@ -457,13 +473,11 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case "q":
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
-					m.setWriteUnavailableStatus()
-					return m, nil
+					return m, m.setWriteUnavailableStatus()
 				}
 				quoted := m.Posts.SelectedComment()
 				if quoted == nil {
-					m.Posts.StatusText = "当前没有可引用的评论"
-					return m, nil
+					return m, m.showToast("当前没有可引用的评论")
 				}
 				m.Composer.Configure(ComposerModeComment)
 				m.Composer.SetQuoteTarget(quoted)
@@ -534,24 +548,21 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case "n":
 		if !m.Posts.CanWrite {
-			m.setWriteUnavailableStatus()
-			return m, nil
+			return m, m.setWriteUnavailableStatus()
 		}
 		m.Composer.Configure(ComposerModePost)
 		m.Dialog = DialogComposer
 		return m, nil
 	case "p":
 		if !m.Posts.CanWrite {
-			m.setWriteUnavailableStatus()
-			return m, nil
+			return m, m.setWriteUnavailableStatus()
 		}
 		if post := m.Posts.SelectedPost(); post != nil {
 			return m, togglePraiseCmd(m.Provider, post.Pid)
 		}
 	case "f":
 		if !m.Posts.CanWrite {
-			m.setWriteUnavailableStatus()
-			return m, nil
+			return m, m.setWriteUnavailableStatus()
 		}
 		if post := m.Posts.SelectedPost(); post != nil {
 			return m, toggleAttentionCmd(m.Provider, post.Pid)
@@ -665,10 +676,10 @@ func (m Model) handleSessionDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case "重新登录":
 			return m, refreshSessionCmd(m.Client, m.Config)
 		case "进入离线模式", "确定":
-			m.forceOfflineMode(m.Session.Message)
+			offlineCmd := m.forceOfflineMode(m.Session.Message)
 			m.Dialog = DialogNone
 			m.Posts.PostListLoading = true
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0)
+			return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
 		}
 	}
 	m.SessionDialog.Update(msg)
@@ -681,10 +692,10 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if reason == "" {
 			reason = m.Session.Message
 		}
-		m.forceOfflineMode(reason)
+		offlineCmd := m.forceOfflineMode(reason)
 		m.Dialog = DialogNone
 		m.Posts.PostListLoading = true
-		return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0)
+		return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
 	}
 	if msg.String() == "ctrl+r" && m.AuthDialog.Kind() == AuthChallengeTypeSMS {
 		m.AuthDialog.SetSubmitting(true)
@@ -1168,8 +1179,9 @@ func (m *Model) handleOnlineReadFailure(err error) {
 	m.Dialog = DialogSessionPrompt
 }
 
-func (m *Model) applySessionState(state SessionState) {
+func (m *Model) applySessionState(state SessionState) tea.Cmd {
 	m.Session = state
+	var cmd tea.Cmd
 	if state.CanReadOnline {
 		m.Provider = NewOnlinePostsProvider(m.Client)
 		m.Session.Mode = SessionModeOnline
@@ -1180,16 +1192,17 @@ func (m *Model) applySessionState(state SessionState) {
 		m.Posts.ActiveTagID = 0
 		m.Posts.ActiveTag = ""
 		if state.Message != "" {
-			m.Posts.StatusText = "离线模式：" + state.Message
+			cmd = m.showToast("离线模式：" + state.Message)
 		}
 		m.Home.LoggedIn = false
 	}
 	m.SessionDialog.ApplyState(state)
 	m.AuthDialog.ApplyState(state)
 	m.syncPostsPage()
+	return cmd
 }
 
-func (m *Model) forceOfflineMode(reason string) {
+func (m *Model) forceOfflineMode(reason string) tea.Cmd {
 	m.Session.Mode = SessionModeOffline
 	m.Session.CanReadOnline = false
 	m.Session.CanWriteOnline = false
@@ -1198,17 +1211,17 @@ func (m *Model) forceOfflineMode(reason string) {
 	m.Posts.ActiveTagID = 0
 	m.Posts.ActiveTag = ""
 	m.Home.LoggedIn = false
+	var cmd tea.Cmd
 	if reason != "" {
-		m.Posts.StatusText = "离线模式：" + reason
+		cmd = m.showToast("离线模式：" + reason)
 	}
 	m.syncPostsPage()
+	return cmd
 }
 
-func (m *Model) setWriteUnavailableStatus() {
+func (m *Model) setWriteUnavailableStatus() tea.Cmd {
 	if m.Session.Mode == SessionModeOnline {
-		m.Posts.StatusText = "当前在线会话不可写，请先重新登录或稍后再试"
-	} else {
-		m.Posts.StatusText = "当前为离线模式，写操作不可用"
+		return m.showToast("当前在线会话不可写，请先重新登录或稍后再试")
 	}
-	m.syncPostsPage()
+	return m.showToast("当前为离线模式，写操作不可用")
 }

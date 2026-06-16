@@ -105,6 +105,12 @@ func runTUI() error {
 		return fmt.Errorf("初始化客户端失败: %w", err)
 	}
 
+	if tuiLogPath, err := config.TUILogPath(); err == nil {
+		if tuiLogFile, err := os.OpenFile(tuiLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			client.SetLogger(tuiLogFile)
+		}
+	}
+
 	model := tui.NewModel(database, client, cfg, session)
 	model.Images = tui.NewKittyImageRenderer()
 	opts := []tea.ProgramOption{tea.WithAltScreen()}

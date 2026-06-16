@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -549,6 +550,10 @@ func (c *Client) GetCommentsByPid(pid, page, limit, sort, commentStream int) (*h
 
 func (c *Client) GetHttpClient() *http.Client {
 	return c.httpClient
+}
+
+func (c *Client) SetLogger(w io.Writer) {
+	c.httpClient.Transport = NewLoggingRoundTripper(c.httpClient.Transport, w)
 }
 
 func (c *Client) GetAuthorization() string {
