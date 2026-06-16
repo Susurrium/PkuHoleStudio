@@ -16,19 +16,17 @@ func TestConfigDialogUpdateSwitchesSections(t *testing.T) {
 		t.Fatalf("initial section = %v, want auth", dialog.ActiveSection())
 	}
 
-	dialog.setFocus(dialog.saveIndex())
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRight})
+	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	if dialog.ActiveSection() != ConfigSectionDatabase {
-		t.Fatalf("section after right = %v, want database", dialog.ActiveSection())
+		t.Fatalf("section after 'd' = %v, want database", dialog.ActiveSection())
 	}
 	if dialog.FocusIndex() != 0 {
 		t.Fatalf("focus after section switch = %d, want 0", dialog.FocusIndex())
 	}
 
-	dialog.setFocus(dialog.saveIndex())
-	dialog.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 	if dialog.ActiveSection() != ConfigSectionAuth {
-		t.Fatalf("section after left = %v, want auth", dialog.ActiveSection())
+		t.Fatalf("section after 'p' = %v, want auth", dialog.ActiveSection())
 	}
 }
 
@@ -92,8 +90,7 @@ func TestConfigDialogViewWrapsLongValuesInsideFieldBoxes(t *testing.T) {
 		"│用户名: 2400011506",
 		"│密码: **************************",
 		"│SecretKey: ****************",
-		"│DeviceUUID: UID_1903fec8-eb6a-41a3-8a0a-",
-		"│            75cf31d48b8e",
+		"│DeviceUUID: UID_1903fec8-eb6a-41a3-8a0a-75cf31d48b8e",
 	}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
@@ -115,14 +112,11 @@ func TestConfigDialogViewWrapsLongDatabaseValues(t *testing.T) {
 	dialog.setFocus(8)
 
 	output := stripANSI(dialog.View(80, 40))
-	if !strings.Contains(output, "│DSN: postgres://treehole:password@10.129") {
+	if !strings.Contains(output, "DSN: postgres://treehole:password@10.129.246.201:5432/treehole_db?sslm") {
 		t.Fatalf("database DSN first wrapped line missing, got:\n%s", output)
 	}
-	if !strings.Contains(output, "│     .246.201:5432/treehole_db?sslmode=d") {
+	if !strings.Contains(output, "ode=disable&application_name=treehole-tui") {
 		t.Fatalf("database DSN continuation line missing, got:\n%s", output)
-	}
-	if !strings.Contains(output, "│     isable&application_name=treehole-tu") || !strings.Contains(output, "│     i") {
-		t.Fatalf("database DSN final continuation line missing, got:\n%s", output)
 	}
 }
 

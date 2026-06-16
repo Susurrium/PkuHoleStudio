@@ -774,21 +774,21 @@ func (p PostsPageModel) detailHeaderPlain() string {
 		return ""
 	}
 	ts := time.Unix(int64(p.CurrentPost.Timestamp), 0).In(shanghaiLocation).Format("2006-01-02 15:04")
-	praiseState := "未点赞"
+	praiseState := "♡"
 	if p.CurrentPost.IsPraise {
-		praiseState = "已点赞"
+		praiseState = "♥"
 	}
-	followState := "未关注"
+	followState := "☆"
 	if p.CurrentPost.IsFollow {
-		followState = "已关注"
+		followState = "★"
 	}
-	return fmt.Sprintf("#%d  %s  回复: %d  赞: %d(%s)  关注: %d(%s)", p.CurrentPost.Pid, ts, p.CurrentPost.Reply, p.CurrentPost.PraiseNum, praiseState, p.CurrentPost.Likenum, followState)
+	return fmt.Sprintf("#%d  %s  ❝ %d  (%s) %d  (%s) %d", p.CurrentPost.Pid, ts, p.CurrentPost.Reply, praiseState, p.CurrentPost.PraiseNum, followState, p.CurrentPost.Likenum)
 }
 
 func (p PostsPageModel) detailCommentsTitle() string {
-	sortLabel := "正序"
+	sortLabel := "▲"
 	if !p.CommentSortAsc {
-		sortLabel = "逆序"
+		sortLabel = "▼"
 	}
 	title := fmt.Sprintf("评论 %d  %s", len(p.CommentList), sortLabel)
 	if p.CommentListLoading {
@@ -805,11 +805,11 @@ func (p PostsPageModel) renderDetailHeader(width int) string {
 	styled := strings.Join([]string{
 		vPostPidStyle.Render(fmt.Sprintf("#%d", p.CurrentPost.Pid)),
 		vPostTimeStyle.Render(ts),
-		vPostReplyStyle.Render(fmt.Sprintf("回复: %d", p.CurrentPost.Reply)),
-		vPostLikeStyle.Render(fmt.Sprintf("赞: %d", p.CurrentPost.PraiseNum)),
+		vPostReplyStyle.Render(fmt.Sprintf("❝ %d", p.CurrentPost.Reply)),
 		vPostLikeStyle.Render(p.postPraiseState()),
-		vPostLikeStyle.Render(fmt.Sprintf("关注: %d", p.CurrentPost.Likenum)),
+		vPostLikeStyle.Render(fmt.Sprintf("%d", p.CurrentPost.PraiseNum)),
 		vPostLikeStyle.Render(p.postFollowState()),
+		vPostLikeStyle.Render(fmt.Sprintf("%d", p.CurrentPost.Likenum)),
 	}, "  ")
 	if lipgloss.Width(styled) <= width {
 		return styled
@@ -827,16 +827,16 @@ func (p PostsPageModel) renderDetailCommentsTitle(width int, style lipgloss.Styl
 
 func (p PostsPageModel) postPraiseState() string {
 	if p.CurrentPost != nil && p.CurrentPost.IsPraise {
-		return "已点赞"
+		return "♥"
 	}
-	return "未点赞"
+	return "♡"
 }
 
 func (p PostsPageModel) postFollowState() string {
 	if p.CurrentPost != nil && p.CurrentPost.IsFollow {
-		return "已关注"
+		return "★"
 	}
-	return "未关注"
+	return "☆"
 }
 
 func clampInt(value, minValue, maxValue int) int {
@@ -1035,9 +1035,9 @@ func (p PostsPageModel) commentQuoteTextWidth(contentWidth int) int {
 
 func (p PostsPageModel) postHeader(post models.Post) string {
 	ts := time.Unix(int64(post.Timestamp), 0).In(shanghaiLocation).Format("2006-01-02 15:04")
-	replyStr := vPostReplyStyle.Render(fmt.Sprintf("回复:%d", post.Reply))
-	praiseStr := vPostLikeStyle.Render(fmt.Sprintf("赞:%d", post.PraiseNum))
-	followStr := vPostLikeStyle.Render(fmt.Sprintf("关:%d", post.Likenum))
+	replyStr := vPostReplyStyle.Render(fmt.Sprintf("❝ %d", post.Reply))
+	praiseStr := vPostLikeStyle.Render(fmt.Sprintf("♥ %d", post.PraiseNum))
+	followStr := vPostLikeStyle.Render(fmt.Sprintf("★ %d", post.Likenum))
 	meta := replyStr + " " + praiseStr + " " + followStr
 	pidStr := vPostPidStyle.Render(fmt.Sprintf("#%-6d", post.Pid))
 	tsStr := vPostTimeStyle.Render(ts)
@@ -1049,9 +1049,9 @@ func (p PostsPageModel) postHeader(post models.Post) string {
 
 func (p PostsPageModel) postHeaderPlain(post models.Post) string {
 	ts := time.Unix(int64(post.Timestamp), 0).In(shanghaiLocation).Format("2006-01-02 15:04")
-	header := fmt.Sprintf("#%-6d %s  回复:%d 赞:%d 关:%d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
+	header := fmt.Sprintf("#%-6d %s  ❝ %d ♥ %d ★ %d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
 	if !post.Anonymous {
-		header = fmt.Sprintf("#%-6d [实名] %s  回复:%d 赞:%d 关:%d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
+		header = fmt.Sprintf("#%-6d [实名] %s  ❝ %d ♥ %d ★ %d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
 	}
 	return header
 }

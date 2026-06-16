@@ -1122,13 +1122,13 @@ func TestViewPostsContainsPostText(t *testing.T) {
 	if !containsStr(output, "#1") {
 		t.Error("View() should contain post pid '#1'")
 	}
-	if !containsStr(output, "回复:5") {
+	if !containsStr(output, "❝ 5") {
 		t.Error("View() should contain reply count")
 	}
-	if !containsStr(output, "赞:10") {
+	if !containsStr(output, "♥ 10") {
 		t.Error("View() should contain like count")
 	}
-	if !containsStr(output, "关:3") {
+	if !containsStr(output, "★ 3") {
 		t.Error("View() should contain follow count")
 	}
 }
@@ -1145,10 +1145,10 @@ func TestViewPostsSeparatesPraiseAndFollowCounts(t *testing.T) {
 
 	output := m.View()
 
-	if !containsStr(output, "赞:0") {
+	if !containsStr(output, "♥ 0") {
 		t.Fatalf("View() should keep praise count separate from follow count, got %q", output)
 	}
-	if !containsStr(output, "关:9") {
+	if !containsStr(output, "★ 9") {
 		t.Fatalf("View() should show follow count separately, got %q", output)
 	}
 }
@@ -1236,7 +1236,7 @@ func TestViewPostDetail(t *testing.T) {
 	if !containsStr(output, "quoted_user: quoted text") {
 		t.Error("View() should show quoted comment preview")
 	}
-	if !containsStr(output, "正序") {
+	if !containsStr(output, "▲") {
 		t.Error("View() should show comment sort status")
 	}
 	if !containsStr(output, "评论") {

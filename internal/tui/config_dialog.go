@@ -278,13 +278,12 @@ func (m *ConfigDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
 			m.setFocus(m.saveIndex())
 		}
 		return nil
-	case tea.KeyLeft:
-		if m.IsSaveFocused() {
+	case tea.KeyRunes:
+		switch msg.String() {
+		case "p":
 			m.switchSection(ConfigSectionAuth)
 			return nil
-		}
-	case tea.KeyRight:
-		if m.IsSaveFocused() {
+		case "d":
 			m.switchSection(ConfigSectionDatabase)
 			return nil
 		}
@@ -306,33 +305,31 @@ func (m ConfigDialogModel) sectionTitle() string {
 	return "auth"
 }
 
-func (m ConfigDialogModel) renderSidebar() string {
-	items := []struct {
+func (m ConfigDialogModel) renderSectionTabs() string {
+	tabs := []struct {
 		label  string
 		active bool
 	}{
-		{"账号/认证\n", m.section == ConfigSectionAuth},
-		{"数据库\n", m.section == ConfigSectionDatabase},
+		{"账号/认证 (P)", m.section == ConfigSectionAuth},
+		{"数据库 (D)", m.section == ConfigSectionDatabase},
 	}
-	var lines []string
-	for _, item := range items {
-		prefix := "  "
-		style := vStatLabelStyle
-		if item.active {
-			prefix = "→ "
-			style = vStatValueStyle
+	var parts []string
+	for _, tab := range tabs {
+		if tab.active {
+			parts = append(parts, vStatValueStyle.Render(tab.label))
+		} else {
+			parts = append(parts, vStatLabelStyle.Render(tab.label))
 		}
-		lines = append(lines, style.Render(prefix+item.label))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(parts, "  ")
 }
 
 func (m ConfigDialogModel) dialogContentWidth(totalWidth int) int {
-	return minInt(70, maxInt(40, totalWidth-8))
+	return maxInt(40, totalWidth-panelContentStyle.GetHorizontalFrameSize())
 }
 
 func (m ConfigDialogModel) fieldBoxContentWidth(dialogWidth int) int {
-	return minInt(40, maxInt(24, dialogWidth-30))
+	return maxInt(24, dialogWidth-4)
 }
 
 func (m ConfigDialogModel) fieldValueDisplay(input textinput.Model, def configFieldDef, focused bool) string {
@@ -423,7 +420,7 @@ func (m *ConfigDialogModel) View(width, height int) string {
 
 	b.WriteString(vDialogTitleStyle.Render("配置管理"))
 	b.WriteString("\n\n")
-	b.WriteString(vSubtitleStyle.Render("data/config.json / " + m.sectionTitle()))
+	b.WriteString(m.renderSectionTabs())
 	b.WriteString("\n\n")
 
 	fieldDefs := m.currentFieldDefs()
@@ -455,7 +452,7 @@ func (m *ConfigDialogModel) View(width, height int) string {
 	form.WriteString(saveLine)
 
 	formWidth := boxContentWidth + 2
-	helpText := vDialogHelpStyle.Render("按钮上 ← →: 切换页面 | Esc: 关闭")
+	helpText := vDialogHelpStyle.Render("p: 账号 | d: 数据库 | Esc: 关闭")
 	headerHeight := lipgloss.Height(b.String())
 	statusHeight := 0
 	if m.saving {
@@ -468,15 +465,10 @@ func (m *ConfigDialogModel) View(width, height int) string {
 		statusHeight += lipgloss.Height(vErrorStyle.Render("错误: " + m.lastErr))
 	}
 	footerHeight := lipgloss.Height(helpText) + 2
-	bodyHeight := maxInt(3, height-dialogCard.GetVerticalFrameSize()-headerHeight-statusHeight-footerHeight)
+	bodyHeight := maxInt(3, height-panelContentStyle.GetVerticalFrameSize()-headerHeight-statusHeight-footerHeight)
 	m.syncFormViewport(formWidth, bodyHeight, form.String(), focusRanges)
 
-	body := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		lipgloss.NewStyle().Width(12).Render(m.renderSidebar()),
-		"   ",
-		m.formViewport.View(),
-	)
+	body := m.formViewport.View()
 	b.WriteString(body)
 
 	if m.saving {
