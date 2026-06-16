@@ -1575,8 +1575,8 @@ func TestHandleAuthChallengeEscFallsBackOffline(t *testing.T) {
 	if result.Session.Mode != SessionModeOffline {
 		t.Fatalf("session mode = %v, want offline", result.Session.Mode)
 	}
-	if result.Posts.StatusText == "" {
-		t.Fatal("expected offline status text after auth challenge escape")
+	if result.ToastMsg == "" {
+		t.Fatal("expected offline toast after auth challenge escape")
 	}
 }
 

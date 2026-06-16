@@ -223,6 +223,9 @@ type Model struct {
 	LastError string
 	Capture   *CaptureSink
 	Images    *KittyImageRenderer
+
+	ToastMsg       string
+	ToastExpiresAt time.Time
 }
 
 func NewModel(database *db.Database, client *client.Client, cfg *config.Config, session SessionState) Model {

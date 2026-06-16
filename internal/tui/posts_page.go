@@ -159,9 +159,6 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		b.WriteString("\n")
 	}
 
-	if p.StatusText != "" {
-		b.WriteString(vStatLabelStyle.Render(p.StatusText))
-	}
 	searchStyle := vSearchInput.Width(width)
 	searchFocusedStyle := vSearchInputFocused.Width(width)
 	if p.Searching {
@@ -694,9 +691,6 @@ func (p *PostsPageModel) resetComments() {
 
 func (p *PostsPageModel) calcPostViewportHeight(height int) int {
 	titleLines := 2
-	if p.StatusText != "" {
-		titleLines++
-	}
 	searchLines := lipgloss.Height(vSearchInput.Render("x")) + 1
 	avail := height - titleLines - searchLines
 	if avail < 3 {

@@ -155,6 +155,8 @@ var (
 	helpCard lipgloss.Style
 
 	panelContentStyle lipgloss.Style
+
+	toastStyle lipgloss.Style
 )
 
 func init() {
@@ -465,6 +467,11 @@ func applyTheme(mode string) {
 	panelContentStyle = lipgloss.NewStyle().
 		Background(colorBg).
 		Padding(1, 3)
+
+	toastStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(0, 1)
 }
 
 func resolveThemeMode(mode string) string {
