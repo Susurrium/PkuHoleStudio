@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type LogsDialogModel struct {
@@ -83,8 +84,10 @@ func (m *LogsDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m LogsDialogModel) View(width int) string {
+func (m LogsDialogModel) View(width, height int) string {
 	var b strings.Builder
+
+	innerWidth := maxInt(20, width-panelContentStyle.GetHorizontalFrameSize())
 
 	b.WriteString(vDialogTitleStyle.Render("运行日志"))
 	b.WriteString("\n\n")
@@ -94,19 +97,16 @@ func (m LogsDialogModel) View(width int) string {
 	} else if len(m.lines) == 0 {
 		b.WriteString(vEmptyStyle.Render("暂无日志"))
 	} else {
-		end := m.offset + 15
+		visibleLines := maxInt(5, height-panelContentStyle.GetVerticalFrameSize()-8)
+		end := m.offset + visibleLines
 		if end > len(m.lines) {
 			end = len(m.lines)
 		}
 
-		lineWidth := width - 20
-		if lineWidth < 20 {
-			lineWidth = 20
-		}
 		for i := m.offset; i < end; i++ {
 			line := m.lines[i]
-			if len(line) > lineWidth {
-				line = line[:lineWidth]
+			if lipgloss.Width(line) > innerWidth {
+				line = clipToVisibleWidth(line, innerWidth)
 			}
 			b.WriteString(vLogLineStyle.Render(line))
 			b.WriteString("\n")
@@ -116,7 +116,7 @@ func (m LogsDialogModel) View(width int) string {
 		totalLines := len(m.lines)
 		b.WriteString(vPaginationStyle.Render(
 			fmt.Sprintf("日志: %d 行 | 当前: %d-%d | ↑↓/PgUp/PgDn滚动 | r: 刷新",
-				totalLines, m.offset+1, minInt(m.offset+15, totalLines)),
+				totalLines, m.offset+1, minInt(end, totalLines)),
 		))
 	}
 

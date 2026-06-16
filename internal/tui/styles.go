@@ -153,6 +153,8 @@ var (
 	dialogCard lipgloss.Style
 
 	helpCard lipgloss.Style
+
+	panelContentStyle lipgloss.Style
 )
 
 func init() {
@@ -459,6 +461,10 @@ func applyTheme(mode string) {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 1)
+
+	panelContentStyle = lipgloss.NewStyle().
+		Background(colorBg).
+		Padding(1, 3)
 }
 
 func resolveThemeMode(mode string) string {

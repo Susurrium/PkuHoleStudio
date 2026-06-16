@@ -42,8 +42,13 @@ func (m Model) View() string {
 }
 
 func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
-	if m.Dialog == DialogHelp {
+	switch m.Dialog {
+	case DialogHelp:
 		return m.renderHelpScreen(width, height)
+	case DialogConfig:
+		return m.renderPanelScreen(width, height, m.renderConfigPanelContent)
+	case DialogLogs:
+		return m.renderPanelScreen(width, height, m.renderLogsPanelContent)
 	}
 
 	body, placements := m.renderMainLayout(width, height)
@@ -111,6 +116,45 @@ func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
 	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
 	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+}
+
+func (m Model) renderPanelScreen(width, height int, renderContent func(panelW, panelH int) string) (string, []imagePlacement) {
+	mainModel := m
+	mainModel.Dialog = DialogNone
+	main, placements := mainModel.renderMainLayout(width, height)
+
+	panelW := width * 4 / 5
+	panelH := height * 4 / 5
+	if panelW < 40 {
+		panelW = 40
+	}
+	if panelH < 22 {
+		panelH = 22
+	}
+	if panelW > width {
+		panelW = width
+	}
+	if panelH > height {
+		panelH = height
+	}
+
+	panelX := (width - panelW) / 2
+	panelY := (height - panelH) / 2
+
+	panel := panelContentStyle.Width(panelW).MaxHeight(panelH).Render(renderContent(panelW, panelH))
+
+	baseLayer := lipgloss2.NewLayer(main)
+	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+}
+
+func (m Model) renderConfigPanelContent(panelW, panelH int) string {
+	return m.ConfigDialog.View(panelW, panelH)
+}
+
+func (m Model) renderLogsPanelContent(panelW, panelH int) string {
+	return m.LogsDialog.View(panelW, panelH)
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
@@ -435,10 +479,6 @@ func (m Model) renderContent(contentHeight int) (string, []imagePlacement) {
 
 func (m Model) renderDialog() string {
 	switch m.Dialog {
-	case DialogConfig:
-		return m.renderConfigDialog()
-	case DialogLogs:
-		return m.renderLogsDialog()
 	case DialogHelp:
 		return m.renderHelpDialog()
 	case DialogSessionPrompt:
@@ -460,14 +500,6 @@ func (m Model) renderHome(contentHeight int) string {
 
 func (m Model) renderPosts(contentHeight int) (string, []imagePlacement) {
 	return m.Posts.View(m.Width, contentHeight)
-}
-
-func (m Model) renderConfigDialog() string {
-	return m.renderDialogCard(m.ConfigDialog.View(m.Width, m.Height))
-}
-
-func (m Model) renderLogsDialog() string {
-	return m.renderDialogCard(m.LogsDialog.View(m.Width))
 }
 
 func (m Model) renderHelpDialog() string {

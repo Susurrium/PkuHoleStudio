@@ -1363,7 +1363,7 @@ func TestViewPostDetailStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "正序", "评论 2"}
+	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "▲", "评论 2"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
@@ -1396,7 +1396,7 @@ func TestViewPostDetailOmitsBodyHeading(t *testing.T) {
 		}
 	}
 	allText := strings.Join(lines, " ")
-	if !strings.Contains(allText, "评论 1  正序") {
+	if !strings.Contains(allText, "评论 1  ▲") {
 		t.Fatalf("detail view missing comments heading: %q", allText)
 	}
 }
@@ -1420,7 +1420,7 @@ func TestViewPostDetailCommentFormatMatchesTarget(t *testing.T) {
 	allText := strings.Join(lines, "\n")
 
 	for _, want := range []string{
-		"评论 2  正序",
+		"评论 2  ▲",
 		"1970-01-01 08:20",
 		"Bob: 什么专业",
 		"1970-01-01 08:21",
@@ -1572,7 +1572,7 @@ func TestViewConfigDialogStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"配置管理", "data/config.json", "用户名", "密码", "SecretKey"}
+	expectedContent := []string{"配置管理", "账号/认证", "用户名", "密码", "SecretKey"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
