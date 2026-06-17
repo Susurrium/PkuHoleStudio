@@ -407,8 +407,8 @@ func TestHandlePostsKeyQuoteOpensComposerWithSelectedComment(t *testing.T) {
 	if quote == nil || quote.Cid != 2 {
 		t.Fatalf("quote target = %+v, want selected comment #2", quote)
 	}
-	if !strings.Contains(result.Composer.View(80), "引用 #2 user2: Second line") {
-		t.Fatalf("composer view missing quote preview: %q", result.Composer.View(80))
+	if !strings.Contains(result.Composer.View(80, 24), "引用 #2 user2: Second line") {
+		t.Fatalf("composer view missing quote preview: %q", result.Composer.View(80, 24))
 	}
 }
 
