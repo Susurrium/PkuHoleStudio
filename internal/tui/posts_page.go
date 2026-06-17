@@ -79,6 +79,7 @@ func newSearchInput() textinput.Model {
 	input.Prompt = ""
 	input.Placeholder = "按 / 搜索 内容 或 #pid 或 :follow"
 	input.Width = 32
+	styleTextInput(&input, colorSurface, colorText, colorMuted)
 	return input
 }
 
@@ -165,8 +166,16 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		if searchInput.Value() != p.SearchInput {
 			searchInput.SetValue(p.SearchInput)
 		}
-		searchInput.Width = maxInt(1, width-searchFocusedStyle.GetHorizontalFrameSize())
-		b.WriteString(searchFocusedStyle.Render(searchInput.View()))
+		searchInput.Width = maxInt(1, width-searchFocusedStyle.GetHorizontalFrameSize()-1)
+		inputView := searchInput.View()
+		if searchInput.Value() == "" {
+			inputView = fillRenderedBackground(
+				inputView,
+				searchInput.Width,
+				lipgloss.NewStyle().Background(colorSurface).Foreground(colorText),
+			)
+		}
+		b.WriteString(searchFocusedStyle.Render(inputView))
 	} else {
 		b.WriteString(searchStyle.Render("按 / 搜索"))
 	}

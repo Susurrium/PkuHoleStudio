@@ -52,6 +52,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderPanelScreen(width, height, m.renderConfigPanelContent)
 	case DialogLogs:
 		body, placements = m.renderPanelScreen(width, height, m.renderLogsPanelContent)
+	case DialogComposer:
+		body, placements = m.renderPanelScreen(width, height, m.renderComposerPanelContent)
 	case DialogImage:
 		body, placements = m.renderImagePanelScreen(width, height)
 	default:
@@ -166,6 +168,10 @@ func (m Model) renderConfigPanelContent(panelW, panelH int) string {
 
 func (m Model) renderLogsPanelContent(panelW, panelH int) string {
 	return m.LogsDialog.View(panelW, panelH)
+}
+
+func (m Model) renderComposerPanelContent(panelW, panelH int) string {
+	return m.Composer.View(panelW, panelH)
 }
 
 func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlacement) {
@@ -542,8 +548,6 @@ func (m Model) renderDialog() string {
 		return m.renderDialogCard(m.SessionDialog.View(m.Width))
 	case DialogAuthChallenge:
 		return m.renderDialogCard(m.AuthDialog.View(m.Width))
-	case DialogComposer:
-		return m.renderDialogCard(m.Composer.View(m.Width))
 	case DialogTags:
 		return m.renderDialogCard(m.TagsDialog.View(m.Width))
 	default:
