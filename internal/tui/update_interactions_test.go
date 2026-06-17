@@ -17,6 +17,9 @@ type stubPostsProvider struct {
 	createCommentPID     int32
 	createCommentText    string
 	createCommentQuoteID *int32
+	createCommentImages  []string
+	createPostText       string
+	createPostImages     []string
 	refreshCalls         int
 	canWrite             bool
 	mode                 SessionMode
@@ -58,16 +61,21 @@ func (s *stubPostsProvider) ToggleAttention(pid int32) error {
 	return nil
 }
 
-func (s *stubPostsProvider) CreateComment(pid int32, text string, quoteID *int32) error {
+func (s *stubPostsProvider) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
 	s.createCommentPID = pid
 	s.createCommentText = text
 	s.createCommentQuoteID = quoteID
+	s.createCommentImages = append([]string(nil), imagePaths...)
 	return nil
 }
 
-func (s *stubPostsProvider) CreatePost(text string) error { return nil }
-func (s *stubPostsProvider) CanWrite() bool               { return s.canWrite }
-func (s *stubPostsProvider) Mode() SessionMode            { return s.mode }
+func (s *stubPostsProvider) CreatePost(text string, imagePaths []string) error {
+	s.createPostText = text
+	s.createPostImages = append([]string(nil), imagePaths...)
+	return nil
+}
+func (s *stubPostsProvider) CanWrite() bool    { return s.canWrite }
+func (s *stubPostsProvider) Mode() SessionMode { return s.mode }
 
 func TestBuildCommentContentMarksSelectedComment(t *testing.T) {
 	page := NewPostsPageModel()
@@ -575,7 +583,7 @@ func TestCreateCommentCmdPassesQuoteID(t *testing.T) {
 	provider := &stubPostsProvider{}
 	quote := &models.Comment{Cid: 456}
 
-	msg := createCommentCmd(provider, 99, "hello", quote)()
+	msg := createCommentCmd(provider, 99, "hello", quote, []string{"/tmp/a.jpg", "/tmp/b.png"})()
 	result, ok := msg.(ActionResultMsg)
 	if !ok {
 		t.Fatalf("message type = %T, want ActionResultMsg", msg)
@@ -586,7 +594,40 @@ func TestCreateCommentCmdPassesQuoteID(t *testing.T) {
 	if provider.createCommentQuoteID == nil || *provider.createCommentQuoteID != 456 {
 		t.Fatalf("quote id = %+v, want 456", provider.createCommentQuoteID)
 	}
+	if got := strings.Join(provider.createCommentImages, ","); got != "/tmp/a.jpg,/tmp/b.png" {
+		t.Fatalf("comment images = %q, want paths", got)
+	}
 	if result.Error != nil || result.Kind != "comment" {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestComposerSubmitPassesImagePathsToPost(t *testing.T) {
+	provider := &stubPostsProvider{}
+	m := newTestModel()
+	m.Provider = provider
+	m.Dialog = DialogComposer
+	m.Composer.Configure(ComposerModePost)
+	m.Composer.input.SetValue("hello")
+	m.Composer.imageInput.SetValue("/tmp/a.jpg\n/tmp/b.png")
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlS}
+	_, cmd := m.handleComposerKey(msg)
+	if cmd == nil {
+		t.Fatal("ctrl+s should submit composer")
+	}
+	result := cmd()
+	action, ok := result.(ActionResultMsg)
+	if !ok {
+		t.Fatalf("message type = %T, want ActionResultMsg", result)
+	}
+	if action.Error != nil {
+		t.Fatalf("unexpected action error: %v", action.Error)
+	}
+	if provider.createPostText != "hello" {
+		t.Fatalf("post text = %q, want hello", provider.createPostText)
+	}
+	if got := strings.Join(provider.createPostImages, ","); got != "/tmp/a.jpg,/tmp/b.png" {
+		t.Fatalf("post images = %q, want paths", got)
 	}
 }

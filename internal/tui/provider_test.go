@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"treehole/internal/models"
@@ -112,6 +114,26 @@ func TestEnrichMentionedPostsSkipsMissingMentionedPost(t *testing.T) {
 	}
 	if posts[1].MentionedPost != nil {
 		t.Fatalf("pid mismatch should not be attached: %+v", posts[1].MentionedPost)
+	}
+}
+
+func TestNormalizeUploadImagePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image with space.jpg")
+	if err := os.WriteFile(path, []byte("image"), 0644); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+
+	got, err := normalizeUploadImagePath(`"` + path + `"`)
+	if err != nil {
+		t.Fatalf("normalize quoted path: %v", err)
+	}
+	if got != path {
+		t.Fatalf("path = %q, want %q", got, path)
+	}
+
+	if _, err := normalizeUploadImagePath(dir); err == nil {
+		t.Fatal("directory path should fail")
 	}
 }
 
