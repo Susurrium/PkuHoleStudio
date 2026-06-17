@@ -302,6 +302,7 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imageP
 		lineWidth := p.listLineTextWidth(contentWidth, selected)
 		headerLines := p.postHeaderLines(post, lineWidth)
 		textLines := p.postListTextLines(post, lineWidth)
+		mentionLine := p.postMentionLine(post, lineWidth)
 
 		if selected {
 			for _, line := range headerLines {
@@ -312,6 +313,10 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imageP
 				content.WriteString(p.linePrefix(lineNo) + line + "\n")
 				lineNo++
 			}
+			if mentionLine != "" {
+				content.WriteString(p.linePrefix(lineNo) + mentionLine + "\n")
+				lineNo++
+			}
 		} else {
 			for _, line := range headerLines {
 				content.WriteString(p.linePrefix(lineNo) + line + "\n")
@@ -319,6 +324,10 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imageP
 			}
 			for _, line := range textLines {
 				content.WriteString(p.linePrefix(lineNo) + line + "\n")
+				lineNo++
+			}
+			if mentionLine != "" {
+				content.WriteString(p.linePrefix(lineNo) + mentionLine + "\n")
 				lineNo++
 			}
 		}
@@ -425,8 +434,15 @@ func (p PostsPageModel) commentQuotePreview(c models.Comment, width int) string 
 	if quoteName == "" {
 		quoteName = "匿名"
 	}
-	preview := fmt.Sprintf("%s: %s", quoteName, strings.ReplaceAll(normalizeRenderedText(c.Quote.Text), "\n", " "))
+	preview := fmt.Sprintf("%s: %s", quoteName, oneLinePreviewText(c.Quote.Text))
 	return truncateVisibleLine(preview, width, "...")
+}
+
+func oneLinePreviewText(text string) string {
+	normalized := normalizeRenderedText(text)
+	normalized = strings.ReplaceAll(normalized, "\r\n", " ")
+	normalized = strings.ReplaceAll(normalized, "\r", " ")
+	return strings.ReplaceAll(normalized, "\n", " ")
 }
 
 func (p *PostsPageModel) scrollToSelectedPost() {
@@ -627,7 +643,11 @@ func (p *PostsPageModel) postRenderedLinesAt(index int) int {
 	headerLines := len(p.postHeaderLines(post, lineWidth))
 	textLines := p.postListTextLines(post, lineWidth)
 	textLineCount := len(textLines)
-	return headerLines + textLineCount
+	mentionLineCount := 0
+	if p.postMentionLine(post, lineWidth) != "" {
+		mentionLineCount = 1
+	}
+	return headerLines + textLineCount + mentionLineCount
 }
 
 func (p *PostsPageModel) atLastContentLine() bool {
@@ -923,6 +943,23 @@ func (p PostsPageModel) postListTextLines(post models.Post, width int) []string 
 	return p.wrapPlainTextLines(p.postDisplayText(post), width)
 }
 
+func (p PostsPageModel) postMentionLine(post models.Post, width int) string {
+	pid := mentionedPostID(post)
+	if pid <= 0 || post.MentionedPost == nil {
+		return ""
+	}
+	previewWidth := width - vCommentQuoteStyle.GetHorizontalFrameSize()
+	if previewWidth < 1 {
+		previewWidth = 1
+	}
+	text := oneLinePreviewText(p.postDisplayText(*post.MentionedPost))
+	if strings.TrimSpace(text) == "" {
+		text = "空内容"
+	}
+	preview := fmt.Sprintf("#%d: %s", pid, text)
+	return vCommentQuoteStyle.Render(truncateVisibleLine(preview, previewWidth, "..."))
+}
+
 func (p PostsPageModel) postDetailLines(post models.Post, width int) []string {
 	text := normalizeRenderedText(post.Text)
 	lines := p.wrapPlainTextLines(text, width)
@@ -1014,8 +1051,16 @@ func (p PostsPageModel) commentQuoteTextWidth(contentWidth int) int {
 func (p PostsPageModel) postHeader(post models.Post) string {
 	ts := time.Unix(int64(post.Timestamp), 0).In(shanghaiLocation).Format("2006-01-02 15:04")
 	replyStr := vPostReplyStyle.Render(fmt.Sprintf("❝ %d", post.Reply))
-	praiseStr := vPostLikeStyle.Render(fmt.Sprintf("♥ %d", post.PraiseNum))
-	followStr := vPostLikeStyle.Render(fmt.Sprintf("★ %d", post.Likenum))
+	praiseState := "♡"
+	if post.IsPraise {
+		praiseState = "♥"
+	}
+	followState := "☆"
+	if post.IsFollow {
+		followState = "★"
+	}
+	praiseStr := vPostLikeStyle.Render(fmt.Sprintf("%s %d", praiseState, post.PraiseNum))
+	followStr := vPostLikeStyle.Render(fmt.Sprintf("%s %d", followState, post.Likenum))
 	meta := replyStr + " " + praiseStr + " " + followStr
 	pidStr := vPostPidStyle.Render(fmt.Sprintf("#%-6d", post.Pid))
 	tsStr := vPostTimeStyle.Render(ts)
@@ -1027,9 +1072,17 @@ func (p PostsPageModel) postHeader(post models.Post) string {
 
 func (p PostsPageModel) postHeaderPlain(post models.Post) string {
 	ts := time.Unix(int64(post.Timestamp), 0).In(shanghaiLocation).Format("2006-01-02 15:04")
-	header := fmt.Sprintf("#%-6d %s  ❝ %d ♥ %d ★ %d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
+	praiseState := "♡"
+	if post.IsPraise {
+		praiseState = "♥"
+	}
+	followState := "☆"
+	if post.IsFollow {
+		followState = "★"
+	}
+	header := fmt.Sprintf("#%-6d %s  ❝ %d %s %d %s %d", post.Pid, ts, post.Reply, praiseState, post.PraiseNum, followState, post.Likenum)
 	if !post.Anonymous {
-		header = fmt.Sprintf("#%-6d [实名] %s  ❝ %d ♥ %d ★ %d", post.Pid, ts, post.Reply, post.PraiseNum, post.Likenum)
+		header = fmt.Sprintf("#%-6d [实名] %s  ❝ %d %s %d %s %d", post.Pid, ts, post.Reply, praiseState, post.PraiseNum, followState, post.Likenum)
 	}
 	return header
 }
@@ -1362,8 +1415,57 @@ func (p *PostsPageModel) SelectedPost() *models.Post {
 	if p.SelectedPostIdx < 0 || p.SelectedPostIdx >= len(p.PostList) {
 		return nil
 	}
+	if mentioned := p.selectedMentionedPost(); mentioned != nil {
+		return mentioned
+	}
 	post := p.PostList[p.SelectedPostIdx]
 	return &post
+}
+
+func (p *PostsPageModel) selectedMentionedPost() *models.Post {
+	if p.SelectedPostIdx < 0 || p.SelectedPostIdx >= len(p.PostList) {
+		return nil
+	}
+	start, _, ok := p.postMentionLineRangeAt(p.SelectedPostIdx)
+	if !ok || p.CursorLine != start {
+		return nil
+	}
+	post := p.PostList[p.SelectedPostIdx]
+	if post.MentionedPost != nil {
+		mentioned := *post.MentionedPost
+		return &mentioned
+	}
+	pid := mentionedPostID(post)
+	if pid <= 0 {
+		return nil
+	}
+	return &models.Post{Pid: pid}
+}
+
+func (p *PostsPageModel) postMentionLineRangeAt(index int) (startLine, endLine int, ok bool) {
+	if index < 0 || index >= len(p.PostList) {
+		return 0, 0, false
+	}
+	line := 0
+	for i := 0; i < index; i++ {
+		if i > 0 {
+			line++
+		}
+		line += p.postRenderedLinesAt(i)
+	}
+	if index > 0 {
+		line++
+	}
+
+	post := p.PostList[index]
+	selected := index == p.SelectedPostIdx
+	lineWidth := p.listLineTextWidth(p.currentListContentWidth(), selected)
+	if p.postMentionLine(post, lineWidth) == "" {
+		return 0, 0, false
+	}
+	line += len(p.postHeaderLines(post, lineWidth))
+	line += len(p.postListTextLines(post, lineWidth))
+	return line, line, true
 }
 
 func (p *PostsPageModel) SelectedComment() *models.Comment {
@@ -1380,9 +1482,18 @@ func (p *PostsPageModel) updatePost(updated *models.Post) {
 	}
 	for i := range p.PostList {
 		if p.PostList[i].Pid == updated.Pid {
+			mentioned := p.PostList[i].MentionedPost
 			p.PostList[i] = *updated
+			if p.PostList[i].MentionedPost == nil {
+				p.PostList[i].MentionedPost = mentioned
+			}
 			p.postContent = ""
-			break
+			continue
+		}
+		if p.PostList[i].MentionedPost != nil && p.PostList[i].MentionedPost.Pid == updated.Pid {
+			mentioned := *updated
+			p.PostList[i].MentionedPost = &mentioned
+			p.postContent = ""
 		}
 	}
 }

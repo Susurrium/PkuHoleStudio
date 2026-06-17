@@ -31,6 +31,8 @@ func (m Model) View() string {
 
 	rendered, placements := m.renderScreen(w, h)
 	rendered = baseStyle.Render(rendered)
+	rendered = stripPresentationSelectors(rendered)
+	rendered = trimTerminalWrapRiskPadding(rendered)
 	if m.Images != nil && m.Images.Enabled() {
 		m.Images.SetFrame(placements)
 	}
@@ -39,6 +41,71 @@ func (m Model) View() string {
 	}
 
 	return rendered
+}
+
+func trimTerminalWrapRiskPadding(frame string) string {
+	lines := strings.Split(frame, "\n")
+	for i, line := range lines {
+		lines[i] = trimTrailingSpacesBeforeANSISuffix(line, terminalWrapRiskExtraWidth(line))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func stripPresentationSelectors(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '\uFE00' && r <= '\uFE0F' {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func terminalWrapRiskExtraWidth(line string) int {
+	extra := 0
+	for _, r := range stripANSISequences(line) {
+		if terminalMayRenderDoubleWidth(r) && lipgloss.Width(string(r)) < 2 {
+			extra++
+		}
+	}
+	return extra
+}
+
+func terminalMayRenderDoubleWidth(r rune) bool {
+	switch {
+	case r >= 0x2300 && r <= 0x23FF:
+		return true
+	case r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF:
+		return true
+	case r >= 0x1F000 && r <= 0x1FAFF:
+		return true
+	}
+	return false
+}
+
+func trimTrailingSpacesBeforeANSISuffix(line string, count int) string {
+	if count <= 0 {
+		return line
+	}
+	suffixStart := len(line)
+	for {
+		matches := ansiControlPattern.FindAllStringIndex(line[:suffixStart], -1)
+		if len(matches) == 0 {
+			break
+		}
+		last := matches[len(matches)-1]
+		if last[1] != suffixStart {
+			break
+		}
+		suffixStart = last[0]
+	}
+	for count > 0 && suffixStart > 0 && line[suffixStart-1] == ' ' {
+		line = line[:suffixStart-1] + line[suffixStart:]
+		suffixStart--
+		count--
+	}
+	return line
 }
 
 func (m Model) renderScreen(width, height int) (string, []imagePlacement) {

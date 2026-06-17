@@ -610,11 +610,10 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, loadPostsCmd(m.Provider, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
 		}
 	case "enter":
-		if len(m.Posts.PostList) > 0 && m.Posts.SelectedPostIdx < len(m.Posts.PostList) {
-			post := m.Posts.PostList[m.Posts.SelectedPostIdx]
+		if post := m.Posts.SelectedPost(); post != nil {
 			m.Posts.ShowPostDetail = true
 			m.Posts.PostsMode = PostsModeDetail
-			m.Posts.CurrentPost = &post
+			m.Posts.CurrentPost = post
 			m.Posts.resetComments()
 			m.Posts.CommentListLoading = true
 			m.Posts.PostBodyViewport.GotoTop()

@@ -48,6 +48,7 @@ func (p *OfflinePostsProvider) ListPosts(cursor, limit, label int, keyword strin
 	if err != nil {
 		return nil, 0, false, err
 	}
+	p.enrichMentionedPosts(posts)
 	next := nextPostCursor(posts)
 	return posts, next, len(posts) == limit, nil
 }
@@ -64,6 +65,7 @@ func (p *OfflinePostsProvider) SearchPosts(keyword string, cursor, limit, label 
 	if err != nil {
 		return nil, 0, false, err
 	}
+	p.enrichMentionedPosts(posts)
 	next := nextPostCursor(posts)
 	return posts, next, len(posts) == limit, nil
 }
@@ -117,6 +119,12 @@ func (p *OfflinePostsProvider) CreatePost(text string) error {
 func (p *OfflinePostsProvider) CanWrite() bool    { return false }
 func (p *OfflinePostsProvider) Mode() SessionMode { return SessionModeOffline }
 
+func (p *OfflinePostsProvider) enrichMentionedPosts(posts []models.Post) {
+	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
+		return p.database.GetPostByPid(pid)
+	})
+}
+
 type OnlinePostsProvider struct {
 	client *client.Client
 }
@@ -141,6 +149,7 @@ func (p *OnlinePostsProvider) ListPosts(cursor, limit, label int, keyword string
 	if err != nil {
 		return nil, 0, false, err
 	}
+	p.enrichMentionedPosts(posts)
 	hasMore := page*limit < total
 	return posts, page, hasMore, nil
 }
@@ -204,6 +213,12 @@ func (p *OnlinePostsProvider) CreatePost(text string) error {
 	return err
 }
 
+func (p *OnlinePostsProvider) enrichMentionedPosts(posts []models.Post) {
+	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
+		return p.client.GetPostGet(pid)
+	})
+}
+
 func (p *OnlinePostsProvider) CanWrite() bool {
 	status := p.client.ProbeSession()
 	return status.CanWriteOnline
@@ -215,6 +230,44 @@ type postListSearch struct {
 	pid      int32
 	keyword  string
 	isFollow *bool
+}
+
+func enrichMentionedPosts(posts []models.Post, fetch func(int32) (*models.Post, error)) {
+	if len(posts) == 0 || fetch == nil {
+		return
+	}
+	cache := make(map[int32]*models.Post)
+	for i := range posts {
+		pid := mentionedPostID(posts[i])
+		if pid <= 0 {
+			continue
+		}
+		mentioned, ok := cache[pid]
+		if !ok {
+			var err error
+			mentioned, err = fetch(pid)
+			if err != nil || mentioned == nil || mentioned.Pid != pid {
+				cache[pid] = nil
+				continue
+			}
+			cache[pid] = mentioned
+		}
+		if mentioned != nil {
+			posts[i].MentionedPost = mentioned
+		}
+	}
+}
+
+func mentionedPostID(post models.Post) int32 {
+	mention := strings.TrimSpace(post.Mention)
+	if mention == "" {
+		return 0
+	}
+	pid, err := strconv.Atoi(mention)
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return int32(pid)
 }
 
 func (s postListSearch) keywordWithPID() string {
