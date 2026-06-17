@@ -496,6 +496,81 @@ func TestTogglePraiseCmdRefreshesPost(t *testing.T) {
 	}
 }
 
+func TestPostListMentionLineShortcutsUseMentionedPost(t *testing.T) {
+	provider := &stubPostsProvider{refreshPost: &models.Post{Pid: 42}, canWrite: true}
+	m := newTestModel()
+	m.Provider = provider
+	m.Session.Mode = SessionModeOnline
+	m.Session.CanWriteOnline = true
+	m.Posts.PostList = []models.Post{
+		{
+			Pid:       7,
+			Text:      "main",
+			Timestamp: 1000,
+			Mention:   "42",
+			MentionedPost: &models.Post{
+				Pid:       42,
+				Text:      "mentioned",
+				Timestamp: 900,
+			},
+		},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+	m.syncPostsPage()
+	mentionLine, _, ok := m.Posts.postMentionLineRangeAt(0)
+	if !ok {
+		t.Fatal("expected mention line")
+	}
+	m.Posts.CursorLine = mentionLine
+
+	_, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	if cmd == nil {
+		t.Fatal("p on mention line should emit toggle command")
+	}
+	_ = cmd()
+	if provider.togglePraisePID != 42 {
+		t.Fatalf("toggle praise pid = %d, want mentioned post #42", provider.togglePraisePID)
+	}
+}
+
+func TestPostListMentionLineEnterOpensMentionedPost(t *testing.T) {
+	provider := &stubPostsProvider{refreshPost: &models.Post{Pid: 42}}
+	m := newTestModel()
+	m.Provider = provider
+	m.Posts.PostList = []models.Post{
+		{
+			Pid:       7,
+			Text:      "main",
+			Timestamp: 1000,
+			Mention:   "42",
+			MentionedPost: &models.Post{
+				Pid:       42,
+				Text:      "mentioned",
+				Timestamp: 900,
+			},
+		},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+	m.syncPostsPage()
+	mentionLine, _, ok := m.Posts.postMentionLineRangeAt(0)
+	if !ok {
+		t.Fatal("expected mention line")
+	}
+	m.Posts.CursorLine = mentionLine
+
+	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on mention line should load mentioned post detail")
+	}
+	if result.Posts.CurrentPost == nil || result.Posts.CurrentPost.Pid != 42 {
+		t.Fatalf("current post = %+v, want mentioned post #42", result.Posts.CurrentPost)
+	}
+}
+
 func TestCreateCommentCmdPassesQuoteID(t *testing.T) {
 	provider := &stubPostsProvider{}
 	quote := &models.Comment{Cid: 456}

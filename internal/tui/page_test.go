@@ -1119,6 +1119,57 @@ func TestViewFrameMatchesConfiguredDimensionsDetail(t *testing.T) {
 	}
 }
 
+func TestViewDetailCommentEmojiLinesLeaveTerminalWrapSlack(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "Detail post text", Timestamp: 1000}
+	m.Posts.CommentList = []models.Comment{
+		{Cid: 1, Text: "first", Timestamp: 1100, NameTag: "Alice"},
+		{Cid: 2, Text: "图✌✌☀️", Timestamp: 1200, NameTag: "Dave"},
+		{
+			Cid:       3,
+			Text:      "reply",
+			Timestamp: 1300,
+			NameTag:   "洞主",
+			Quote:     &models.Comment{NameTag: "Dave", Text: "图✌✌☀️"},
+		},
+	}
+	m.Width = 80
+	m.Height = 24
+
+	view := m.View()
+	if strings.ContainsRune(view, '\uFE0F') {
+		t.Fatal("view should strip emoji presentation selectors")
+	}
+
+	found := 0
+	for i, line := range frameLines(view) {
+		if !strings.Contains(line, "Dave") {
+			continue
+		}
+		found++
+		if width := terminalWidthWithEmojiSymbolsDouble(line); width > m.Width {
+			t.Fatalf("comment line[%d] terminal width = %d, want <= %d: %q", i, width, m.Width, line)
+		}
+	}
+	if found < 2 {
+		t.Fatalf("expected body and quote lines containing Dave, found %d", found)
+	}
+}
+
+func terminalWidthWithEmojiSymbolsDouble(line string) int {
+	width := 0
+	for _, r := range line {
+		if terminalMayRenderDoubleWidth(r) && lipgloss.Width(string(r)) < 2 {
+			width += 2
+			continue
+		}
+		width += lipgloss.Width(string(r))
+	}
+	return width
+}
+
 func TestViewDetailUsesAvailableHeight(t *testing.T) {
 	m := newTestModel()
 	m.Page = PagePosts
@@ -1522,6 +1573,86 @@ func TestBuildPostListContentKeepsImagePlaceholder(t *testing.T) {
 	}
 	if len(placements) != 0 {
 		t.Fatalf("placements = %d, want 0", len(placements))
+	}
+}
+
+func TestBuildPostListContentShowsMentionedPostPreview(t *testing.T) {
+	m := newTestModel()
+	m.Posts.PostList = []models.Post{
+		{
+			Pid:       1,
+			Text:      "main post",
+			Timestamp: 1000,
+			Mention:   "42",
+			MentionedPost: &models.Post{
+				Pid:       42,
+				Text:      "mentioned post body",
+				Timestamp: 900,
+			},
+		},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+	m.syncPostsPage()
+
+	content, _ := m.Posts.buildPostListContent(m.Posts.currentListContentWidth())
+	plain := stripANSI(content)
+	if !strings.Contains(plain, "#42: mentioned post body") {
+		t.Fatalf("mentioned post preview missing from list:\n%s", plain)
+	}
+}
+
+func TestBuildPostListContentMentionPreviewIsSingleLine(t *testing.T) {
+	m := newTestModel()
+	m.Posts.PostList = []models.Post{
+		{
+			Pid:       1,
+			Text:      "main post",
+			Timestamp: 1000,
+			Mention:   "42",
+			MentionedPost: &models.Post{
+				Pid:       42,
+				Text:      "first line\rsecond line\nthird line",
+				Timestamp: 900,
+			},
+		},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 40
+	m.Height = 24
+	m.syncPostsPage()
+
+	content, _ := m.Posts.buildPostListContent(m.Posts.currentListContentWidth())
+	plain := stripANSI(content)
+	if strings.Contains(plain, "\r") {
+		t.Fatalf("mention preview should strip carriage returns:\n%q", plain)
+	}
+	if strings.Contains(plain, "third line") {
+		t.Fatalf("mention preview should truncate to one line:\n%s", plain)
+	}
+	if !strings.Contains(plain, "...") {
+		t.Fatalf("mention preview should show truncation suffix:\n%s", plain)
+	}
+}
+
+func TestBuildPostListContentHidesMissingMentionedPost(t *testing.T) {
+	m := newTestModel()
+	m.Posts.PostList = []models.Post{
+		{Pid: 1, Text: "main post", Timestamp: 1000, Mention: "42"},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+	m.syncPostsPage()
+
+	content, _ := m.Posts.buildPostListContent(m.Posts.currentListContentWidth())
+	plain := stripANSI(content)
+	if strings.Contains(plain, "#42:") || strings.Contains(plain, "未加载") {
+		t.Fatalf("missing mentioned post should not render preview:\n%s", plain)
+	}
+	if _, _, ok := m.Posts.postMentionLineRangeAt(0); ok {
+		t.Fatal("missing mentioned post should not create a selectable mention line")
 	}
 }
 

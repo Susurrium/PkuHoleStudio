@@ -1233,10 +1233,10 @@ func TestViewPostsContainsPostText(t *testing.T) {
 	if !containsStr(output, "❝ 5") {
 		t.Error("View() should contain reply count")
 	}
-	if !containsStr(output, "♥ 10") {
+	if !containsStr(output, "♡ 10") {
 		t.Error("View() should contain like count")
 	}
-	if !containsStr(output, "★ 3") {
+	if !containsStr(output, "☆ 3") {
 		t.Error("View() should contain follow count")
 	}
 }
@@ -1253,11 +1253,31 @@ func TestViewPostsSeparatesPraiseAndFollowCounts(t *testing.T) {
 
 	output := m.View()
 
-	if !containsStr(output, "♥ 0") {
+	if !containsStr(output, "♡ 0") {
 		t.Fatalf("View() should keep praise count separate from follow count, got %q", output)
 	}
-	if !containsStr(output, "★ 9") {
+	if !containsStr(output, "☆ 9") {
 		t.Fatalf("View() should show follow count separately, got %q", output)
+	}
+}
+
+func TestViewPostsShowsPraiseAndFollowStates(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.PostList = []models.Post{
+		{Pid: 1, Text: "Hello World", Timestamp: 1000, PraiseNum: 10, Likenum: 3, IsPraise: true, IsFollow: true, Anonymous: true},
+	}
+	m.Posts.SelectedPostIdx = 0
+	m.Width = 80
+	m.Height = 24
+
+	output := m.View()
+
+	if !containsStr(output, "♥ 10") {
+		t.Fatalf("View() should show liked state, got %q", output)
+	}
+	if !containsStr(output, "★ 3") {
+		t.Fatalf("View() should show followed state, got %q", output)
 	}
 }
 

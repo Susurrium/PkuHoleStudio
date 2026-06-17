@@ -88,6 +88,7 @@ type Post struct {
 	CannotReply     BoolInt   `json:"cannot_reply" gorm:"column:cannot_reply"`
 	IsFollow        BoolInt   `json:"is_follow,omitempty" gorm:"-"`
 	IsPraise        BoolInt   `json:"is_praise,omitempty" gorm:"-"`
+	MentionedPost   *Post     `json:"-" gorm:"-"`
 	Comments        []Comment `json:"comment_list,omitempty" gorm:"foreignKey:Pid"`
 }
 

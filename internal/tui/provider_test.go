@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+
+	"treehole/internal/models"
+)
 
 func TestSplitPIDSearch(t *testing.T) {
 	tests := []struct {
@@ -60,6 +64,54 @@ func TestParsePostListSearch(t *testing.T) {
 				t.Fatalf("isFollow = %v, want %v", *got.isFollow, *tc.wantIsFollow)
 			}
 		})
+	}
+}
+
+func TestEnrichMentionedPostsFetchesMentionedPost(t *testing.T) {
+	posts := []models.Post{
+		{Pid: 1, Mention: "42"},
+		{Pid: 2, Mention: "42"},
+		{Pid: 3, Mention: ""},
+	}
+	fetchCount := 0
+
+	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
+		fetchCount++
+		return &models.Post{Pid: pid, Text: "mentioned"}, nil
+	})
+
+	if fetchCount != 1 {
+		t.Fatalf("fetch count = %d, want one fetch for shared mention", fetchCount)
+	}
+	if posts[0].MentionedPost == nil || posts[0].MentionedPost.Pid != 42 {
+		t.Fatalf("first mentioned post = %+v, want #42", posts[0].MentionedPost)
+	}
+	if posts[1].MentionedPost == nil || posts[1].MentionedPost.Pid != 42 {
+		t.Fatalf("second mentioned post = %+v, want #42", posts[1].MentionedPost)
+	}
+	if posts[2].MentionedPost != nil {
+		t.Fatalf("empty mention should not be enriched: %+v", posts[2].MentionedPost)
+	}
+}
+
+func TestEnrichMentionedPostsSkipsMissingMentionedPost(t *testing.T) {
+	posts := []models.Post{
+		{Pid: 1, Mention: "42"},
+		{Pid: 2, Mention: "43"},
+	}
+
+	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
+		if pid == 42 {
+			return nil, nil
+		}
+		return &models.Post{Pid: 999, Text: "wrong post"}, nil
+	})
+
+	if posts[0].MentionedPost != nil {
+		t.Fatalf("missing mentioned post should not be attached: %+v", posts[0].MentionedPost)
+	}
+	if posts[1].MentionedPost != nil {
+		t.Fatalf("pid mismatch should not be attached: %+v", posts[1].MentionedPost)
 	}
 }
 
