@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,6 +31,7 @@ const (
 	v3TagsTree         = v3BaseURL + "/tags/tree"
 	v3MediaThumbnail   = v3BaseURL + "/media/getThumbnail"
 	v3MediaBinary      = v3BaseURL + "/media/getImageBinary"
+	v3MediaUploadImage = v3BaseURL + "/media/uploadImage"
 )
 
 type V3ListPostsParams struct {
@@ -318,6 +322,40 @@ func (c *Client) CreateCommentV3WithQuote(pid int32, text string, quoteID *int32
 	})
 }
 
+func (c *Client) UploadImageV3(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	var envelope struct {
+		Data struct {
+			ID int `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.doV3Multipart(http.MethodPost, v3MediaUploadImage, writer.FormDataContentType(), &body, &envelope); err != nil {
+		return "", err
+	}
+	if envelope.Data.ID <= 0 {
+		return "", fmt.Errorf("upload image response missing media id")
+	}
+	return strconv.Itoa(envelope.Data.ID), nil
+}
+
 func (c *Client) GetTagsTreeV3() ([]models.Tag, error) {
 	var envelope struct {
 		Data struct {
@@ -390,6 +428,36 @@ func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interf
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("v3 request failed with status: %d", resp.StatusCode)
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := verifyV3Success(bodyBytes); err != nil {
+		return err
+	}
+	if out != nil {
+		if err := json.Unmarshal(bodyBytes, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) doV3Multipart(method, endpoint, contentType string, body io.Reader, out interface{}) error {
+	req, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		return err
+	}
+	c.applyV3Headers(req, true)
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err

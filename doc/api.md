@@ -89,6 +89,19 @@ eg: {
     "mailbox": 0,
     "tags_ids": "",
     "media_ids": ""
+},
+{
+    "type": "image",
+    "kind": 0,
+    "reward_cost": 1,
+    "text": "test",
+    "identity_show": 0,
+    "identity_type": "",
+    "exclusive_id_id": "",
+    "fold": 0,
+    "mailbox": 0,
+    "tags_ids": "",
+    "media_ids": "35802,35803"
 }
 
 ## 发布评论
@@ -100,6 +113,21 @@ eg: {
     "media_ids": "",
     "identity_show": 0,
     "identity_type": ""
+}
+
+## 上传图片供树洞及评论用
+POST https://treehole.pku.edu.cn/chapi/api/v3/media/uploadImage
+表单传二进制，
+返回eg:
+{
+    "code": 20000,
+    "data": {
+        "id": 35803,
+        "url": "2026/6/18/1aab17d84a4464f957ff750b3f87bbc2183fba28_1920x1440.jpg"
+    },
+    "message": "success",
+    "success": true,
+    "timestamp": 1781714006
 }
 
 # 数据结构解读

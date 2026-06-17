@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -19,8 +21,8 @@ type PostsProvider interface {
 	RefreshPost(pid int32) (*models.Post, error)
 	TogglePraise(pid int32) error
 	ToggleAttention(pid int32) error
-	CreateComment(pid int32, text string, quoteID *int32) error
-	CreatePost(text string) error
+	CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error
+	CreatePost(text string, imagePaths []string) error
 	CanWrite() bool
 	Mode() SessionMode
 }
@@ -108,11 +110,11 @@ func (p *OfflinePostsProvider) ToggleAttention(pid int32) error {
 	return fmt.Errorf("离线模式不支持关注")
 }
 
-func (p *OfflinePostsProvider) CreateComment(pid int32, text string, quoteID *int32) error {
+func (p *OfflinePostsProvider) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
 	return fmt.Errorf("离线模式不支持发评论")
 }
 
-func (p *OfflinePostsProvider) CreatePost(text string) error {
+func (p *OfflinePostsProvider) CreatePost(text string, imagePaths []string) error {
 	return fmt.Errorf("离线模式不支持发帖")
 }
 
@@ -203,14 +205,87 @@ func (p *OnlinePostsProvider) ToggleAttention(pid int32) error {
 	return p.client.ToggleAttentionV3(pid)
 }
 
-func (p *OnlinePostsProvider) CreateComment(pid int32, text string, quoteID *int32) error {
-	_, err := p.client.CreateCommentV3WithQuote(pid, text, quoteID)
+func (p *OnlinePostsProvider) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
+	mediaIDs, err := p.uploadImages(imagePaths)
+	if err != nil {
+		return err
+	}
+	_, err = p.client.CreateCommentV3(client.CreateCommentPayload{
+		PID:       pid,
+		CommentID: commentIDPayloadStringPtr(quoteID),
+		Text:      text,
+		MediaIDs:  strings.Join(mediaIDs, ","),
+	})
 	return err
 }
 
-func (p *OnlinePostsProvider) CreatePost(text string) error {
-	_, err := p.client.CreatePostV3(client.CreatePostPayload{Type: "text", Kind: 0, RewardCost: 0, Text: text})
+func (p *OnlinePostsProvider) CreatePost(text string, imagePaths []string) error {
+	mediaIDs, err := p.uploadImages(imagePaths)
+	if err != nil {
+		return err
+	}
+	postType := "text"
+	if len(mediaIDs) > 0 {
+		postType = "image"
+	}
+	_, err = p.client.CreatePostV3(client.CreatePostPayload{
+		Type:       postType,
+		Kind:       0,
+		RewardCost: 0,
+		Text:       text,
+		MediaIDs:   strings.Join(mediaIDs, ","),
+	})
 	return err
+}
+
+func (p *OnlinePostsProvider) uploadImages(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(paths))
+	for _, path := range paths {
+		resolved, err := normalizeUploadImagePath(path)
+		if err != nil {
+			return nil, err
+		}
+		id, err := p.client.UploadImageV3(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("上传图片 %s 失败: %w", path, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func normalizeUploadImagePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	path = strings.Trim(path, `"'`)
+	if path == "" {
+		return "", fmt.Errorf("图片路径不能为空")
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("图片路径是目录: %s", path)
+	}
+	return path, nil
+}
+
+func commentIDPayloadStringPtr(id *int32) *string {
+	if id == nil {
+		return nil
+	}
+	value := strconv.Itoa(int(*id))
+	return &value
 }
 
 func (p *OnlinePostsProvider) enrichMentionedPosts(posts []models.Post) {

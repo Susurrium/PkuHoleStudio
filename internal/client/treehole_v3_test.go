@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -130,6 +133,78 @@ func TestCreateCommentV3WithoutQuoteOmitsCommentID(t *testing.T) {
 	}
 	if _, ok := payload["comment_id"]; ok {
 		t.Fatalf("comment_id should be omitted when quote is nil: %+v", payload)
+	}
+}
+
+func TestCreatePostV3SerializesImagePayload(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"pid":1,"text":"ok","timestamp":1}}`)
+
+	if _, err := capture.client.CreatePostV3(CreatePostPayload{Type: "image", Text: "hello", MediaIDs: "35802,35803"}); err != nil {
+		t.Fatalf("CreatePostV3: %v", err)
+	}
+	assertJSONField(t, capture.rt.body, "type", "image")
+	assertJSONField(t, capture.rt.body, "text", "hello")
+	assertJSONField(t, capture.rt.body, "media_ids", "35802,35803")
+}
+
+func TestCreateCommentV3SerializesMediaIDs(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"cid":1,"pid":99,"text":"ok","timestamp":1}}`)
+
+	if _, err := capture.client.CreateCommentV3(CreateCommentPayload{PID: 99, Text: "hello", MediaIDs: "35802,35803"}); err != nil {
+		t.Fatalf("CreateCommentV3: %v", err)
+	}
+	assertJSONField(t, capture.rt.body, "pid", float64(99))
+	assertJSONField(t, capture.rt.body, "text", "hello")
+	assertJSONField(t, capture.rt.body, "media_ids", "35802,35803")
+}
+
+func TestUploadImageV3SendsMultipartFile(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"id":35803,"url":"x.jpg"}}`)
+	file, err := os.CreateTemp(t.TempDir(), "upload-*.jpg")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if _, err := file.WriteString("image-bytes"); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close temp image: %v", err)
+	}
+
+	id, err := capture.client.UploadImageV3(file.Name())
+	if err != nil {
+		t.Fatalf("UploadImageV3: %v", err)
+	}
+	if id != "35803" {
+		t.Fatalf("media id = %q, want 35803", id)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/v3/media/uploadImage" {
+		t.Fatalf("upload path = %q", capture.rt.last.URL.Path)
+	}
+	mediaType, params, err := mime.ParseMediaType(capture.rt.last.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("ParseMediaType: %v", err)
+	}
+	if mediaType != "multipart/form-data" {
+		t.Fatalf("content type = %q, want multipart/form-data", mediaType)
+	}
+	reader := multipart.NewReader(bytes.NewReader(capture.rt.body.Bytes()), params["boundary"])
+	part, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("NextPart: %v", err)
+	}
+	if part.FormName() != "file" {
+		t.Fatalf("form name = %q, want file", part.FormName())
+	}
+	if part.FileName() == "" {
+		t.Fatal("file name should be set")
+	}
+	data, err := io.ReadAll(part)
+	if err != nil {
+		t.Fatalf("ReadAll part: %v", err)
+	}
+	if string(data) != "image-bytes" {
+		t.Fatalf("uploaded bytes = %q", string(data))
 	}
 }
 

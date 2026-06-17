@@ -841,10 +841,11 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Composer.SetError(errors.New("内容不能为空"))
 			return m, nil
 		}
+		imagePaths := m.Composer.ImagePaths()
 		if m.Composer.Mode() == ComposerModeComment && m.Posts.CurrentPost != nil {
-			return m, createCommentCmd(m.Provider, m.Posts.CurrentPost.Pid, text, m.Composer.QuoteTarget())
+			return m, createCommentCmd(m.Provider, m.Posts.CurrentPost.Pid, text, m.Composer.QuoteTarget(), imagePaths)
 		}
-		return m, createPostCmd(m.Provider, text)
+		return m, createPostCmd(m.Provider, text, imagePaths)
 	}
 	cmd := m.Composer.Update(msg)
 	return m, cmd
@@ -992,13 +993,13 @@ func toggleAttentionCmd(provider PostsProvider, pid int32) tea.Cmd {
 	}
 }
 
-func createCommentCmd(provider PostsProvider, pid int32, text string, quote *models.Comment) tea.Cmd {
+func createCommentCmd(provider PostsProvider, pid int32, text string, quote *models.Comment, imagePaths []string) tea.Cmd {
 	return func() tea.Msg {
 		var quoteID *int32
 		if quote != nil {
 			quoteID = &quote.Cid
 		}
-		err := provider.CreateComment(pid, text, quoteID)
+		err := provider.CreateComment(pid, text, quoteID, imagePaths)
 		if err != nil {
 			return ActionResultMsg{Kind: "comment", Error: err}
 		}
@@ -1006,9 +1007,9 @@ func createCommentCmd(provider PostsProvider, pid int32, text string, quote *mod
 	}
 }
 
-func createPostCmd(provider PostsProvider, text string) tea.Cmd {
+func createPostCmd(provider PostsProvider, text string, imagePaths []string) tea.Cmd {
 	return func() tea.Msg {
-		err := provider.CreatePost(text)
+		err := provider.CreatePost(text, imagePaths)
 		if err != nil {
 			return ActionResultMsg{Kind: "post", Error: err}
 		}
