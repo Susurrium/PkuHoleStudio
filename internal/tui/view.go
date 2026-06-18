@@ -143,7 +143,7 @@ func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
 	m.Width = width
 	m.Height = height
 
-	tabs := []string{"同步", "帖子"}
+	tabs := []string{"同步", "帖子", "课表", "成绩"}
 	var segments []powerlineSegment
 	for i, t := range tabs {
 		if i == m.TabCursor {
@@ -446,6 +446,12 @@ func (m Model) currentModeLabel() string {
 		}
 		return "HOME"
 	}
+	if m.Page == PageSchedule {
+		return "SCHEDULE"
+	}
+	if m.Page == PageScores {
+		return "SCORES"
+	}
 
 	if m.Posts.Searching {
 		return "SEARCH"
@@ -465,10 +471,7 @@ func (m Model) currentModeLabel() string {
 func (m Model) currentPageLabel() string {
 	switch m.Page {
 	case PageHome:
-		if m.Home.CrawlMode == CrawlMonitor {
-			return fmt.Sprintf("监控前%d页", m.Home.MonitorPages)
-		}
-		return "顺序抓取"
+		return m.Home.modeLabel()
 	case PagePosts:
 		if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
 			return fmt.Sprintf("#%d", m.Posts.CurrentPost.Pid)
@@ -481,6 +484,10 @@ func (m Model) currentPageLabel() string {
 			return fmt.Sprintf("搜索 %s", query)
 		}
 		return "帖子列表"
+	case PageSchedule:
+		return "课表"
+	case PageScores:
+		return "成绩"
 	default:
 		return "TreeHole TUI"
 	}
@@ -495,6 +502,12 @@ func (m Model) currentStatusSummary() string {
 	}
 	if m.Page == PageHome {
 		return m.homeStatusSummary()
+	}
+	if m.Page == PageSchedule {
+		return m.scheduleStatusSummary()
+	}
+	if m.Page == PageScores {
+		return m.scoresStatusSummary()
 	}
 	return m.postsStatusSummary()
 }
@@ -542,6 +555,29 @@ func (m Model) homeStatusSummary() string {
 	default:
 		return "爬虫已停止"
 	}
+}
+
+func (m Model) scheduleStatusSummary() string {
+	if m.Schedule.Loading {
+		return "加载课表中..."
+	}
+	if m.Schedule.Error != "" {
+		return "课表错误: " + m.Schedule.Error
+	}
+	return fmt.Sprintf("%d 节", len(m.Schedule.Rows))
+}
+
+func (m Model) scoresStatusSummary() string {
+	if m.Scores.Loading {
+		return "加载成绩中..."
+	}
+	if m.Scores.Error != "" {
+		return "成绩错误: " + m.Scores.Error
+	}
+	if m.Scores.Summary == nil {
+		return "成绩未加载"
+	}
+	return fmt.Sprintf("GPA %s | %d 门成绩", emptyDash(m.Scores.Summary.GPA), len(m.Scores.Summary.Scores))
 }
 
 func (m Model) postsStatusSummary() string {
@@ -602,6 +638,10 @@ func (m Model) renderContent(contentHeight int) (string, []imagePlacement) {
 		return m.renderHome(contentHeight), nil
 	case PagePosts:
 		return m.renderPosts(contentHeight)
+	case PageSchedule:
+		return m.renderSchedule(contentHeight), nil
+	case PageScores:
+		return m.renderScores(contentHeight), nil
 	default:
 		return "Unknown page", nil
 	}
@@ -628,6 +668,14 @@ func (m Model) renderHome(contentHeight int) string {
 
 func (m Model) renderPosts(contentHeight int) (string, []imagePlacement) {
 	return m.Posts.View(m.Width, contentHeight)
+}
+
+func (m Model) renderSchedule(contentHeight int) string {
+	return m.Schedule.View(m.Width, contentHeight)
+}
+
+func (m Model) renderScores(contentHeight int) string {
+	return m.Scores.View(m.Width, contentHeight)
 }
 
 func (m Model) renderHelpDialog() string {
@@ -697,6 +745,12 @@ func (m Model) helpContextTitle() string {
 	if m.Posts.ShowPostDetail {
 		return "帖子详情"
 	}
+	if m.Page == PageSchedule {
+		return "课表"
+	}
+	if m.Page == PageScores {
+		return "成绩"
+	}
 	return "帖子列表"
 }
 
@@ -711,7 +765,8 @@ func (m Model) helpItems() []helpItem {
 		)
 	case m.Page == PageHome:
 		items = append(items,
-			helpItem{key: "Tab", desc: "切到帖子页"},
+			helpItem{key: "Tab", desc: "切换页面"},
+			helpItem{key: "1-4", desc: "选择模式"},
 			helpItem{key: "←→", desc: "切换按钮"},
 			helpItem{key: "Enter", desc: "启动/停止"},
 			helpItem{key: "c", desc: "打开配置"},
@@ -719,6 +774,19 @@ func (m Model) helpItems() []helpItem {
 		)
 		if m.Home.CrawlerState != CrawlerRunning {
 			items = append(items, helpItem{key: "m", desc: "切换模式"})
+		}
+	case m.Page == PageSchedule || m.Page == PageScores:
+		items = append(items,
+			helpItem{key: "Tab", desc: "切换页面"},
+			helpItem{key: "r", desc: "刷新"},
+			helpItem{key: "c", desc: "打开配置"},
+			helpItem{key: "l", desc: "查看日志"},
+		)
+		if m.Page == PageScores {
+			items = append(items,
+				helpItem{key: "↑↓", desc: "滚动成绩"},
+				helpItem{key: "PgUp/PgDn", desc: "成绩翻页"},
+			)
 		}
 	case m.Posts.Searching:
 		items = append(items,
@@ -745,7 +813,7 @@ func (m Model) helpItems() []helpItem {
 		}
 	default:
 		items = append(items,
-			helpItem{key: "Tab", desc: "切到同步页"},
+			helpItem{key: "Tab", desc: "切换页面"},
 			helpItem{key: "↑↓", desc: "选择帖子"},
 			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
 			helpItem{key: "Enter", desc: "打开详情"},

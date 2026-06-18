@@ -72,11 +72,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.Home.LastCrawlPage = msg.Page
 			m.Home.LastCrawlTime = msg.Duration
+			m.Home.LastCrawlSummary = msg.Summary
 			if m.Home.CrawlerState == CrawlerRunning {
 				if m.Home.CrawlMode == CrawlMonitor {
-					return m, crawlMonitorCmd(m.Client, m.Database, m.Home.MonitorPages)
+					return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
 				}
-				return m, crawlPageCmd(m.Client, m.Database, msg.Page+1)
+				if m.Home.CrawlMode == CrawlSequential {
+					return m, crawlPageWithOptionsCmd(m.Client, m.Database, msg.Page+1, m.Home)
+				}
+				m.Home.CrawlerState = CrawlerStopped
 			}
 		}
 		return m, nil
@@ -305,6 +309,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TagsDialog.SetTags(msg.Tags)
 		}
 		return m, nil
+
+	case LoadCourseScheduleMsg:
+		m.Schedule.Loading = false
+		if msg.Error != nil {
+			m.Schedule.Error = msg.Error.Error()
+			m.handleOnlineReadFailure(msg.Error)
+		} else {
+			m.Schedule.Error = ""
+			m.Schedule.Rows = msg.Rows
+		}
+		return m, nil
+
+	case LoadScoresMsg:
+		m.Scores.Loading = false
+		if msg.Error != nil {
+			m.Scores.Error = msg.Error.Error()
+			m.handleOnlineReadFailure(msg.Error)
+		} else {
+			m.Scores.Error = ""
+			m.Scores.Summary = msg.Summary
+			m.Scores.Offset = 0
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -343,11 +370,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 
 	if msg.String() == "tab" && m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
-		m.TabCursor = (m.TabCursor + 1) % 2
+		m.TabCursor = (m.TabCursor + 1) % pageCount
 		m.Page = Page(m.TabCursor)
 		if m.Page == PagePosts && len(m.Posts.PostList) == 0 {
 			m.Posts.PostListLoading = true
 			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+		}
+		if m.Page == PageSchedule && len(m.Schedule.Rows) == 0 && m.Schedule.Error == "" {
+			m.Schedule.Loading = true
+			return m, loadCourseScheduleCmd(m.Provider)
+		}
+		if m.Page == PageScores && m.Scores.Summary == nil && m.Scores.Error == "" {
+			m.Scores.Loading = true
+			return m, loadScoresCmd(m.Provider)
 		}
 		m.syncPostsPage()
 		return m, nil
@@ -379,6 +414,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleHomeKey(msg)
 	case PagePosts:
 		return m.handlePostsKey(msg)
+	case PageSchedule:
+		return m.handleScheduleKey(msg)
+	case PageScores:
+		return m.handleScoresKey(msg)
 	}
 	return m, nil
 }
@@ -388,11 +427,44 @@ func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch action {
 	case HomeActionStartCrawler:
 		if m.Home.CrawlMode == CrawlMonitor {
-			return m, crawlMonitorCmd(m.Client, m.Database, m.Home.MonitorPages)
+			return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
 		}
-		return m, crawlPageCmd(m.Client, m.Database, 1)
+		if m.Home.CrawlMode == CrawlFetchImages {
+			return m, crawlFetchImagesCmd(m.Client, m.Database, m.Home.ConvertWebp)
+		}
+		if m.Home.CrawlMode == CrawlFetchThumbnails {
+			return m, crawlFetchThumbnailsCmd(m.Client, m.Home.ThumbnailStartID, m.Home.ThumbnailEndID, m.Home.ConvertWebp)
+		}
+		return m, crawlPageWithOptionsCmd(m.Client, m.Database, 1, m.Home)
 	case HomeActionStopCrawler:
 		log.Printf("[Crawler] 爬虫已手动停止")
+	}
+	return m, nil
+}
+
+func (m Model) handleScheduleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.String() == "r" {
+		m.Schedule.Loading = true
+		m.Schedule.Error = ""
+		return m, loadCourseScheduleCmd(m.Provider)
+	}
+	return m, nil
+}
+
+func (m Model) handleScoresKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		m.Scores.Loading = true
+		m.Scores.Error = ""
+		return m, loadScoresCmd(m.Provider)
+	case "up":
+		m.Scores.Move(-1, m.contentAreaHeightForSize(m.Width, m.Height))
+	case "down":
+		m.Scores.Move(1, m.contentAreaHeightForSize(m.Width, m.Height))
+	case "pgup":
+		m.Scores.Move(-maxInt(1, m.contentAreaHeightForSize(m.Width, m.Height)-16), m.contentAreaHeightForSize(m.Width, m.Height))
+	case "pgdown":
+		m.Scores.Move(maxInt(1, m.contentAreaHeightForSize(m.Width, m.Height)-16), m.contentAreaHeightForSize(m.Width, m.Height))
 	}
 	return m, nil
 }
@@ -892,27 +964,83 @@ func (m Model) handleTagsDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func crawlPageCmd(c *client.Client, database *db.Database, page int) tea.Cmd {
+	options := NewHomePageModel()
+	return crawlPageWithOptionsCmd(c, database, page, options)
+}
+
+func crawlPageWithOptionsCmd(c *client.Client, database *db.Database, page int, options HomePageModel) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
-		_, err := crawler.FetchAndSave(c, database, page, false, 200, 200, false, false)
+		result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
 		duration := time.Since(startTime)
 		if err != nil {
 			return CrawlMsg{Error: err, Page: page}
 		}
-		return CrawlMsg{Page: page, Duration: duration}
+		if options.SaveJSON {
+			if err := crawler.SaveRawResponsesToFile(); err != nil {
+				return CrawlMsg{Error: err, Page: page}
+			}
+		}
+		return CrawlMsg{
+			Page:     page,
+			Duration: duration,
+			Summary:  fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount),
+		}
 	}
 }
 
 func crawlMonitorCmd(c *client.Client, database *db.Database, monitorPages int) tea.Cmd {
+	options := NewHomePageModel()
+	options.MonitorPages = monitorPages
+	return crawlMonitorWithOptionsCmd(c, database, options)
+}
+
+func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options HomePageModel) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
-		for page := 1; page <= monitorPages; page++ {
-			_, err := crawler.FetchAndSave(c, database, page, false, 200, 200, false, false)
+		totalPosts := 0
+		totalComments := 0
+		for page := 1; page <= options.MonitorPages; page++ {
+			result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
 			if err != nil {
 				log.Printf("[Crawler] 监控模式第 %d 页抓取失败: %v", page, err)
+				continue
+			}
+			totalPosts += result.PostCount
+			totalComments += result.CommentCount
+		}
+		if options.SaveJSON {
+			if err := crawler.SaveRawResponsesToFile(); err != nil {
+				return CrawlMsg{Error: err, Page: options.MonitorPages}
 			}
 		}
-		return CrawlMsg{Page: monitorPages, Duration: time.Since(startTime)}
+		return CrawlMsg{
+			Page:     options.MonitorPages,
+			Duration: time.Since(startTime),
+			Summary:  fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments),
+		}
+	}
+}
+
+func crawlFetchImagesCmd(c *client.Client, database *db.Database, convertWebp bool) tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+		crawler.FetchImagesFromDB(c, database, convertWebp)
+		return CrawlMsg{Duration: time.Since(startTime), Summary: "数据库图片补齐完成"}
+	}
+}
+
+func crawlFetchThumbnailsCmd(c *client.Client, startID, endID int, convertWebp bool) tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+		downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(c, startID, endID, convertWebp)
+		if err != nil {
+			return CrawlMsg{Error: err}
+		}
+		return CrawlMsg{
+			Duration: time.Since(startTime),
+			Summary:  fmt.Sprintf("缩略图完成：downloaded=%d skipped=%d range=%d-%d", downloaded, skipped, startID, endID),
+		}
 	}
 }
 
@@ -964,6 +1092,20 @@ func loadTagsCmd(provider PostsProvider) tea.Cmd {
 	return func() tea.Msg {
 		tags, err := provider.ListTags()
 		return LoadTagsMsg{Tags: tags, Error: err}
+	}
+}
+
+func loadCourseScheduleCmd(provider PostsProvider) tea.Cmd {
+	return func() tea.Msg {
+		rows, err := provider.GetCourseTable()
+		return LoadCourseScheduleMsg{Rows: rows, Error: err}
+	}
+}
+
+func loadScoresCmd(provider PostsProvider) tea.Cmd {
+	return func() tea.Msg {
+		summary, err := provider.GetCourseScores()
+		return LoadScoresMsg{Summary: summary, Error: err}
 	}
 }
 

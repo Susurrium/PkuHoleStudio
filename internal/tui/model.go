@@ -16,7 +16,11 @@ type Page int
 const (
 	PageHome Page = iota
 	PagePosts
+	PageSchedule
+	PageScores
 )
+
+const pageCount = int(PageScores) + 1
 
 type DialogType int
 
@@ -67,6 +71,7 @@ const (
 type CrawlMsg struct {
 	Page     int
 	Duration time.Duration
+	Summary  string
 	Error    error
 }
 
@@ -143,6 +148,16 @@ type LoadTagsMsg struct {
 	Error error
 }
 
+type LoadCourseScheduleMsg struct {
+	Rows  []models.CourseScheduleRow
+	Error error
+}
+
+type LoadScoresMsg struct {
+	Summary *models.ScoreSummary
+	Error   error
+}
+
 type LoadConfigMsg struct {
 	Config *config.Config
 	Error  error
@@ -157,6 +172,8 @@ type CrawlMode int
 const (
 	CrawlSequential CrawlMode = iota
 	CrawlMonitor
+	CrawlFetchImages
+	CrawlFetchThumbnails
 )
 
 type SessionMode int
@@ -212,7 +229,9 @@ type Model struct {
 	Provider PostsProvider
 	Session  SessionState
 
-	Posts PostsPageModel
+	Posts    PostsPageModel
+	Schedule CourseSchedulePageModel
+	Scores   ScorePageModel
 
 	ConfigDialog  ConfigDialogModel
 	LogsDialog    LogsDialogModel

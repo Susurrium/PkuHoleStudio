@@ -208,6 +208,39 @@ func TestUploadImageV3SendsMultipartFile(t *testing.T) {
 	}
 }
 
+func TestGetCourseTableV2CleansCourseNames(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"course":[{"timeNum":"第一节","mon":{"courseName":"<font><b>量子力学(主)<br>上课信息：1-15周<br>考试信息：x</b></font>","parity":"","sty":""},"tue":{"courseName":"","parity":"","sty":""},"wed":{"courseName":"","parity":"","sty":""},"thu":{"courseName":"","parity":"","sty":""},"fri":{"courseName":"","parity":"","sty":""},"sat":{"courseName":"","parity":"","sty":""},"sun":{"courseName":"","parity":"","sty":""}}]}}`)
+
+	rows, err := capture.client.GetCourseTableV2()
+	if err != nil {
+		t.Fatalf("GetCourseTableV2: %v", err)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/getCoursetable_v2" {
+		t.Fatalf("course table path = %q", capture.rt.last.URL.Path)
+	}
+	if len(rows) != 1 || rows[0].Mon.CourseName != "量子力学(主)" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+func TestGetCourseScoresV2ParsesSummaryAndCourses(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"score":{"cjxx":[{"xndxqpx":"2025-261","kcmc":"统计力学","xf":"3","xqcj":"96","kclbmc":"专业必修"}],"gpaHM":{"gpa":"3.892","zxf":"93.0","xxxf":"93","xkms":"36"},"gpa":{"gpa":"3.892","xxxf":"93"}},"gpa":{"data":[{"xndxq":"25-26-1","gpa":"3.925"}]}}}`)
+
+	summary, err := capture.client.GetCourseScoresV2()
+	if err != nil {
+		t.Fatalf("GetCourseScoresV2: %v", err)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/course/score_v2" {
+		t.Fatalf("score path = %q", capture.rt.last.URL.Path)
+	}
+	if summary.GPA != "3.892" || summary.TotalCredit != "93.0" || len(summary.Scores) != 1 || summary.Scores[0].Name != "统计力学" {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if len(summary.GPATerms) != 1 || summary.GPATerms[0].GPA != "3.925" {
+		t.Fatalf("gpa terms = %+v", summary.GPATerms)
+	}
+}
+
 type v3CaptureClient struct {
 	client *Client
 	rt     *jsonCaptureRoundTripper
