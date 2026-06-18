@@ -18,6 +18,8 @@ type PostsProvider interface {
 	ListComments(pid int32, sortAsc bool, cursor int32) ([]models.Comment, int32, bool, error)
 	SearchPosts(keyword string, cursor, limit, label int) ([]models.Post, int, bool, error)
 	ListTags() ([]models.Tag, error)
+	GetCourseTable() ([]models.CourseScheduleRow, error)
+	GetCourseScores() (*models.ScoreSummary, error)
 	RefreshPost(pid int32) (*models.Post, error)
 	TogglePraise(pid int32) error
 	ToggleAttention(pid int32) error
@@ -96,6 +98,14 @@ func (p *OfflinePostsProvider) ListComments(pid int32, sortAsc bool, cursor int3
 
 func (p *OfflinePostsProvider) ListTags() ([]models.Tag, error) {
 	return nil, fmt.Errorf("离线模式暂不支持标签读取")
+}
+
+func (p *OfflinePostsProvider) GetCourseTable() ([]models.CourseScheduleRow, error) {
+	return nil, fmt.Errorf("离线模式暂不支持课表读取")
+}
+
+func (p *OfflinePostsProvider) GetCourseScores() (*models.ScoreSummary, error) {
+	return nil, fmt.Errorf("离线模式暂不支持成绩查询")
 }
 
 func (p *OfflinePostsProvider) RefreshPost(pid int32) (*models.Post, error) {
@@ -191,6 +201,14 @@ func (p *OnlinePostsProvider) ListComments(pid int32, sortAsc bool, cursor int32
 
 func (p *OnlinePostsProvider) ListTags() ([]models.Tag, error) {
 	return p.client.GetTagsTreeV3()
+}
+
+func (p *OnlinePostsProvider) GetCourseTable() ([]models.CourseScheduleRow, error) {
+	return p.client.GetCourseTableV2()
+}
+
+func (p *OnlinePostsProvider) GetCourseScores() (*models.ScoreSummary, error) {
+	return p.client.GetCourseScoresV2()
 }
 
 func (p *OnlinePostsProvider) RefreshPost(pid int32) (*models.Post, error) {

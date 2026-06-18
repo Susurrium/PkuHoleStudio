@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"mime/multipart"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -19,7 +21,10 @@ import (
 )
 
 const (
+	chapiBaseURL       = "https://treehole.pku.edu.cn/chapi/api"
 	v3BaseURL          = "https://treehole.pku.edu.cn/chapi/api/v3"
+	chapiCourseTable   = chapiBaseURL + "/getCoursetable_v2"
+	chapiCourseScore   = chapiBaseURL + "/course/score_v2"
 	v3HoleListComments = v3BaseURL + "/hole/list_comments"
 	v3HoleOne          = v3BaseURL + "/hole/one"
 	v3HoleGet          = v3BaseURL + "/hole/get"
@@ -67,6 +72,63 @@ type CreateCommentPayload struct {
 	MediaIDs     string  `json:"media_ids"`
 	IdentityShow int     `json:"identity_show"`
 	IdentityType string  `json:"identity_type"`
+}
+
+type courseTableEnvelope struct {
+	Data struct {
+		Course []courseScheduleDTO `json:"course"`
+	} `json:"data"`
+}
+
+type courseScheduleDTO struct {
+	TimeNum string       `json:"timeNum"`
+	Mon     courseDayDTO `json:"mon"`
+	Tue     courseDayDTO `json:"tue"`
+	Wed     courseDayDTO `json:"wed"`
+	Thu     courseDayDTO `json:"thu"`
+	Fri     courseDayDTO `json:"fri"`
+	Sat     courseDayDTO `json:"sat"`
+	Sun     courseDayDTO `json:"sun"`
+}
+
+type courseDayDTO struct {
+	CourseName string `json:"courseName"`
+	Parity     string `json:"parity"`
+	Style      string `json:"sty"`
+}
+
+type scoreEnvelope struct {
+	Data struct {
+		Score struct {
+			Courses []courseScoreDTO `json:"cjxx"`
+			GPAHM   struct {
+				GPA         string `json:"gpa"`
+				TotalCredit string `json:"zxf"`
+				CourseCount string `json:"xkms"`
+				CreditTaken string `json:"xxxf"`
+			} `json:"gpaHM"`
+			GPA struct {
+				GPA    string `json:"gpa"`
+				Credit string `json:"xxxf"`
+			} `json:"gpa"`
+		} `json:"score"`
+		GPA struct {
+			Data []gpaTermDTO `json:"data"`
+		} `json:"gpa"`
+	} `json:"data"`
+}
+
+type courseScoreDTO struct {
+	YearTerm string `json:"xndxqpx"`
+	Name     string `json:"kcmc"`
+	Credit   string `json:"xf"`
+	Score    string `json:"xqcj"`
+	Category string `json:"kclbmc"`
+}
+
+type gpaTermDTO struct {
+	YearTerm string `json:"xndxq"`
+	GPA      string `json:"gpa"`
 }
 
 type SessionFailureKind string
@@ -251,6 +313,50 @@ func (c *Client) GetPostGet(pid int32) (*models.Post, error) {
 	}
 	post := envelope.Data.toModel()
 	return &post, nil
+}
+
+func (c *Client) GetCourseTableV2() ([]models.CourseScheduleRow, error) {
+	var envelope courseTableEnvelope
+	if err := c.doV3JSON(http.MethodGet, chapiCourseTable, nil, nil, false, &envelope); err != nil {
+		return nil, err
+	}
+	rows := make([]models.CourseScheduleRow, 0, len(envelope.Data.Course))
+	for _, dto := range envelope.Data.Course {
+		rows = append(rows, dto.toModel())
+	}
+	return rows, nil
+}
+
+func (c *Client) GetCourseScoresV2() (*models.ScoreSummary, error) {
+	var envelope scoreEnvelope
+	if err := c.doV3JSON(http.MethodGet, chapiCourseScore, nil, nil, false, &envelope); err != nil {
+		return nil, err
+	}
+	summary := &models.ScoreSummary{
+		GPA:          envelope.Data.Score.GPAHM.GPA,
+		TotalCredit:  envelope.Data.Score.GPAHM.TotalCredit,
+		PassedCredit: envelope.Data.Score.GPAHM.CreditTaken,
+		CourseCount:  envelope.Data.Score.GPAHM.CourseCount,
+	}
+	if summary.GPA == "" {
+		summary.GPA = envelope.Data.Score.GPA.GPA
+	}
+	if summary.PassedCredit == "" {
+		summary.PassedCredit = envelope.Data.Score.GPA.Credit
+	}
+	for _, dto := range envelope.Data.Score.Courses {
+		summary.Scores = append(summary.Scores, models.CourseScore{
+			YearTerm: dto.YearTerm,
+			Name:     cleanCourseText(dto.Name),
+			Credit:   dto.Credit,
+			Score:    dto.Score,
+			Category: dto.Category,
+		})
+	}
+	for _, dto := range envelope.Data.GPA.Data {
+		summary.GPATerms = append(summary.GPATerms, models.GPATerm{YearTerm: dto.YearTerm, GPA: dto.GPA})
+	}
+	return summary, nil
 }
 
 func (c *Client) ListCommentsV3(pid int32, page, limit int, sort, commentStream int) ([]models.Comment, int, error) {
@@ -499,6 +605,60 @@ func verifyV3Success(payload []byte) error {
 func (c *Client) applyV3Headers(req *http.Request, write bool) {
 	_ = write
 	c.applyTreeholeHeaders(req)
+}
+
+func (d courseScheduleDTO) toModel() models.CourseScheduleRow {
+	return models.CourseScheduleRow{
+		TimeNum: d.TimeNum,
+		Mon:     d.Mon.toModel(),
+		Tue:     d.Tue.toModel(),
+		Wed:     d.Wed.toModel(),
+		Thu:     d.Thu.toModel(),
+		Fri:     d.Fri.toModel(),
+		Sat:     d.Sat.toModel(),
+		Sun:     d.Sun.toModel(),
+	}
+}
+
+func (d courseDayDTO) toModel() models.CourseDay {
+	return models.CourseDay{
+		CourseName: firstCourseTitle(d.CourseName),
+		Parity:     d.Parity,
+		Style:      d.Style,
+	}
+}
+
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+
+func firstCourseTitle(raw string) string {
+	cleaned := cleanCourseText(raw)
+	if cleaned == "" {
+		return ""
+	}
+	for _, line := range strings.Split(cleaned, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "上课信息") || strings.HasPrefix(line, "考试信息") {
+			continue
+		}
+		return line
+	}
+	return strings.TrimSpace(strings.ReplaceAll(cleaned, "\n", " "))
+}
+
+func cleanCourseText(raw string) string {
+	text := strings.ReplaceAll(raw, "<br/>", "\n")
+	text = strings.ReplaceAll(text, "<br />", "\n")
+	text = strings.ReplaceAll(text, "<br>", "\n")
+	text = htmlTagPattern.ReplaceAllString(text, "")
+	text = html.UnescapeString(text)
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 type postDTO struct {

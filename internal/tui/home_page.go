@@ -10,15 +10,23 @@ import (
 )
 
 type HomePageModel struct {
-	LoggedIn     bool
-	LoginUser    string
-	CrawlerState CrawlerState
-	CrawlerStart time.Time
-	CrawlMode    CrawlMode
-	MonitorPages int
+	LoggedIn         bool
+	LoginUser        string
+	CrawlerState     CrawlerState
+	CrawlerStart     time.Time
+	CrawlMode        CrawlMode
+	MonitorPages     int
+	PostsPerRequest  int
+	CommentsPerPost  int
+	FetchImages      bool
+	SaveJSON         bool
+	ConvertWebp      bool
+	ThumbnailStartID int
+	ThumbnailEndID   int
 
-	LastCrawlPage int
-	LastCrawlTime time.Duration
+	LastCrawlPage    int
+	LastCrawlTime    time.Duration
+	LastCrawlSummary string
 
 	HomeButtonIdx int
 	HomeLastError string
@@ -34,10 +42,15 @@ const (
 
 func NewHomePageModel() HomePageModel {
 	return HomePageModel{
-		CrawlerState:  CrawlerStopped,
-		CrawlMode:     CrawlSequential,
-		MonitorPages:  3,
-		HomeButtonIdx: int(HomeFocusStart),
+		CrawlerState:     CrawlerStopped,
+		CrawlMode:        CrawlSequential,
+		MonitorPages:     3,
+		PostsPerRequest:  200,
+		CommentsPerPost:  200,
+		ConvertWebp:      true,
+		ThumbnailStartID: 30000,
+		ThumbnailEndID:   31000,
+		HomeButtonIdx:    int(HomeFocusStart),
 	}
 }
 
@@ -102,12 +115,34 @@ func (h HomePageModel) View(width, height int) string {
 		),
 	))
 
-	modeLabel := "模式: 顺序爬取"
-	if h.CrawlMode == CrawlMonitor {
-		modeLabel = fmt.Sprintf("模式: 监控模式(前%d页)", h.MonitorPages)
-	}
+	modeLabel := "模式: " + h.modeLabel()
 	b.WriteString("\n")
-	b.WriteString(compactCardStyle(width).Render(vStatValueStyle.Render(modeLabel)))
+	b.WriteString(compactCardStyle(width).Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			vStatValueStyle.Render(modeLabel),
+			vHelpStyle.Render(h.modeHelp()),
+		),
+	))
+
+	b.WriteString("\n")
+	b.WriteString(compactCardStyle(width).Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.JoinHorizontal(lipgloss.Top,
+				vStatLabelStyle.Render("请求: "),
+				vStatValueStyle.Render(fmt.Sprintf("posts=%d comments=%d", h.PostsPerRequest, h.CommentsPerPost)),
+				vStatLabelStyle.Render("  图片: "),
+				vStatValueStyle.Render(onOff(h.FetchImages)),
+				vStatLabelStyle.Render("  JSON: "),
+				vStatValueStyle.Render(onOff(h.SaveJSON)),
+			),
+			lipgloss.JoinHorizontal(lipgloss.Top,
+				vStatLabelStyle.Render("补图/WebP: "),
+				vStatValueStyle.Render(onOff(h.ConvertWebp)),
+				vStatLabelStyle.Render("  缩略图: "),
+				vStatValueStyle.Render(fmt.Sprintf("%d-%d", h.ThumbnailStartID, h.ThumbnailEndID)),
+			),
+		),
+	))
 
 	b.WriteString("\n")
 	buttons := []string{"启动爬虫", "停止爬虫", modeLabel}
@@ -133,6 +168,10 @@ func (h HomePageModel) View(width, height int) string {
 		b.WriteString("\n")
 		b.WriteString(vErrorStyle.Render("错误: " + h.HomeLastError))
 	}
+	if h.LastCrawlSummary != "" {
+		b.WriteString("\n")
+		b.WriteString(vPaginationStyle.Render(h.LastCrawlSummary))
+	}
 
 	return lipgloss.Place(
 		width,
@@ -141,6 +180,30 @@ func (h HomePageModel) View(width, height int) string {
 		lipgloss.Top,
 		b.String(),
 	)
+}
+
+func (h HomePageModel) modeLabel() string {
+	switch h.CrawlMode {
+	case CrawlMonitor:
+		return fmt.Sprintf("监控模式(前%d页)", h.MonitorPages)
+	case CrawlFetchImages:
+		return "补齐数据库图片"
+	case CrawlFetchThumbnails:
+		return "下载缩略图"
+	default:
+		return "顺序爬取"
+	}
+}
+
+func (h HomePageModel) modeHelp() string {
+	return "1 顺序 | 2 监控 | 3 补图 | 4 缩略图 | m 循环 | +/- 调整上限 | [/] 调整起点"
+}
+
+func onOff(value bool) string {
+	if value {
+		return "开"
+	}
+	return "关"
 }
 
 func compactCardStyle(width int) lipgloss.Style {
@@ -159,11 +222,35 @@ func (h *HomePageModel) Update(msg tea.KeyMsg) HomeAction {
 	switch msg.String() {
 	case "m":
 		if h.CrawlerState == CrawlerStopped {
-			if h.CrawlMode == CrawlSequential {
-				h.CrawlMode = CrawlMonitor
-			} else {
-				h.CrawlMode = CrawlSequential
-			}
+			h.CrawlMode = CrawlMode((int(h.CrawlMode) + 1) % 4)
+		}
+	case "1":
+		h.setMode(CrawlSequential)
+	case "2":
+		h.setMode(CrawlMonitor)
+	case "3":
+		h.setMode(CrawlFetchImages)
+	case "4":
+		h.setMode(CrawlFetchThumbnails)
+	case "+", "=":
+		h.adjustModeParam(1)
+	case "-", "_":
+		h.adjustModeParam(-1)
+	case "[":
+		h.adjustThumbnailStart(-100)
+	case "]":
+		h.adjustThumbnailStart(100)
+	case "i":
+		if h.CrawlerState == CrawlerStopped {
+			h.FetchImages = !h.FetchImages
+		}
+	case "j":
+		if h.CrawlerState == CrawlerStopped {
+			h.SaveJSON = !h.SaveJSON
+		}
+	case "w":
+		if h.CrawlerState == CrawlerStopped {
+			h.ConvertWebp = !h.ConvertWebp
 		}
 	case "left":
 		if h.HomeButtonIdx > 0 {
@@ -185,12 +272,43 @@ func (h *HomePageModel) Update(msg tea.KeyMsg) HomeAction {
 			return HomeActionStopCrawler
 		}
 		if h.HomeButtonIdx == int(HomeFocusMode) {
-			if h.CrawlMode == CrawlSequential {
-				h.CrawlMode = CrawlMonitor
-			} else {
-				h.CrawlMode = CrawlSequential
-			}
+			h.CrawlMode = CrawlMode((int(h.CrawlMode) + 1) % 4)
 		}
 	}
 	return HomeActionNone
+}
+
+func (h *HomePageModel) setMode(mode CrawlMode) {
+	if h.CrawlerState == CrawlerStopped {
+		h.CrawlMode = mode
+	}
+}
+
+func (h *HomePageModel) adjustModeParam(delta int) {
+	if h.CrawlerState != CrawlerStopped {
+		return
+	}
+	switch h.CrawlMode {
+	case CrawlMonitor:
+		h.MonitorPages = clampInt(h.MonitorPages+delta, 1, 50)
+	case CrawlFetchThumbnails:
+		step := 100
+		h.ThumbnailEndID += delta * step
+		if h.ThumbnailEndID < h.ThumbnailStartID {
+			h.ThumbnailEndID = h.ThumbnailStartID
+		}
+	default:
+		h.PostsPerRequest = clampInt(h.PostsPerRequest+delta*20, 20, 200)
+		h.CommentsPerPost = clampInt(h.CommentsPerPost+delta*20, 20, 200)
+	}
+}
+
+func (h *HomePageModel) adjustThumbnailStart(delta int) {
+	if h.CrawlerState != CrawlerStopped || h.CrawlMode != CrawlFetchThumbnails {
+		return
+	}
+	h.ThumbnailStartID = maxInt(1, h.ThumbnailStartID+delta)
+	if h.ThumbnailEndID < h.ThumbnailStartID {
+		h.ThumbnailEndID = h.ThumbnailStartID
+	}
 }

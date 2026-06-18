@@ -1088,6 +1088,33 @@ func TestViewFrameMatchesConfiguredDimensionsHome(t *testing.T) {
 	}
 }
 
+func TestViewFrameMatchesConfiguredDimensionsScores(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageScores
+	m.TabCursor = int(PageScores)
+	m.Width = 80
+	m.Height = 40
+	m.Scores.Summary = &models.ScoreSummary{GPA: "3.9"}
+	for i := 0; i < 40; i++ {
+		m.Scores.Summary.Scores = append(m.Scores.Summary.Scores, models.CourseScore{
+			YearTerm: "2025-261",
+			Name:     "课程",
+			Credit:   "3",
+			Score:    "90",
+		})
+	}
+
+	lines := frameLines(m.View())
+	if len(lines) != m.Height {
+		t.Fatalf("frame line count = %d, want %d", len(lines), m.Height)
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) > m.Width {
+			t.Fatalf("line[%d] width = %d, want <= %d: %q", i, lipgloss.Width(line), m.Width, line)
+		}
+	}
+}
+
 func TestViewFrameMatchesConfiguredDimensionsDetail(t *testing.T) {
 	m := newTestModel()
 	m.Page = PagePosts

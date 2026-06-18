@@ -376,27 +376,27 @@ func TestHandleKeyTabSwitch(t *testing.T) {
 	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	m = result
 
-	if m.Page != PageHome {
-		t.Errorf("Page = %v, want PageHome", m.Page)
+	if m.Page != PageSchedule {
+		t.Errorf("Page = %v, want PageSchedule", m.Page)
 	}
-	if m.TabCursor != 0 {
-		t.Errorf("TabCursor = %d, want 0", m.TabCursor)
+	if m.TabCursor != 2 {
+		t.Errorf("TabCursor = %d, want 2", m.TabCursor)
 	}
 }
 
 func TestHandleKeyTabSwitchBack(t *testing.T) {
 	m := newTestModel()
-	m.Page = PageHome
-	m.TabCursor = 0
+	m.Page = PageScores
+	m.TabCursor = 3
 
 	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	m = result
 
-	if m.Page != PagePosts {
-		t.Errorf("Page = %v, want PagePosts", m.Page)
+	if m.Page != PageHome {
+		t.Errorf("Page = %v, want PageHome", m.Page)
 	}
-	if m.TabCursor != 1 {
-		t.Errorf("TabCursor = %d, want 1", m.TabCursor)
+	if m.TabCursor != 0 {
+		t.Errorf("TabCursor = %d, want 0", m.TabCursor)
 	}
 }
 
