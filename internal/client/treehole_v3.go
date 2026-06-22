@@ -21,22 +21,25 @@ import (
 )
 
 const (
-	chapiBaseURL       = "https://treehole.pku.edu.cn/chapi/api"
-	v3BaseURL          = "https://treehole.pku.edu.cn/chapi/api/v3"
-	chapiCourseTable   = chapiBaseURL + "/getCoursetable_v2"
-	chapiCourseScore   = chapiBaseURL + "/course/score_v2"
-	v3HoleListComments = v3BaseURL + "/hole/list_comments"
-	v3HoleOne          = v3BaseURL + "/hole/one"
-	v3HoleGet          = v3BaseURL + "/hole/get"
-	v3HoleAttention    = v3BaseURL + "/hole/attention"
-	v3HolePraise       = v3BaseURL + "/hole/praise"
-	v3HolePost         = v3BaseURL + "/hole/post"
-	v3CommentList      = v3BaseURL + "/comment/list"
-	v3CommentPost      = v3BaseURL + "/comment/post"
-	v3TagsTree         = v3BaseURL + "/tags/tree"
-	v3MediaThumbnail   = v3BaseURL + "/media/getThumbnail"
-	v3MediaBinary      = v3BaseURL + "/media/getImageBinary"
-	v3MediaUploadImage = v3BaseURL + "/media/uploadImage"
+	chapiBaseURL        = "https://treehole.pku.edu.cn/chapi/api"
+	v3BaseURL           = "https://treehole.pku.edu.cn/chapi/api/v3"
+	chapiCourseTable    = chapiBaseURL + "/getCoursetable_v2"
+	chapiCourseScore    = chapiBaseURL + "/course/score_v2"
+	v3HoleListComments  = v3BaseURL + "/hole/list_comments"
+	v3HoleOne           = v3BaseURL + "/hole/one"
+	v3HoleGet           = v3BaseURL + "/hole/get"
+	v3HoleAttention     = v3BaseURL + "/hole/attention"
+	v3HolePraise        = v3BaseURL + "/hole/praise"
+	v3HolePost          = v3BaseURL + "/hole/post"
+	v3CommentList       = v3BaseURL + "/comment/list"
+	v3CommentPost       = v3BaseURL + "/comment/post"
+	v3TagsTree          = v3BaseURL + "/tags/tree"
+	v3MediaThumbnail    = v3BaseURL + "/media/getThumbnail"
+	v3MediaBinary       = v3BaseURL + "/media/getImageBinary"
+	v3MediaUploadImage  = v3BaseURL + "/media/uploadImage"
+	v3MessageIndex      = v3BaseURL + "/message/index"
+	v3MessageSetRead    = v3BaseURL + "/message/setIntMsgReadByID"
+	v3MessageSetAllRead = v3BaseURL + "/message/set_read"
 )
 
 type V3ListPostsParams struct {
@@ -72,6 +75,25 @@ type CreateCommentPayload struct {
 	MediaIDs     string  `json:"media_ids"`
 	IdentityShow int     `json:"identity_show"`
 	IdentityType string  `json:"identity_type"`
+}
+
+type notificationEnvelope struct {
+	Data struct {
+		List  []notificationDTO `json:"list"`
+		Total int               `json:"total"`
+	} `json:"data"`
+}
+
+type notificationDTO struct {
+	ID        int    `json:"id"`
+	PID       any    `json:"pid"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Contents  string `json:"contents"`
+	IsRead    int    `json:"is_read"`
+	HasRead   int    `json:"hasread"`
+	CreatedAt string `json:"created_at"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 type courseTableEnvelope struct {
@@ -275,6 +297,89 @@ func (c *Client) ListPostsV3(params V3ListPostsParams) ([]models.Post, int, erro
 		posts = append(posts, dto.toModel())
 	}
 	return posts, envelope.Data.Total, nil
+}
+
+func (c *Client) ListNotificationsV3(messageType models.NotificationType, page, limit int) ([]models.Notification, int, error) {
+	if err := validateNotificationType(messageType); err != nil {
+		return nil, 0, err
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	query := url.Values{
+		"page":         {strconv.Itoa(page)},
+		"limit":        {strconv.Itoa(limit)},
+		"message_type": {string(messageType)},
+	}
+	var envelope notificationEnvelope
+	if err := c.doV3JSON(http.MethodGet, v3MessageIndex, query, nil, false, &envelope); err != nil {
+		return nil, 0, err
+	}
+	items := make([]models.Notification, 0, len(envelope.Data.List))
+	for _, item := range envelope.Data.List {
+		items = append(items, item.toModel(messageType))
+	}
+	return items, envelope.Data.Total, nil
+}
+
+func (c *Client) SetNotificationReadV3(id int) error {
+	if id <= 0 {
+		return errors.New("notification id must be positive")
+	}
+	return c.doV3JSON(http.MethodPost, v3MessageSetRead, nil, map[string]int{"id": id}, true, nil)
+}
+
+func (c *Client) SetAllNotificationsReadV3(messageType models.NotificationType) error {
+	if err := validateNotificationType(messageType); err != nil {
+		return err
+	}
+	return c.doV3JSON(http.MethodPost, v3MessageSetAllRead, nil, map[string]string{
+		"message_type": string(messageType),
+	}, true, nil)
+}
+
+func validateNotificationType(messageType models.NotificationType) error {
+	switch messageType {
+	case models.NotificationTypeInteractive, models.NotificationTypeSystem:
+		return nil
+	default:
+		return fmt.Errorf("unsupported notification type: %q", messageType)
+	}
+}
+
+func (d notificationDTO) toModel(messageType models.NotificationType) models.Notification {
+	content := d.Content
+	if content == "" {
+		content = d.Contents
+	}
+	read := d.HasRead != 0
+	if messageType == models.NotificationTypeInteractive {
+		read = d.IsRead != 0
+	}
+	return models.Notification{
+		ID:        d.ID,
+		PID:       parseNotificationPID(d.PID),
+		Title:     d.Title,
+		Content:   content,
+		Read:      read,
+		CreatedAt: d.CreatedAt,
+		Timestamp: d.Timestamp,
+		Type:      messageType,
+	}
+}
+
+func parseNotificationPID(value any) int32 {
+	switch v := value.(type) {
+	case float64:
+		return int32(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 32)
+		return int32(n)
+	}
+	return 0
 }
 
 func (c *Client) GetPostOne(pid int32, commentStream int) (*models.Post, []models.Comment, int, error) {

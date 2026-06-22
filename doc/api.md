@@ -12,6 +12,28 @@ https://treehole.pku.edu.cn/chapi/api/v3/message/index?page=1&limit=10&message_t
 
 示例：int_messages.json / sys_messages.json
 
+## 设置消息已读（只有int_msg）
+POST https://treehole.pku.edu.cn/chapi/api/v3/message/setIntMsgReadByID
+{"id":1555871}
+{
+    "code": 20000,
+    "data": "设置已读成功",
+    "message": "success",
+    "success": true,
+    "timestamp": 1781890480
+}
+
+## 消息全部已读
+https://treehole.pku.edu.cn/chapi/api/v3/message/set_read
+{message_type: "sys_msg"} // 或者int_msg
+{
+    "code": 20000,
+    "data": "设置全部已读成功",
+    "message": "success",
+    "success": true,
+    "timestamp": 1781890439
+}
+
 ## 获取树洞列表及评论
 https://treehole.pku.edu.cn/chapi/api/v3/hole/list_comments?pid=7999240&page=1&limit=10&comment_limit=10&keyword=zkc&label=1&is_follow=1&kind=1&comment_stream=1
 

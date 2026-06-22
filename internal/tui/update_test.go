@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"treehole/internal/client"
 	"treehole/internal/config"
 	"treehole/internal/models"
 
@@ -40,10 +41,11 @@ func newTestModel() Model {
 			Password:  "testpass",
 			SecretKey: "testkey",
 		}),
-		LogsDialog: NewLogsDialog(),
-		AuthDialog: NewAuthChallengeDialog(SessionState{}),
-		Composer:   NewComposerDialog(),
-		TagsDialog: NewTagsDialog(),
+		LogsDialog:         NewLogsDialog(),
+		AuthDialog:         NewAuthChallengeDialog(SessionState{}),
+		Composer:           NewComposerDialog(),
+		TagsDialog:         NewTagsDialog(),
+		NotificationDialog: NewNotificationDialog(),
 	}
 }
 
@@ -334,6 +336,68 @@ func TestHandleKeyOpenLogs(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("Opening logs should trigger loadLogsCmd")
+	}
+}
+
+func TestHandleKeyOpenNotifications(t *testing.T) {
+	m := newTestModel()
+	m.Client = &client.Client{}
+
+	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	m = result
+
+	if m.Dialog != DialogNotifications {
+		t.Fatalf("Dialog = %v, want DialogNotifications", m.Dialog)
+	}
+	if !m.NotificationDialog.Loading() {
+		t.Fatal("NotificationDialog.Loading should be true")
+	}
+	if cmd == nil {
+		t.Fatal("opening notifications should trigger loadNotificationsCmd")
+	}
+}
+
+func TestHandleNotificationDialogSingleReadOnlyForInteractiveMessages(t *testing.T) {
+	m := newTestModel()
+	m.Client = &client.Client{}
+	m.Dialog = DialogNotifications
+	m.NotificationDialog.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
+		{ID: 10, Content: "reply"},
+	}, 1)
+
+	result, cmd := m.handleNotificationDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || !result.NotificationDialog.action {
+		t.Fatal("interactive Enter should start a single-read action")
+	}
+
+	result.NotificationDialog.SetNotifications(models.NotificationTypeSystem, []models.Notification{
+		{ID: 11, Content: "system"},
+	}, 1)
+	result, cmd = result.handleNotificationDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("system Enter must not call the single-read endpoint")
+	}
+}
+
+func TestUpdateNotificationActionMarksRequestedNotificationRead(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogNotifications
+	m.NotificationDialog.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
+		{ID: 10, Content: "first"},
+		{ID: 11, Content: "second"},
+	}, 2)
+	m.NotificationDialog.Update(tea.KeyMsg{Type: tea.KeyDown})
+
+	result, _ := m.Update(NotificationActionMsg{
+		MessageType: models.NotificationTypeInteractive,
+		ID:          10,
+	})
+	got := result.(Model)
+	if !got.NotificationDialog.items[0].Read {
+		t.Fatal("requested notification should be marked read")
+	}
+	if got.NotificationDialog.items[1].Read {
+		t.Fatal("currently selected notification must not be marked when another ID completed")
 	}
 }
 
