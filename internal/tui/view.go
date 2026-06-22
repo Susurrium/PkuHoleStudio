@@ -119,6 +119,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderPanelScreen(width, height, m.renderConfigPanelContent)
 	case DialogLogs:
 		body, placements = m.renderPanelScreen(width, height, m.renderLogsPanelContent)
+	case DialogNotifications:
+		body, placements = m.renderNotificationPanelScreen(width, height)
 	case DialogComposer:
 		body, placements = m.renderPanelScreen(width, height, m.renderComposerPanelContent)
 	case DialogImage:
@@ -199,6 +201,14 @@ func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
 }
 
 func (m Model) renderPanelScreen(width, height int, renderContent func(panelW, panelH int) string) (string, []imagePlacement) {
+	return m.renderPanelScreenWithStyle(width, height, renderContent, false)
+}
+
+func (m Model) renderNotificationPanelScreen(width, height int) (string, []imagePlacement) {
+	return m.renderPanelScreenWithStyle(width, height, m.renderNotificationPanelContent, true)
+}
+
+func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(panelW, panelH int) string, fillPanel bool) (string, []imagePlacement) {
 	mainModel := m
 	mainModel.Dialog = DialogNone
 	main, placements := mainModel.renderMainLayout(width, height)
@@ -221,7 +231,19 @@ func (m Model) renderPanelScreen(width, height int, renderContent func(panelW, p
 	panelX := (width - panelW) / 2
 	panelY := (height - panelH) / 2
 
-	panel := panelContentStyle.Width(panelW).MaxHeight(panelH).Render(renderContent(panelW, panelH))
+	panelStyle := panelContentStyle.Width(panelW).MaxHeight(panelH)
+	if fillPanel {
+		panelStyle = panelStyle.
+			Height(maxInt(1, panelH-panelContentStyle.GetVerticalFrameSize())).
+			ColorWhitespace(true)
+	}
+	panel := panelStyle.Render(renderContent(panelW, panelH))
+	if fillPanel {
+		// The v2 compositor treats ordinary spaces as transparent cells even
+		// when they carry a background color. Non-breaking spaces keep the
+		// notification panel opaque without changing its terminal width.
+		panel = strings.ReplaceAll(panel, " ", "\u00a0")
+	}
 
 	baseLayer := lipgloss2.NewLayer(main)
 	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
@@ -235,6 +257,10 @@ func (m Model) renderConfigPanelContent(panelW, panelH int) string {
 
 func (m Model) renderLogsPanelContent(panelW, panelH int) string {
 	return m.LogsDialog.View(panelW, panelH)
+}
+
+func (m Model) renderNotificationPanelContent(panelW, panelH int) string {
+	return m.NotificationDialog.View(panelW, panelH)
 }
 
 func (m Model) renderComposerPanelContent(panelW, panelH int) string {
@@ -438,6 +464,8 @@ func (m Model) currentModeLabel() string {
 		return "COMPOSE"
 	case DialogTags:
 		return "TAGS"
+	case DialogNotifications:
+		return "NOTIFY"
 	}
 
 	if m.Page == PageHome {
@@ -530,6 +558,8 @@ func (m Model) dialogStatusSummary() string {
 		return "Ctrl+S: 提交 | Esc: 取消"
 	case DialogTags:
 		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
+	case DialogNotifications:
+		return "b: 通知 | i/s: 分类 | Enter/a: 已读 | Esc: 关闭"
 	default:
 		return "h: 帮助 | Ctrl+Q: 退出"
 	}
@@ -771,6 +801,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "Enter", desc: "启动/停止"},
 			helpItem{key: "c", desc: "打开配置"},
 			helpItem{key: "l", desc: "查看日志"},
+			helpItem{key: "b", desc: "查看通知"},
 		)
 		if m.Home.CrawlerState != CrawlerRunning {
 			items = append(items, helpItem{key: "m", desc: "切换模式"})
@@ -781,6 +812,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "r", desc: "刷新"},
 			helpItem{key: "c", desc: "打开配置"},
 			helpItem{key: "l", desc: "查看日志"},
+			helpItem{key: "b", desc: "查看通知"},
 		)
 		if m.Page == PageScores {
 			items = append(items,
@@ -822,6 +854,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "r", desc: "刷新列表"},
 			helpItem{key: "c", desc: "打开配置"},
 			helpItem{key: "l", desc: "查看日志"},
+			helpItem{key: "b", desc: "查看通知"},
 		)
 		if m.Session.Mode == SessionModeOnline {
 			items = append(items, helpItem{key: "t", desc: "标签筛选"})

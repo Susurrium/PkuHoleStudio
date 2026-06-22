@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"treehole/internal/models"
 )
 
 func TestFlattenTagsSupportsTagNameChildren(t *testing.T) {
@@ -86,6 +88,64 @@ func TestListPostsV3IncludesPIDQuery(t *testing.T) {
 	if got := query.Get("page"); got != "2" {
 		t.Fatalf("page query = %q, want %q", got, "2")
 	}
+}
+
+func TestListNotificationsV3ParsesInteractiveMessages(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"list":[{"id":796701,"pid":8133228,"contents":"new reply","is_read":0,"created_at":"2026-04-08 15:27:19"}],"total":1}}`)
+
+	items, total, err := capture.client.ListNotificationsV3(models.NotificationTypeInteractive, 2, 10)
+	if err != nil {
+		t.Fatalf("ListNotificationsV3: %v", err)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/v3/message/index" {
+		t.Fatalf("path = %q", capture.rt.last.URL.Path)
+	}
+	query := capture.rt.last.URL.Query()
+	if query.Get("message_type") != "int_msg" || query.Get("page") != "2" || query.Get("limit") != "10" {
+		t.Fatalf("unexpected query: %s", capture.rt.last.URL.RawQuery)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("total/items = %d/%d", total, len(items))
+	}
+	if items[0].Content != "new reply" || items[0].Read {
+		t.Fatalf("notification = %+v", items[0])
+	}
+}
+
+func TestListNotificationsV3ParsesSystemMessages(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"list":[{"id":1312510,"title":"notice","content":"system content","timestamp":1773559550,"hasread":1,"pid":"8080378"}],"total":1}}`)
+
+	items, _, err := capture.client.ListNotificationsV3(models.NotificationTypeSystem, 1, 20)
+	if err != nil {
+		t.Fatalf("ListNotificationsV3: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "notice" || items[0].Content != "system content" || !items[0].Read {
+		t.Fatalf("notification = %+v", items)
+	}
+}
+
+func TestSetNotificationReadV3PostsID(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":"设置已读成功","success":true}`)
+
+	if err := capture.client.SetNotificationReadV3(1555871); err != nil {
+		t.Fatalf("SetNotificationReadV3: %v", err)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/v3/message/setIntMsgReadByID" {
+		t.Fatalf("path = %q", capture.rt.last.URL.Path)
+	}
+	assertJSONField(t, capture.rt.body, "id", float64(1555871))
+}
+
+func TestSetAllNotificationsReadV3PostsType(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":"设置全部已读成功","success":true}`)
+
+	if err := capture.client.SetAllNotificationsReadV3(models.NotificationTypeSystem); err != nil {
+		t.Fatalf("SetAllNotificationsReadV3: %v", err)
+	}
+	if capture.rt.last.URL.Path != "/chapi/api/v3/message/set_read" {
+		t.Fatalf("path = %q", capture.rt.last.URL.Path)
+	}
+	assertJSONField(t, capture.rt.body, "message_type", "sys_msg")
 }
 
 func TestListPostsV3IncludesIsFollowQuery(t *testing.T) {

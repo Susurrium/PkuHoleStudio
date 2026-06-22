@@ -211,6 +211,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case LoadNotificationsMsg:
+		if msg.Error != nil {
+			m.NotificationDialog.SetError(msg.Error)
+			m.handleOnlineReadFailure(msg.Error)
+		} else if msg.MessageType == m.NotificationDialog.MessageType() {
+			m.NotificationDialog.SetNotifications(msg.MessageType, msg.Items, msg.Total)
+		}
+		return m, nil
+
+	case NotificationActionMsg:
+		if msg.Error != nil {
+			m.NotificationDialog.SetError(msg.Error)
+			m.LastError = msg.Error.Error()
+			return m, nil
+		}
+		if msg.MessageType != m.NotificationDialog.MessageType() {
+			return m, nil
+		}
+		if msg.All {
+			m.NotificationDialog.MarkAllRead()
+			return m, m.showToast("当前分类通知已全部设为已读")
+		}
+		m.NotificationDialog.MarkRead(msg.ID)
+		return m, m.showToast("通知已设为已读")
+
 	case LoadConfigMsg:
 		if msg.Error == nil && msg.Config != nil {
 			m.Config = msg.Config
@@ -366,6 +391,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Dialog = DialogLogs
 			m.LogsDialog.SetLoading(true)
 			return m, loadLogsCmd()
+		case "b":
+			m.Dialog = DialogNotifications
+			m.NotificationDialog = NewNotificationDialog()
+			m.NotificationDialog.SetLoading(true)
+			return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
 		}
 	}
 
@@ -406,6 +436,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.handleComposerKey(msg)
 		case DialogTags:
 			return m.handleTagsDialogKey(msg)
+		case DialogNotifications:
+			return m.handleNotificationDialogKey(msg)
 		}
 	}
 
@@ -762,6 +794,32 @@ func (m Model) handleLogsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	cmd := m.LogsDialog.Update(msg)
 	return m, cmd
+}
+
+func (m Model) handleNotificationDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.Type == tea.KeyEscape {
+		m.Dialog = DialogNone
+		return m, nil
+	}
+	switch msg.String() {
+	case "r":
+		m.NotificationDialog.SetLoading(true)
+		return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
+	case "enter":
+		if !m.NotificationDialog.CanMarkSelectedRead() {
+			return m, nil
+		}
+		selected := m.NotificationDialog.Selected()
+		m.NotificationDialog.SetAction(true)
+		return m, setNotificationReadCmd(m.Client, selected.ID, m.NotificationDialog.MessageType())
+	case "a":
+		m.NotificationDialog.SetAction(true)
+		return m, setAllNotificationsReadCmd(m.Client, m.NotificationDialog.MessageType())
+	}
+	if m.NotificationDialog.Update(msg) {
+		return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
+	}
+	return m, nil
 }
 
 func (m Model) handleImageDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1199,6 +1257,36 @@ func loadLogsCmd() tea.Cmd {
 			lines[i], lines[j] = lines[j], lines[i]
 		}
 		return LoadLogsMsg{Lines: lines}
+	}
+}
+
+func loadNotificationsCmd(c *client.Client, messageType models.NotificationType) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return LoadNotificationsMsg{MessageType: messageType, Error: errors.New("客户端未初始化")}
+		}
+		items, total, err := c.ListNotificationsV3(messageType, 1, 50)
+		return LoadNotificationsMsg{MessageType: messageType, Items: items, Total: total, Error: err}
+	}
+}
+
+func setNotificationReadCmd(c *client.Client, id int, messageType models.NotificationType) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return NotificationActionMsg{MessageType: messageType, ID: id, Error: errors.New("客户端未初始化")}
+		}
+		err := c.SetNotificationReadV3(id)
+		return NotificationActionMsg{MessageType: messageType, ID: id, Error: err}
+	}
+}
+
+func setAllNotificationsReadCmd(c *client.Client, messageType models.NotificationType) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return NotificationActionMsg{MessageType: messageType, All: true, Error: errors.New("客户端未初始化")}
+		}
+		err := c.SetAllNotificationsReadV3(messageType)
+		return NotificationActionMsg{MessageType: messageType, All: true, Error: err}
 	}
 }
 

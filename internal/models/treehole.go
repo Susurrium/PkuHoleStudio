@@ -132,3 +132,21 @@ type Tag struct {
 	Label    string `json:"label"`
 	ParentID int    `json:"parent_id"`
 }
+
+type NotificationType string
+
+const (
+	NotificationTypeInteractive NotificationType = "int_msg"
+	NotificationTypeSystem      NotificationType = "sys_msg"
+)
+
+type Notification struct {
+	ID        int
+	PID       int32
+	Title     string
+	Content   string
+	Read      bool
+	CreatedAt string
+	Timestamp int64
+	Type      NotificationType
+}
