@@ -123,7 +123,13 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 	case DialogImage:
 		body, placements = m.renderImagePanelScreen(width, height)
 	default:
-		base, p := m.renderMainLayout(width, height)
+		var base string
+		var p []imagePlacement
+		if m.Page == PageDashboard {
+			base = m.renderDashboardScreen(width, height)
+		} else {
+			base, p = m.renderMainLayout(width, height)
+		}
 		placements = p
 		if m.Dialog != DialogNone {
 			dialog := m.renderDialog()
@@ -138,21 +144,31 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 	return body, placements
 }
 
+func (m Model) renderDashboardScreen(width, height int) string {
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, m.Dashboard.View(width, height))
+}
+
 func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
 	m.Width = width
 	m.Height = height
 
-	tabs := []string{"同步", "帖子", "课表", "成绩"}
-	var segments []powerlineSegment
-	for i, t := range tabs {
-		if i == m.TabCursor {
-			segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
-		} else {
-			segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
+	var tabBar string
+	if m.Page != PageDashboard {
+		tabs := []string{"同步", "帖子", "课表", "成绩"}
+		var segments []powerlineSegment
+		for i, t := range tabs {
+			if i == m.TabCursor {
+				segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
+			} else {
+				segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
+			}
 		}
+		tabBar = m.renderTabBar(width, m.renderPowerlineGroup(segments, powerlineRight))
 	}
-	tabBar := m.renderTabBar(width, m.renderPowerlineGroup(segments, powerlineRight))
-	footer := m.renderStatusLine(width)
+	var footer string
+	if m.Page != PageDashboard {
+		footer = m.renderStatusLine(width)
+	}
 
 	contentHeight := m.contentAreaHeightForSize(width, height)
 	content, placements := m.renderContent(contentHeight)
@@ -167,7 +183,15 @@ func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
 		content,
 	)
 
-	body := lipgloss.JoinVertical(lipgloss.Left, tabBar, contentBlock, footer)
+	parts := make([]string, 0, 3)
+	if tabBar != "" {
+		parts = append(parts, tabBar)
+	}
+	parts = append(parts, contentBlock)
+	if footer != "" {
+		parts = append(parts, footer)
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
@@ -326,6 +350,12 @@ func (m Model) overlayToast(screenWidth int, body string) string {
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
+	if m.Page == PageDashboard {
+		if height < 1 {
+			return 1
+		}
+		return height
+	}
 	tabBar := m.renderTabBar(width, "")
 	footer := m.renderStatusLine(width)
 	contentHeight := height - lipgloss.Height(tabBar) - lipgloss.Height(footer)
@@ -484,6 +514,9 @@ func (m Model) currentModeLabel() string {
 		return "TAGS"
 	}
 
+	if m.Page == PageDashboard {
+		return "DASHBOARD"
+	}
 	if m.Page == PageHome {
 		if m.Home.CrawlerState == CrawlerRunning {
 			return "SYNC"
@@ -514,6 +547,8 @@ func (m Model) currentModeLabel() string {
 
 func (m Model) currentPageLabel() string {
 	switch m.Page {
+	case PageDashboard:
+		return "TreeHole"
 	case PageHome:
 		return m.Home.modeLabel()
 	case PagePosts:
@@ -543,6 +578,12 @@ func (m Model) currentStatusSummary() string {
 	}
 	if m.Dialog != DialogNone {
 		return m.dialogStatusSummary()
+	}
+	if m.Page == PageDashboard {
+		if m.Dashboard.Loading {
+			return "正在加载通知"
+		}
+		return "e: 浏览 | n: 通知 | c: 配置"
 	}
 	if m.Page == PageHome {
 		return m.homeStatusSummary()
@@ -676,6 +717,8 @@ func (m Model) sessionBadgeStyle() lipgloss.Style {
 
 func (m Model) renderContent(contentHeight int) (string, []imagePlacement) {
 	switch m.Page {
+	case PageDashboard:
+		return m.Dashboard.View(m.Width, contentHeight), nil
 	case PageHome:
 		return m.renderHome(contentHeight), nil
 	case PagePosts:
@@ -775,6 +818,9 @@ func (m Model) helpPanelWidth(totalWidth int) int {
 }
 
 func (m Model) helpContextTitle() string {
+	if m.Page == PageDashboard {
+		return "Dashboard"
+	}
 	if m.Page == PageHome {
 		if m.Home.CrawlerState == CrawlerRunning {
 			return "同步页"
@@ -804,6 +850,12 @@ func (m Model) helpItems() []helpItem {
 		items = append(items,
 			helpItem{key: "←→", desc: "切换图片"},
 			helpItem{key: "Esc", desc: "关闭图片"},
+		)
+	case m.Page == PageDashboard:
+		items = append(items,
+			helpItem{key: "e", desc: "进入浏览"},
+			helpItem{key: "n", desc: "打开通知"},
+			helpItem{key: "c", desc: "打开配置"},
 		)
 	case m.Page == PageHome:
 		items = append(items,

@@ -18,6 +18,7 @@ const (
 	PagePosts
 	PageSchedule
 	PageScores
+	PageDashboard
 )
 
 const pageCount = int(PageScores) + 1
@@ -125,6 +126,11 @@ type LoadNotificationsMsg struct {
 	Items       []models.Notification
 	Total       int
 	Error       error
+}
+
+type LoadDashboardNotificationsMsg struct {
+	Items []models.Notification
+	Error error
 }
 
 type NotificationActionMsg struct {
@@ -243,9 +249,10 @@ type Model struct {
 	Provider PostsProvider
 	Session  SessionState
 
-	Posts    PostsPageModel
-	Schedule CourseSchedulePageModel
-	Scores   ScorePageModel
+	Posts     PostsPageModel
+	Schedule  CourseSchedulePageModel
+	Scores    ScorePageModel
+	Dashboard DashboardModel
 
 	ToolsDialog   ToolsDialogModel
 	ImageDialog   ImageDialogModel
@@ -273,19 +280,13 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 		session.Mode = SessionModeOffline
 	}
 
-	dialog := DialogNone
 	sessionDialog := NewSessionPromptDialog(session)
 	authDialog := NewAuthChallengeDialog(session)
-	if session.Challenge != AuthChallengeTypeNone {
-		dialog = DialogAuthChallenge
-	} else if session.FailureReason != SessionFailureReasonNone {
-		dialog = DialogSessionPrompt
-	}
 
 	return Model{
-		Page:          PagePosts,
+		Page:          PageDashboard,
 		TabCursor:     1,
-		Dialog:        dialog,
+		Dialog:        DialogNone,
 		Home:          NewHomePageModel(),
 		Database:      database,
 		Client:        client,
@@ -293,6 +294,7 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 		Provider:      provider,
 		Session:       session,
 		Posts:         NewPostsPageModel(),
+		Dashboard:     NewDashboardModel(),
 		ToolsDialog:   NewToolsDialog(cfg),
 		ImageDialog:   NewImageDialog(),
 		SessionDialog: sessionDialog,
@@ -311,7 +313,7 @@ func (m Model) Init() tea.Cmd {
 		func() tea.Msg {
 			return LoginMsg{Username: username}
 		},
-		loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID),
+		loadDashboardNotificationsCmd(m.Client),
 		tickCmd(),
 	)
 }

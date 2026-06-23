@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -220,6 +221,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case LoadDashboardNotificationsMsg:
+		m.Dashboard.SetNotifications(msg.Items, msg.Error)
+		return m, nil
+
 	case NotificationActionMsg:
 		if msg.Error != nil {
 			m.ToolsDialog.Notifications.SetError(msg.Error)
@@ -231,9 +236,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.All {
 			m.ToolsDialog.Notifications.MarkAllRead()
+			m.Dashboard.MarkAllRead(msg.MessageType)
 			return m, m.showToast("当前分类通知已全部设为已读")
 		}
 		m.ToolsDialog.Notifications.MarkRead(msg.ID)
+		m.Dashboard.MarkRead(msg.ID)
 		return m, m.showToast("通知已设为已读")
 
 	case LoadConfigMsg:
@@ -390,6 +397,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.Dialog == DialogNone && m.Page == PageDashboard {
+		switch msg.String() {
+		case "e":
+			m.Page = PagePosts
+			m.TabCursor = int(PagePosts)
+			m.Posts.PostListLoading = true
+			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+		case "n":
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionInteractive)
+			m.ToolsDialog.Notifications = NewNotificationDialog()
+			m.ToolsDialog.Notifications.SetLoading(true)
+			return m, loadNotificationsCmd(m.Client, models.NotificationTypeInteractive)
+		}
+	}
+
 	if m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
 		switch msg.String() {
 		case "c":
@@ -450,6 +473,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 
 	switch m.Page {
+	case PageDashboard:
+		return m, nil
 	case PageHome:
 		return m.handleHomeKey(msg)
 	case PagePosts:
@@ -1296,6 +1321,41 @@ func loadNotificationsCmd(c *client.Client, messageType models.NotificationType)
 		}
 		items, total, err := c.ListNotificationsV3(messageType, 1, 50)
 		return LoadNotificationsMsg{MessageType: messageType, Items: items, Total: total, Error: err}
+	}
+}
+
+func loadDashboardNotificationsCmd(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return LoadDashboardNotificationsMsg{Error: errors.New("客户端未初始化")}
+		}
+		interactive, _, intErr := c.ListNotificationsV3(models.NotificationTypeInteractive, 1, 20)
+		system, _, sysErr := c.ListNotificationsV3(models.NotificationTypeSystem, 1, 20)
+		if intErr != nil && sysErr != nil {
+			return LoadDashboardNotificationsMsg{Error: intErr}
+		}
+		items := make([]models.Notification, 0, len(interactive)+len(system))
+		for _, item := range append(interactive, system...) {
+			if !item.Read {
+				items = append(items, item)
+			}
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			left := items[i].Timestamp
+			right := items[j].Timestamp
+			if left == 0 && items[i].CreatedAt != "" {
+				if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", items[i].CreatedAt, shanghaiLocation); err == nil {
+					left = parsed.Unix()
+				}
+			}
+			if right == 0 && items[j].CreatedAt != "" {
+				if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", items[j].CreatedAt, shanghaiLocation); err == nil {
+					right = parsed.Unix()
+				}
+			}
+			return left > right
+		})
+		return LoadDashboardNotificationsMsg{Items: items}
 	}
 }
 
