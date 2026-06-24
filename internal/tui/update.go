@@ -282,8 +282,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AuthChallengeResultMsg:
 		m.AuthDialog.SetSubmitting(false)
+		wasCredentialPrompt := m.Dialog == DialogSessionPrompt && m.SessionDialog.NeedsCredentials()
 		if msg.Error != nil {
-			m.AuthDialog.SetError(msg.Error)
+			if wasCredentialPrompt {
+				m.SessionDialog.SetError(msg.Error)
+			} else {
+				m.AuthDialog.SetError(msg.Error)
+			}
 			return m, nil
 		}
 		sessionCmd := m.applySessionState(msg.State)
@@ -293,6 +298,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Posts.PostListLoading = true
 			return m, tea.Batch(sessionCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID))
 		}
+		if wasCredentialPrompt &&
+			(msg.State.Challenge == AuthChallengeTypeSMS || msg.State.Challenge == AuthChallengeTypeOTP) {
+			m.SessionDialog.SetChallenge(msg.State)
+			m.Dialog = DialogSessionPrompt
+			return m, sessionCmd
+		}
 		m.AuthDialog.ApplyState(msg.State)
 		m.Dialog = DialogAuthChallenge
 		return m, sessionCmd
@@ -300,10 +311,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AuthSMSSentMsg:
 		m.AuthDialog.SetSubmitting(false)
 		if msg.Error != nil {
-			m.AuthDialog.SetError(msg.Error)
+			if m.Dialog == DialogSessionPrompt && m.SessionDialog.NeedsCredentials() {
+				m.SessionDialog.SetError(msg.Error)
+			} else {
+				m.AuthDialog.SetError(msg.Error)
+			}
 		} else {
-			m.AuthDialog.SetError(nil)
-			m.AuthDialog.SetStatus(msg.Message)
+			if m.Dialog == DialogSessionPrompt && m.SessionDialog.NeedsCredentials() {
+				m.SessionDialog.SetError(nil)
+				m.SessionDialog.SetStatus(msg.Message)
+			} else {
+				m.AuthDialog.SetError(nil)
+				m.AuthDialog.SetStatus(msg.Message)
+			}
 		}
 		return m, nil
 
@@ -400,10 +420,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if m.Dialog == DialogNone && m.Page == PageDashboard {
 		switch msg.String() {
 		case "e":
-			m.Page = PagePosts
-			m.TabCursor = int(PagePosts)
-			m.Posts.PostListLoading = true
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+			return m.enterDashboardExplore()
 		case "n":
 			m.Dialog = DialogTools
 			m.ToolsDialog.Switch(ToolsSectionInteractive)
@@ -485,6 +502,31 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleScoresKey(msg)
 	}
 	return m, nil
+}
+
+func (m Model) enterDashboardExplore() (Model, tea.Cmd) {
+	if next, blocked := m.openSessionRecoveryDialog(); blocked {
+		return next, nil
+	}
+	m.Page = PagePosts
+	m.TabCursor = int(PagePosts)
+	m.Posts.PostListLoading = true
+	return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+}
+
+func (m Model) openSessionRecoveryDialog() (Model, bool) {
+	switch {
+	case m.Session.Challenge != AuthChallengeTypeNone:
+		m.AuthDialog.ApplyState(m.Session)
+		m.Dialog = DialogAuthChallenge
+		return m, true
+	case m.Session.FailureReason != SessionFailureReasonNone:
+		m.SessionDialog.ApplyState(m.Session)
+		m.Dialog = DialogSessionPrompt
+		return m, true
+	default:
+		return m, false
+	}
 }
 
 func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -893,6 +935,67 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
+	if m.SessionDialog.NeedsCredentials() {
+		if msg.Code == tea.KeyEnter {
+			challenge := m.SessionDialog.Challenge()
+			focusIndex := m.SessionDialog.CredentialFocusIndex()
+			if focusIndex == m.SessionDialog.maxFocusIndex() {
+				offlineCmd := m.forceOfflineMode(m.Session.Message)
+				m.Dialog = DialogNone
+				m.Posts.PostListLoading = true
+				return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
+			}
+			if challenge != AuthChallengeTypeNone && focusIndex == 3 {
+				if challenge == AuthChallengeTypeSMS {
+					m.SessionDialog.MarkSMSSent()
+					m.SessionDialog.SetError(nil)
+					m.SessionDialog.SetStatus("")
+					return m, sendSMSChallengeCmd(m.Client)
+				}
+				code := m.SessionDialog.ChallengeValue()
+				if code == "" {
+					m.SessionDialog.SetError(errors.New("令牌不能为空"))
+					return m, nil
+				}
+				m.SessionDialog.SetError(nil)
+				m.SessionDialog.SetStatus("")
+				return m, submitAuthChallengeCmd(m.Client, challenge, code)
+			}
+			if challenge != AuthChallengeTypeNone && focusIndex == 2 {
+				code := m.SessionDialog.ChallengeValue()
+				if code == "" {
+					if challenge == AuthChallengeTypeOTP {
+						m.SessionDialog.SetError(errors.New("令牌不能为空"))
+					} else {
+						m.SessionDialog.SetError(errors.New("验证码不能为空"))
+					}
+					return m, nil
+				}
+				m.SessionDialog.SetError(nil)
+				m.SessionDialog.SetStatus("")
+				return m, submitAuthChallengeCmd(m.Client, challenge, code)
+			}
+			username, password := m.SessionDialog.Credentials()
+			if username == "" {
+				m.SessionDialog.SetError(errors.New("用户名不能为空"))
+				return m, nil
+			}
+			if password == "" {
+				m.SessionDialog.SetError(errors.New("密码不能为空"))
+				return m, nil
+			}
+			if m.Config == nil {
+				defaultCfg := config.DefaultConfig()
+				m.Config = &defaultCfg
+			}
+			m.Config.Username = username
+			m.Config.Password = password
+			m.SessionDialog.SetError(nil)
+			return m, tea.Batch(saveConfigCmd(m.Config), submitPasswordLoginCmd(m.Client, m.Config, password))
+		}
+		cmd := m.SessionDialog.Update(msg)
+		return m, cmd
+	}
 	if msg.Code == tea.KeyEnter {
 		switch m.SessionDialog.SelectedOption() {
 		case "打开配置":
@@ -909,8 +1012,8 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
 		}
 	}
-	m.SessionDialog.Update(msg)
-	return m, nil
+	cmd := m.SessionDialog.Update(msg)
+	return m, cmd
 }
 
 func (m Model) openCurrentImagePanel() (Model, tea.Cmd) {
@@ -1438,7 +1541,7 @@ func attemptBootstrapSession(c *client.Client, cfg *config.Config) SessionState 
 		state.FailureReason = SessionFailureReasonLogin
 		state.NeedsConfig = true
 		if state.Message == "" || state.Message == "登录态不可用" {
-			state.Message = "未检测到可用登录态，也未配置账号密码。请先打开配置填写账号密码。"
+			state.Message = "使用账号密码登录"
 		}
 	}
 	return state

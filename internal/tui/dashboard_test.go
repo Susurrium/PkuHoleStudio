@@ -67,6 +67,58 @@ func TestDashboardShortcutsOpenExploreNotificationsAndConfig(t *testing.T) {
 	}
 }
 
+func TestDashboardExploreOpensSessionPromptWhenLoginUnavailable(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageDashboard
+	m.Session = SessionState{
+		Mode:          SessionModeOffline,
+		FailureReason: SessionFailureReasonLogin,
+		NeedsConfig:   true,
+		Message:       "请先填写账号密码",
+	}
+	m.SessionDialog = NewSessionPromptDialog(m.Session)
+
+	got, cmd := m.handleKey(keyPress('e'))
+	if cmd != nil {
+		t.Fatal("login recovery prompt should not load posts immediately")
+	}
+	if got.Page != PageDashboard {
+		t.Fatalf("page = %v, want dashboard while login prompt is open", got.Page)
+	}
+	if got.Dialog != DialogSessionPrompt {
+		t.Fatalf("dialog = %v, want session prompt", got.Dialog)
+	}
+	if !got.SessionDialog.NeedsCredentials() {
+		t.Fatal("session prompt should show username/password fields")
+	}
+}
+
+func TestDashboardExploreOpensAuthChallengeWhenLoginNeedsInput(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageDashboard
+	m.Session = SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypePassword,
+		ChallengeMessage: "请输入密码",
+		Message:          "请输入密码",
+	}
+	m.AuthDialog = NewAuthChallengeDialog(m.Session)
+
+	got, cmd := m.handleKey(keyPress('e'))
+	if cmd != nil {
+		t.Fatal("auth challenge should not load posts immediately")
+	}
+	if got.Page != PageDashboard {
+		t.Fatalf("page = %v, want dashboard while auth dialog is open", got.Page)
+	}
+	if got.Dialog != DialogAuthChallenge {
+		t.Fatalf("dialog = %v, want auth challenge", got.Dialog)
+	}
+	if got.AuthDialog.Kind() != AuthChallengeTypePassword {
+		t.Fatalf("auth kind = %v, want password", got.AuthDialog.Kind())
+	}
+}
+
 func TestDashboardShowsOnlyUnreadItemsFromLoadMessage(t *testing.T) {
 	m := newTestModel()
 	m.Page = PageDashboard

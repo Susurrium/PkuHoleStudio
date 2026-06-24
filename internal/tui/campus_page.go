@@ -144,7 +144,7 @@ func (p ScorePageModel) View(width, height int) string {
 	if len(p.Summary.Scores) > availableRows {
 		b.WriteString("\n")
 		b.WriteString(vPaginationStyle.Render(fmt.Sprintf(
-			"%d-%d / %d  ↑↓ 滚动  PgUp/PgDn 翻页",
+			"%d-%d / %d",
 			offset+1,
 			end,
 			len(p.Summary.Scores),

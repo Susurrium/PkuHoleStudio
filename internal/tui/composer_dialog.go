@@ -73,7 +73,7 @@ func (m *ComposerDialogModel) Configure(mode ComposerMode) {
 	m.imageInput.Placeholder = composerImagePlaceholder
 	styleTextarea(&m.imageInput, colorBg, colorText, colorMuted)
 	m.imageInput.Blur()
-	m.description = "正文支持多行；图片路径可选；Tab 切换输入框"
+	m.description = ""
 	if mode == ComposerModeComment {
 		m.title = "发布评论"
 	} else {
@@ -186,12 +186,13 @@ func (m ComposerDialogModel) View(width, height int) string {
 		b.WriteString(vErrorStyle.Render(m.errorText))
 	}
 	b.WriteString("\n\n")
-	b.WriteString(vDialogHelpStyle.Render("Tab: 切换 | Enter: 换行 | Ctrl+S: 提交 | Esc: 取消"))
+	b.WriteString(vDialogHelpStyle.Render("Tab: 切换 | Ctrl+S: 提交"))
 	return b.String()
 }
 
 func composerImageLabel(width int) string {
 	return lipgloss.NewStyle().
+		Background(colorBg).
 		Foreground(colorMuted).
 		Width(width).
 		Render("图片")

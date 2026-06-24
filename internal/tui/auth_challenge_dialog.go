@@ -23,6 +23,7 @@ func NewAuthChallengeDialog(state SessionState) AuthChallengeDialogModel {
 	input := textinput.New()
 	input.Prompt = ""
 	input.SetWidth(24)
+	styleTextInput(&input, colorBg, colorText, colorMuted)
 	m := AuthChallengeDialogModel{input: input}
 	m.ApplyState(state)
 	return m
@@ -144,12 +145,15 @@ func (m AuthChallengeDialogModel) IsSendFocused() bool {
 func (m AuthChallengeDialogModel) View(width int) string {
 	var b strings.Builder
 	input := m.input
-	input.SetWidth(maxInt(20, width-18))
+	contentWidth := maxInt(20, width-18)
+	input.SetWidth(contentWidth)
+	styleTextInput(&input, colorBg, colorText, colorMuted)
+	fill := dialogBackgroundFillStyle()
 
 	b.WriteString(vDialogTitleStyle.Render(m.title))
 	b.WriteString("\n\n")
 	if m.message != "" {
-		b.WriteString(m.message)
+		b.WriteString(fillRenderedBackground(fill.Render(m.message), contentWidth, fill))
 	}
 	if m.kind == AuthChallengeTypeSMS {
 		btn := vButtonDefault.Render("发送验证码")
@@ -157,7 +161,7 @@ func (m AuthChallengeDialogModel) View(width int) string {
 			btn = vButtonActive.Render("发送验证码")
 		}
 		if m.smsSentOnce {
-			btn += " " + vHelpStyle.Render("已发送，可再次确认重发")
+			btn += fill.Render(" ") + vHelpStyle.Render("已发送，可再次确认重发")
 		}
 		b.WriteString(btn)
 		b.WriteString("\n\n")
@@ -181,5 +185,5 @@ func (m AuthChallengeDialogModel) View(width int) string {
 		b.WriteString("\n")
 		b.WriteString(vLoadingStyle.Render("处理中..."))
 	}
-	return b.String()
+	return preserveBackgroundAfterReset(fillRenderedBackground(b.String(), width, fill), colorBg)
 }

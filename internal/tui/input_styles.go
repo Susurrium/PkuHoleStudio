@@ -20,6 +20,7 @@ func styleTextInput(input *textinput.Model, bg, textColor, placeholderColor colo
 	styles.Blurred.Text = base.Foreground(textColor)
 	styles.Blurred.Placeholder = base.Foreground(placeholderColor)
 	styles.Blurred.Suggestion = base.Foreground(placeholderColor)
+	styles.Cursor.Color = bg
 	input.SetStyles(styles)
 }
 
