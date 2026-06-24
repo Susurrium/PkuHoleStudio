@@ -1583,7 +1583,7 @@ func TestSessionRefreshSuccessClosesPrompt(t *testing.T) {
 	}
 }
 
-func TestSessionPromptNeedsConfigShowsOpenConfig(t *testing.T) {
+func TestSessionPromptNeedsConfigShowsCredentialForm(t *testing.T) {
 	m := newTestModel()
 	state := SessionState{
 		Mode:          SessionModeOffline,
@@ -1598,12 +1598,44 @@ func TestSessionPromptNeedsConfigShowsOpenConfig(t *testing.T) {
 	if got.Dialog != DialogSessionPrompt {
 		t.Fatalf("dialog = %v, want session prompt", got.Dialog)
 	}
-	if option := got.SessionDialog.SelectedOption(); option != "打开配置" {
-		t.Fatalf("selected option = %q, want 打开配置", option)
+	if !got.SessionDialog.NeedsCredentials() {
+		t.Fatal("session prompt should show credential form")
 	}
 }
 
-func TestHandleSessionDialogOpenConfig(t *testing.T) {
+func TestHandleSessionDialogSubmitsCredentialForm(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogSessionPrompt
+	m.Session = SessionState{
+		Mode:          SessionModeOffline,
+		FailureReason: SessionFailureReasonLogin,
+		NeedsConfig:   true,
+		Message:       "请先填写账号密码",
+	}
+	m.SessionDialog = NewSessionPromptDialog(m.Session)
+	m.SessionDialog.Update(keyPress('a'))
+	m.SessionDialog.Update(keyPress('l'))
+	m.SessionDialog.Update(keyPress('i'))
+	m.SessionDialog.Update(keyPress('c'))
+	m.SessionDialog.Update(keyPress('e'))
+	m.SessionDialog.Update(keyCode(tea.KeyTab))
+	m.SessionDialog.Update(keyPress('s'))
+	m.SessionDialog.Update(keyPress('e'))
+	m.SessionDialog.Update(keyPress('c'))
+	m.SessionDialog.Update(keyPress('r'))
+	m.SessionDialog.Update(keyPress('e'))
+	m.SessionDialog.Update(keyPress('t'))
+
+	result, cmd := m.handleSessionDialogKey(keyCode(tea.KeyEnter))
+	if result.Config.Username != "alice" || result.Config.Password != "secret" {
+		t.Fatalf("config credentials = %q/%q, want alice/secret", result.Config.Username, result.Config.Password)
+	}
+	if cmd == nil {
+		t.Fatal("expected save/login command")
+	}
+}
+
+func TestAuthChallengeResultKeepsSMSChallengeInCredentialForm(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogSessionPrompt
 	m.Session = SessionState{
@@ -1614,12 +1646,22 @@ func TestHandleSessionDialogOpenConfig(t *testing.T) {
 	}
 	m.SessionDialog = NewSessionPromptDialog(m.Session)
 
-	result, cmd := m.handleSessionDialogKey(keyCode(tea.KeyEnter))
-	if result.Dialog != DialogTools || result.ToolsDialog.Section() != ToolsSectionConfig {
-		t.Fatalf("dialog/section = %v/%v, want tools/config", result.Dialog, result.ToolsDialog.Section())
+	result, _ := m.Update(AuthChallengeResultMsg{State: SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypeSMS,
+		ChallengeMessage: "需要短信验证码",
+		Message:          "需要短信验证码",
+	}})
+	got := result.(Model)
+
+	if got.Dialog != DialogSessionPrompt {
+		t.Fatalf("dialog = %v, want session prompt", got.Dialog)
 	}
-	if cmd == nil {
-		t.Fatal("expected load config command")
+	if got.SessionDialog.Challenge() != AuthChallengeTypeSMS {
+		t.Fatalf("session challenge = %v, want sms", got.SessionDialog.Challenge())
+	}
+	if output := stripANSI(got.SessionDialog.View(80)); !strings.Contains(output, "输入短信验证码") || !strings.Contains(output, "发送验证码") {
+		t.Fatalf("session prompt should append sms challenge controls:\n%s", output)
 	}
 }
 

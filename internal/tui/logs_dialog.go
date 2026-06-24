@@ -114,7 +114,7 @@ func (m LogsDialogModel) View(width, height int) string {
 		b.WriteString("\n")
 		totalLines := len(m.lines)
 		pagination := vPaginationStyle.Render(
-			fmt.Sprintf("日志: %d 行 | 当前: %d-%d | ↑↓/PgUp/PgDn滚动 | r: 刷新",
+			fmt.Sprintf("日志: %d 行 | 当前: %d-%d | r: 刷新",
 				totalLines, m.offset+1, minInt(end, totalLines)),
 		)
 		b.WriteString(fillRenderedBackground(pagination, innerWidth, fill))
@@ -125,5 +125,5 @@ func (m LogsDialogModel) View(width, height int) string {
 		b.WriteString(fillRenderedBackground(vErrorStyle.Render("错误: "+m.lastErr), innerWidth, fill))
 	}
 
-	return renderToolsBodyWithFooter(b.String(), "↑↓/PgUp/PgDn: 滚动 | r: 刷新 | Esc: 关闭", width, height)
+	return renderToolsBodyWithFooter(b.String(), "r: 刷新", width, height)
 }

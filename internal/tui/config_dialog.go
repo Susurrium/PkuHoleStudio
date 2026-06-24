@@ -328,9 +328,9 @@ func (m *ConfigDialogModel) View(width, height int) string {
 		b.WriteString(vErrorStyle.Render(m.lastErr))
 	}
 
-	help := "NORMAL | Ctrl+S: 保存 | i/a/o/O: 编辑 | hjkl: 移动 | x: 删除 | gg/G"
+	help := "NORMAL | Ctrl+S: 保存 | i: 编辑"
 	if m.mode == ConfigEditorInsert {
-		help = "INSERT | Ctrl+S: 保存 | Esc: NORMAL | Enter: 换行 | Backspace: 删除"
+		help = "INSERT | Ctrl+S: 保存 | Esc: NORMAL"
 	}
 	return renderToolsBodyWithFooter(b.String(), help, width, height)
 }

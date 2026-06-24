@@ -120,6 +120,10 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderHelpScreen(width, height)
 	case DialogTools:
 		body, placements = m.renderPanelScreenWithStyle(width, height, m.renderToolsPanelContent, true)
+	case DialogSessionPrompt:
+		body, placements = m.renderPanelScreenWithStyle(width, height, m.renderSessionPromptPanelContent, true)
+	case DialogAuthChallenge:
+		body, placements = m.renderPanelScreenWithStyle(width, height, m.renderAuthChallengePanelContent, true)
 	case DialogComposer:
 		body, placements = m.renderPanelScreen(width, height, m.renderComposerPanelContent)
 	case DialogImage:
@@ -269,6 +273,14 @@ func (m Model) renderToolsPanelContent(panelW, panelH int) string {
 		maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()),
 		maxInt(8, panelH-panelContentStyle.GetVerticalFrameSize()),
 	)
+}
+
+func (m Model) renderSessionPromptPanelContent(panelW, panelH int) string {
+	return m.SessionDialog.View(maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()))
+}
+
+func (m Model) renderAuthChallengePanelContent(panelW, panelH int) string {
+	return m.AuthDialog.View(maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()))
 }
 
 func (m Model) renderComposerPanelContent(panelW, panelH int) string {

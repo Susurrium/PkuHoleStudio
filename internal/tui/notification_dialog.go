@@ -168,10 +168,7 @@ func (m NotificationDialogModel) View(width, height int) string {
 		b.WriteString(fillRenderedBackground(vErrorStyle.Render("错误: "+m.lastErr), innerWidth, fill))
 	}
 
-	help := "↑↓/PgUp/PgDn: 选择 | a: 全部已读 | r: 刷新 | Esc: 关闭"
-	if m.messageType == models.NotificationTypeInteractive {
-		help = "↑↓/PgUp/PgDn: 选择 | Enter: 当前已读 | a: 全部已读 | r: 刷新 | Esc: 关闭"
-	}
+	help := "a: 全部已读 | r: 刷新"
 	return renderToolsBodyWithFooter(b.String(), help, width, height)
 }
 
