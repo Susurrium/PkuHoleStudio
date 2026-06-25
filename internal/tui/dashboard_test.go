@@ -47,7 +47,7 @@ func TestDashboardRendersLogoUnreadNotificationsAndActions(t *testing.T) {
 	}, nil)
 
 	output := stripANSI(dashboard.View(100, 36))
-	for _, want := range []string{"████████╗", "Notifications", "new reply", "#42", "热榜", "#8347014 hot post", "★ 4", "Explore", "Config", "e", "n", "c"} {
+	for _, want := range []string{"████████╗", "Notifications", "new reply", "#42", "hot posts", "#8347014 hot post", "★ 4", "Explore", "Config", "Help", "e", "n", "c", "?"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("dashboard missing %q:\n%s", want, output)
 		}
@@ -105,7 +105,7 @@ func TestDashboardWriteHotPostsFrame(t *testing.T) {
 		t.Fatalf("write dashboard frame: %v", err)
 	}
 
-	if !strings.Contains(output, "热榜") || !strings.Contains(output, "★ 114") {
+	if !strings.Contains(output, "hot posts") || !strings.Contains(output, "★ 114") {
 		t.Fatalf("dashboard frame missing hot posts:\n%s", output)
 	}
 	if strings.Contains(output, "\r") {
@@ -172,6 +172,13 @@ func TestDashboardShortcutsOpenExploreNotificationsAndConfig(t *testing.T) {
 		configModel.ToolsDialog.Section() != ToolsSectionConfig ||
 		cmd == nil {
 		t.Fatal("c should open config")
+	}
+
+	help, cmd := m.handleKey(keyPress('?'))
+	if help.Dialog != DialogTools ||
+		help.ToolsDialog.Section() != ToolsSectionHelp ||
+		cmd != nil {
+		t.Fatal("? should open help")
 	}
 }
 

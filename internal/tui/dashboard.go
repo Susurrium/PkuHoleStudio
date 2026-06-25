@@ -115,6 +115,8 @@ func (m DashboardModel) View(width, height int) string {
 	b.WriteString(renderDashboardAction("󰈔", "Explore", "e", blockWidth))
 	b.WriteString("\n")
 	b.WriteString(renderDashboardAction("", "Config", "c", blockWidth))
+	b.WriteString("\n")
+	b.WriteString(renderDashboardAction("?", "Help", "?", blockWidth))
 
 	block := b.String()
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, block)
@@ -131,6 +133,7 @@ func dashboardBlockWidth(m DashboardModel, logoWidth, maxWidth int) int {
 	actions := []actionItem{
 		{"󰈔", "Explore", "e"},
 		{"", "Config", "c"},
+		{"?", "Help", "?"},
 	}
 	for _, a := range actions {
 		if lw := lipgloss.Width(renderDashboardAction(a.icon, a.label, a.key, w)); lw > w {
@@ -176,7 +179,7 @@ func (m DashboardModel) renderNotifications(width int) string {
 
 func (m DashboardModel) renderHotPosts(width int) string {
 	var b strings.Builder
-	b.WriteString(renderDashboardAction("󰓎", "热榜", "", width))
+	b.WriteString(renderDashboardAction("󰓎", "hot posts", "", width))
 	b.WriteString("\n")
 	lines := strings.Split(m.renderHotPostsBody(width), "\n")
 	for i, line := range lines {

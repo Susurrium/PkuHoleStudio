@@ -375,6 +375,10 @@ func TestToolsDialogSwitchesSectionsWithoutNestedTabs(t *testing.T) {
 		cmd == nil {
 		t.Fatal("4 should switch to system notifications and load them")
 	}
+	result, cmd = result.handleToolsDialogKey(keyPress('?'))
+	if result.ToolsDialog.Section() != ToolsSectionHelp || cmd != nil {
+		t.Fatal("? should switch to help without loading")
+	}
 }
 
 func TestToolsDialogDoesNotSwitchSectionsWhileInsertingJSON(t *testing.T) {
@@ -389,6 +393,14 @@ func TestToolsDialogDoesNotSwitchSectionsWhileInsertingJSON(t *testing.T) {
 		t.Fatal("section shortcut must be inserted as text in insert mode")
 	}
 	if result.ToolsDialog.Config.Text() != "2" {
+		t.Fatalf("config text = %q, want inserted shortcut rune", result.ToolsDialog.Config.Text())
+	}
+
+	result, _ = result.handleToolsDialogKey(keyPress('?'))
+	if result.ToolsDialog.Section() != ToolsSectionConfig {
+		t.Fatal("help shortcut must be inserted as text in insert mode")
+	}
+	if result.ToolsDialog.Config.Text() != "2?" {
 		t.Fatalf("config text = %q, want inserted shortcut rune", result.ToolsDialog.Config.Text())
 	}
 }
