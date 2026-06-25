@@ -484,6 +484,8 @@ func (m Model) currentModeLabel() string {
 			return "TOOLS-NOTIFY"
 		case ToolsSectionSystem:
 			return "TOOLS-SYSTEM"
+		case ToolsSectionHelp:
+			return "TOOLS-HELP"
 		default:
 			return "TOOLS-CONFIG"
 		}
@@ -585,7 +587,7 @@ func (m Model) currentStatusSummary() string {
 func (m Model) dialogStatusSummary() string {
 	switch m.Dialog {
 	case DialogTools:
-		return "1/2/3/4: 配置/日志/互动/系统 | Ctrl+S: 保存配置 | Esc: 关闭"
+		return "1/2/3/4/?: 配置/日志/互动/系统/帮助 | Ctrl+S: 保存配置 | Esc: 关闭"
 	case DialogImage:
 		return "o: 图片预览 | Left/Right: 切换 | Esc: 关闭"
 	case DialogHelp:
@@ -841,6 +843,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "e", desc: "进入浏览"},
 			helpItem{key: "n", desc: "打开通知"},
 			helpItem{key: "c", desc: "打开配置"},
+			helpItem{key: "?", desc: "项目帮助"},
 		)
 	case m.Page == PageHome:
 		items = append(items,

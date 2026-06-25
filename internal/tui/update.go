@@ -421,6 +421,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Dialog = DialogHelp
 		return m, nil
 	}
+	if msg.String() == "?" && m.Dialog == DialogNone && !m.Posts.Searching {
+		m.Dialog = DialogTools
+		m.ToolsDialog.Switch(ToolsSectionHelp)
+		return m, nil
+	}
 
 	if m.Dialog == DialogNone && m.Page == PageDashboard {
 		switch msg.String() {
@@ -891,6 +896,9 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeSystem)
 		m.ToolsDialog.Notifications.SetLoading(true)
 		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
+	case "?":
+		m.ToolsDialog.Switch(ToolsSectionHelp)
+		return m, nil
 	}
 	switch m.ToolsDialog.Section() {
 	case ToolsSectionConfig:
@@ -898,6 +906,8 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	case ToolsSectionLogs:
 		return m, m.ToolsDialog.Logs.Update(msg)
+	case ToolsSectionHelp:
+		return m, nil
 	}
 
 	notifications := &m.ToolsDialog.Notifications
