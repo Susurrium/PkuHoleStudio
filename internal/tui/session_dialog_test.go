@@ -30,8 +30,8 @@ func TestSessionPromptDialogPreservesBackgroundAfterInlineResets(t *testing.T) {
 	if !strings.Contains(output, paintedDialogSpaces(4)) {
 		t.Fatalf("session prompt blanks should carry dialog background:\n%q", output)
 	}
-	if strings.Contains(output, ";7m") || strings.Contains(output, ";27m") {
-		t.Fatalf("session prompt should not render a virtual reverse-video cursor:\n%q", output)
+	if !containsReverseVideo(output) {
+		t.Fatalf("session prompt should render the bubbles virtual reverse cursor:\n%q", output)
 	}
 	plain := stripANSI(output)
 	for _, want := range []string{"▄", "▀", "输入用户名", "输入密码"} {
@@ -68,6 +68,9 @@ func TestAuthChallengeDialogPreservesBackgroundAndInputStyles(t *testing.T) {
 	output := dialog.View(60)
 	if strings.Contains(output, "\x1b[m  ") {
 		t.Fatalf("auth challenge should preserve dialog background after reset:\n%q", output)
+	}
+	if !containsReverseVideo(output) {
+		t.Fatalf("auth challenge should render the bubbles virtual reverse cursor:\n%q", output)
 	}
 	if !strings.Contains(output, paintedDialogSpaces(4)) {
 		t.Fatalf("auth challenge blanks should carry dialog background:\n%q", output)
@@ -136,11 +139,40 @@ func TestSessionPromptWriteLoginFrame(t *testing.T) {
 			t.Fatalf("login frame password label collides with border:\n%s", stripped)
 		}
 	}
-	if strings.Contains(output, ";7m") || strings.Contains(output, ";27m") {
-		t.Fatalf("login frame should not render a virtual reverse-video cursor:\n%q", output)
+	if !containsReverseVideo(output) {
+		t.Fatalf("login frame should render the bubbles virtual reverse cursor:\n%q", output)
 	}
 	assertInputBlockAligned(t, stripped, "输入用户名")
 	assertInputBlockAligned(t, stripped, "输入密码")
+}
+
+func TestSessionPromptVirtualCursorFollowsInput(t *testing.T) {
+	dialog := NewSessionPromptDialog(SessionState{
+		FailureReason: SessionFailureReasonLogin,
+		NeedsConfig:   true,
+		Message:       "请先填写账号密码",
+	})
+	dialog.Update(keyPress('a'))
+
+	output := stripANSI(dialog.View(60))
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "a") {
+			if strings.Contains(line, "a输入用户名") {
+				t.Fatalf("placeholder should not remain after typing:\n%s", output)
+			}
+			if strings.Index(line, "a") > strings.Index(line, "输入用户名") && strings.Contains(line, "输入用户名") {
+				t.Fatalf("cursor/input ordering is wrong:\n%s", output)
+			}
+			return
+		}
+	}
+	t.Fatalf("typed input missing from session prompt:\n%s", output)
+}
+
+func containsReverseVideo(output string) bool {
+	return strings.Contains(output, "\x1b[7;") ||
+		strings.Contains(output, ";7m") ||
+		strings.Contains(output, ";7;")
 }
 
 func assertInputBlockAligned(t *testing.T, frame, placeholder string) {
@@ -159,8 +191,8 @@ func assertInputBlockAligned(t *testing.T, frame, placeholder string) {
 		if top < 0 || bottom < 0 || mid < 0 {
 			t.Fatalf("input block around %q missing border/content:\n%s", placeholder, frame)
 		}
-		if top != mid || top != bottom {
-			t.Fatalf("input block around %q is misaligned: top=%d mid=%d bottom=%d\n%s", placeholder, top, mid, bottom, frame)
+		if top != bottom {
+			t.Fatalf("input block around %q has misaligned borders: top=%d bottom=%d\n%s", placeholder, top, bottom, frame)
 		}
 		return
 	}
