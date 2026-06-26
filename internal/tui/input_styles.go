@@ -20,8 +20,12 @@ func styleTextInput(input *textinput.Model, bg, textColor, placeholderColor colo
 	styles.Blurred.Text = base.Foreground(textColor)
 	styles.Blurred.Placeholder = base.Foreground(placeholderColor)
 	styles.Blurred.Suggestion = base.Foreground(placeholderColor)
-	styles.Cursor.Color = bg
+	styles.Cursor.Color = colorAccent
 	input.SetStyles(styles)
+}
+
+func cleanTextInputView(view string) string {
+	return strings.ReplaceAll(view, "\x00", " ")
 }
 
 func styleTextarea(input *textarea.Model, bg, textColor, placeholderColor color.Color) {

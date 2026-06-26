@@ -29,7 +29,6 @@ func NewSessionPromptDialog(state SessionState) SessionPromptDialogModel {
 	username.Prompt = ""
 	username.Placeholder = "输入用户名"
 	username.SetWidth(28)
-	username.SetVirtualCursor(false)
 	styleTextInput(&username, colorSurface, colorText, colorMuted)
 
 	password := textinput.New()
@@ -38,14 +37,12 @@ func NewSessionPromptDialog(state SessionState) SessionPromptDialogModel {
 	password.EchoMode = textinput.EchoPassword
 	password.EchoCharacter = '*'
 	password.SetWidth(28)
-	password.SetVirtualCursor(false)
 	styleTextInput(&password, colorSurface, colorText, colorMuted)
 
 	challengeInput := textinput.New()
 	challengeInput.Prompt = ""
 	challengeInput.Placeholder = "输入验证码"
 	challengeInput.SetWidth(28)
-	challengeInput.SetVirtualCursor(false)
 	styleTextInput(&challengeInput, colorSurface, colorText, colorMuted)
 
 	m := SessionPromptDialogModel{
@@ -273,9 +270,6 @@ func (m SessionPromptDialogModel) View(width int) string {
 	username.SetWidth(inputInnerWidth)
 	password.SetWidth(inputInnerWidth)
 	challengeInput.SetWidth(inputInnerWidth)
-	username.SetVirtualCursor(false)
-	password.SetVirtualCursor(false)
-	challengeInput.SetVirtualCursor(false)
 	styleTextInput(&username, colorSurface, colorText, colorMuted)
 	styleTextInput(&password, colorSurface, colorText, colorMuted)
 	styleTextInput(&challengeInput, colorSurface, colorText, colorMuted)
@@ -337,6 +331,7 @@ func (m SessionPromptDialogModel) View(width int) string {
 }
 
 func (m SessionPromptDialogModel) renderFramedInput(input string, outerWidth, innerWidth int, focused bool) string {
+	input = cleanTextInputView(input)
 	style := vSearchInput.Width(outerWidth)
 	if focused {
 		style = vSearchInputFocused.Width(outerWidth)

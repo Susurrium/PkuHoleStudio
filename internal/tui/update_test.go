@@ -1848,12 +1848,48 @@ func TestHandleAuthChallengeEnterOnSMSButtonSendsCode(t *testing.T) {
 func TestForceOfflineModeClearsLoginState(t *testing.T) {
 	m := newTestModel()
 	m.Home.LoggedIn = true
+	m.Session.FailureReason = SessionFailureReasonLogin
+	m.Session.NeedsConfig = true
+	m.Session.Challenge = AuthChallengeTypePassword
 	m.forceOfflineMode("network")
 	if m.Home.LoggedIn {
 		t.Fatal("forceOfflineMode should clear logged-in state")
 	}
 	if m.Session.Mode != SessionModeOffline {
 		t.Fatalf("session mode = %v, want offline", m.Session.Mode)
+	}
+	if m.Session.FailureReason != SessionFailureReasonNone || m.Session.NeedsConfig || m.Session.Challenge != AuthChallengeTypeNone {
+		t.Fatalf("offline mode should clear login recovery state: %+v", m.Session)
+	}
+}
+
+func TestSessionPromptOfflineModeDoesNotAskForCredentialsAgain(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageDashboard
+	m.Dialog = DialogSessionPrompt
+	m.Session = SessionState{
+		Mode:          SessionModeOffline,
+		FailureReason: SessionFailureReasonLogin,
+		NeedsConfig:   true,
+		Message:       "请先填写账号密码",
+	}
+	m.SessionDialog = NewSessionPromptDialog(m.Session)
+	m.SessionDialog.Update(keyCode(tea.KeyTab))
+	m.SessionDialog.Update(keyCode(tea.KeyTab))
+
+	result, cmd := m.handleSessionDialogKey(keyCode(tea.KeyEnter))
+	if result.Dialog != DialogNone || result.Session.FailureReason != SessionFailureReasonNone || result.Session.NeedsConfig {
+		t.Fatalf("offline selection should close dialog and clear login state: dialog=%v session=%+v", result.Dialog, result.Session)
+	}
+	if cmd == nil {
+		t.Fatal("offline selection should load local posts")
+	}
+
+	result.Page = PageDashboard
+	result.Posts.PostListLoading = false
+	next, cmd := result.handleKey(keyPress('e'))
+	if next.Dialog != DialogNone || next.Page != PagePosts || cmd == nil {
+		t.Fatalf("offline explore should enter posts without login prompt: page=%v dialog=%v cmd=%v", next.Page, next.Dialog, cmd)
 	}
 }
 

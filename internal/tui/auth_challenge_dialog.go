@@ -166,7 +166,7 @@ func (m AuthChallengeDialogModel) View(width int) string {
 		b.WriteString(btn)
 		b.WriteString("\n\n")
 	}
-	b.WriteString(input.View())
+	b.WriteString(cleanTextInputView(input.View()))
 	if m.statusText != "" {
 		b.WriteString("\n\n")
 		b.WriteString(vHelpStyle.Render(m.statusText))

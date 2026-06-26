@@ -1766,6 +1766,11 @@ func (m *Model) forceOfflineMode(reason string) tea.Cmd {
 	m.Session.Mode = SessionModeOffline
 	m.Session.CanReadOnline = false
 	m.Session.CanWriteOnline = false
+	m.Session.FailureReason = SessionFailureReasonNone
+	m.Session.NeedsConfig = false
+	m.Session.Challenge = AuthChallengeTypeNone
+	m.Session.ChallengeMessage = ""
+	m.Session.Message = ""
 	m.Session.LastFallbackReason = reason
 	m.Provider = NewOfflinePostsProvider(m.Database)
 	m.Posts.ActiveTagID = 0
@@ -1775,6 +1780,8 @@ func (m *Model) forceOfflineMode(reason string) tea.Cmd {
 	if reason != "" {
 		cmd = m.showToast("离线模式：" + reason)
 	}
+	m.SessionDialog.ApplyState(m.Session)
+	m.AuthDialog.ApplyState(m.Session)
 	m.syncPostsPage()
 	return cmd
 }
