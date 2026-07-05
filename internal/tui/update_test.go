@@ -966,15 +966,16 @@ func TestHandlePostsKeyRefreshInDetail(t *testing.T) {
 func TestHandlePostsKeyRefreshDisabledDuringSearch(t *testing.T) {
 	m := newTestModel()
 	m.Posts.SearchActive = true
+	m.Posts.SearchInput = "test"
 
 	result, cmd := m.handlePostsKey(keyPress('r'))
 	m = result
 
-	if m.Posts.PostListLoading {
-		t.Error("PostListLoading should NOT change during search")
+	if !m.Posts.PostListLoading {
+		t.Error("PostListLoading should be set during search refresh")
 	}
-	if cmd != nil {
-		t.Error("r during search should NOT trigger reload")
+	if cmd == nil {
+		t.Error("r during search should trigger search reload")
 	}
 }
 

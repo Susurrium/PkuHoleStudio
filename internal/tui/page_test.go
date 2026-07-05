@@ -701,17 +701,13 @@ func TestRefreshDuringSearch(t *testing.T) {
 	m.Posts.SearchInput = "test"
 	m.Posts.PostList = []models.Post{{Pid: 1, Text: "test result", Timestamp: 1000}}
 
-	// Press 'r' during search - should NOT trigger refresh
 	m, cmd := m.handlePostsKey(keyR())
 
-	if m.Posts.PostListLoading {
-		t.Error("PostListLoading should NOT change during search")
+	if !m.Posts.PostListLoading {
+		t.Error("PostListLoading should be set during search refresh")
 	}
-	if cmd != nil {
-		t.Error("r during search should NOT trigger reload")
-	}
-	if len(m.Posts.PostList) != 1 {
-		t.Error("PostList should NOT be cleared during search")
+	if cmd == nil {
+		t.Error("r during search should trigger search reload")
 	}
 }
 

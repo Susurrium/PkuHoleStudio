@@ -81,6 +81,7 @@ type Direct struct {
 	ModeNumbers            key.Binding
 	ModeCycle              key.Binding
 	Backspace              key.Binding
+	GoToTop                key.Binding
 }
 
 type ShortCut struct {
@@ -216,6 +217,7 @@ var keymap = struct {
 		ModeNumbers:            newKeyBinding([]string{"1", "2", "3", "4"}, "1-4", "选择模式"),
 		ModeCycle:              newKeyBinding([]string{"m"}, "m", "切换模式"),
 		Backspace:              newKeyBinding([]string{"backspace"}, "Backspace", "删除字符"),
+		GoToTop:                newKeyBinding([]string{"g"}, "g", "回到顶部"),
 	},
 }
 
@@ -339,6 +341,7 @@ func (m Model) contextualHelpItems() []helpItem {
 			newKeyBinding([]string{"tab"}, "Tab", "切换正文/评论"),
 			newKeyBinding([]string{"up", "down"}, "↑↓", "滚动当前区域"),
 			keymap.Direct.Page,
+			keymap.Direct.GoToTop,
 			keymap.Direct.Sort,
 			keymap.Direct.Refresh,
 			keymap.Leader.Image,
@@ -360,6 +363,7 @@ func (m Model) contextualHelpItems() []helpItem {
 			keymap.Direct.ShiftTab,
 			newKeyBinding([]string{"up", "down"}, "↑↓", "选择帖子"),
 			keymap.Direct.Page,
+			keymap.Direct.GoToTop,
 			keymap.Direct.OpenDetail,
 			keymap.Direct.Search,
 			newKeyBinding([]string{"r"}, "r", "刷新列表"),
