@@ -86,7 +86,9 @@ func initDB() (*db.Database, func(), error) {
 	}
 
 	cleanup := func() {
-		database.Checkpoint()
+		if err := database.Checkpoint(); err != nil {
+			log.Printf("[Database] checkpoint failed: %v", err)
+		}
 		database.Close()
 	}
 

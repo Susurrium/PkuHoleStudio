@@ -106,8 +106,8 @@ type ExclusiveIdInfo struct {
 
 type Comment struct {
 	Anonymous       BoolInt  `json:"anonymous" gorm:"column:anonymous"`
-	Cid             int32    `json:"cid" gorm:"primaryKey;column:cid"`
-	Pid             int32    `json:"pid" gorm:"column:pid"`
+	Cid             int32    `json:"cid" gorm:"primaryKey;column:cid;index:idx_comments_pid_cid,priority:2"`
+	Pid             int32    `json:"pid" gorm:"column:pid;index:idx_comments_pid_cid,priority:1"`
 	ExclusiveIdId   int16    `json:"exclusive_id_id" gorm:"column:exclusive_id_id"`
 	Hidden          BoolInt  `json:"hidden" gorm:"column:hidden"`
 	IdentityShow    BoolInt  `json:"identity_show" gorm:"column:identity_show"`
@@ -119,7 +119,7 @@ type Comment struct {
 	RewardGood      int16    `json:"reward_good" gorm:"column:reward_good"`
 	Text            string   `json:"text" gorm:"column:text"`
 	Timestamp       int32    `json:"timestamp" gorm:"column:timestamp"`
-	QuoteID         *int32   `json:"-" gorm:"column:quote_id;constraint:OnDelete:SET NULL;"`
+	QuoteID         *int32   `json:"-" gorm:"column:quote_id;index:idx_comments_quote_id;constraint:OnDelete:SET NULL;"`
 	Quote           *Comment `json:"quote,omitempty" gorm:"foreignKey:QuoteID"`
 	MediaIds        string   `json:"media_ids" gorm:"column:media_ids"`
 	ExclusiveIdInfo string   `json:"-" gorm:"column:exclusive_id_info"` // 存储为JSON字符串
