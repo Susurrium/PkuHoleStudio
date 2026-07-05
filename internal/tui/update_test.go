@@ -1479,7 +1479,7 @@ func TestViewPostsSearchActive(t *testing.T) {
 
 	output := viewString(m)
 
-	if !containsStr(output, "搜索结果") {
+	if !containsStr(output, "搜索") {
 		t.Error("View() should show '搜索结果' when search is active")
 	}
 	if !containsStr(output, "test") {

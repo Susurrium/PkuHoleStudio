@@ -539,15 +539,58 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.cancelSearchInput()
 		case key.Matches(msg, shortcut.Enter):
 			if m.Posts.SearchInput != "" {
+				m.Posts.SearchHistory = appendSearchHistory(m.Posts.SearchInput)
+				m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+				m.Posts.SearchHistoryDraft = ""
 				m.Posts.PostListLoading = true
 				m.Posts.PostsMode = PostsModeSearchInput
 				return m, searchPostsCmd(m.Provider, m.Posts.SearchInput, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
 			}
 			return m, nil
+		case key.Matches(msg, shortcut.Up):
+			if len(m.Posts.SearchHistory) == 0 {
+				return m, nil
+			}
+			idx := m.Posts.SearchHistoryIndex
+			if idx > 0 {
+				if idx == len(m.Posts.SearchHistory) {
+					m.Posts.SearchHistoryDraft = m.Posts.SearchInput
+				}
+				idx--
+				m.Posts.SearchHistoryIndex = idx
+				m.Posts.SearchInput = m.Posts.SearchHistory[idx]
+				m.Posts.SearchField.SetValue(m.Posts.SearchInput)
+				m.Posts.SearchField.SetCursor(len([]rune(m.Posts.SearchInput)))
+			}
+			m.syncPostsPage()
+			return m, nil
+		case key.Matches(msg, shortcut.Down):
+			if len(m.Posts.SearchHistory) == 0 {
+				return m, nil
+			}
+			idx := m.Posts.SearchHistoryIndex
+			if idx < len(m.Posts.SearchHistory) {
+				idx++
+				m.Posts.SearchHistoryIndex = idx
+				if idx == len(m.Posts.SearchHistory) {
+					m.Posts.SearchInput = m.Posts.SearchHistoryDraft
+				} else {
+					m.Posts.SearchInput = m.Posts.SearchHistory[idx]
+				}
+				m.Posts.SearchField.SetValue(m.Posts.SearchInput)
+				m.Posts.SearchField.SetCursor(len([]rune(m.Posts.SearchInput)))
+			}
+			m.syncPostsPage()
+			return m, nil
 		default:
 			var cmd tea.Cmd
 			m.Posts.SearchField, cmd = m.Posts.SearchField.Update(msg)
-			m.Posts.SearchInput = m.Posts.SearchField.Value()
+			newVal := m.Posts.SearchField.Value()
+			if newVal != m.Posts.SearchInput {
+				m.Posts.SearchInput = newVal
+				m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+				m.Posts.SearchHistoryDraft = ""
+			}
 			m.syncPostsPage()
 			return m, m.imageRefreshCmd(cmd)
 		}
@@ -684,6 +727,8 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Posts.SearchInput = ""
 		m.Posts.SearchField = newSearchInput()
 		m.Posts.SearchField.SetValue("")
+		m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+		m.Posts.SearchHistoryDraft = ""
 		_ = m.Posts.SearchField.Focus()
 		return m, nil
 	case key.Matches(msg, keymap.Direct.Tags):
@@ -756,6 +801,8 @@ func (m Model) cancelSearchInput() (Model, tea.Cmd) {
 	m.Posts.Searching = false
 	m.Posts.SearchInput = ""
 	m.Posts.SearchField = newSearchInput()
+	m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+	m.Posts.SearchHistoryDraft = ""
 	if m.Posts.SearchActive {
 		m.Posts.PostsMode = PostsModeSearchResults
 	} else {
@@ -770,6 +817,8 @@ func (m Model) clearActiveFilters() (Model, tea.Cmd) {
 	m.Posts.Searching = false
 	m.Posts.SearchInput = ""
 	m.Posts.SearchField = newSearchInput()
+	m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+	m.Posts.SearchHistoryDraft = ""
 	m.Posts.ActiveTagID = 0
 	m.Posts.ActiveTag = ""
 	m.Posts.PostsMode = PostsModeList

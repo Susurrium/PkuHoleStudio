@@ -15,11 +15,12 @@ var (
 )
 
 const (
-	dataDirName      = "data"
-	configFileName   = "config.json"
-	cookiesFileName  = "cookies.json"
-	logFileName      = "crawler.log"
-	tuiLogFileName   = "tui.log"
+	dataDirName            = "data"
+	configFileName         = "config.json"
+	cookiesFileName        = "cookies.json"
+	logFileName            = "crawler.log"
+	tuiLogFileName         = "tui.log"
+	searchHistoryFileName  = ".search_history"
 )
 
 type runtimePaths struct {
@@ -107,6 +108,14 @@ func TUILogPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(paths.dataDir, tuiLogFileName), nil
+}
+
+func SearchHistoryPath() (string, error) {
+	paths, err := resolveRuntimePaths()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(paths.dataDir, searchHistoryFileName), nil
 }
 
 func EnsureRuntimeFiles() error {
