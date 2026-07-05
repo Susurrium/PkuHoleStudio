@@ -756,6 +756,9 @@ func (m Model) commandSearch(query string) (Model, tea.Cmd) {
 	m.Posts.SearchInput = query
 	m.Posts.SearchField = newSearchInput()
 	m.Posts.SearchField.SetValue(query)
+	m.Posts.SearchHistory = appendSearchHistory(query)
+	m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+	m.Posts.SearchHistoryDraft = ""
 	m.Posts.PostListLoading = true
 	m.Posts.PostsMode = PostsModeSearchInput
 	return m, searchPostsCmd(m.Provider, query, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)

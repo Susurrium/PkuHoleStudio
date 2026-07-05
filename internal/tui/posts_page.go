@@ -42,17 +42,20 @@ type PostsPageModel struct {
 	CommentCursorLine  int
 	SelectedCommentIdx int
 
-	PostsMode    PostsMode
-	Searching    bool
-	SearchInput  string
-	SearchField  textinput.Model
-	SearchActive bool
-	ActiveTagID  int
-	ActiveTag    string
-	SessionMode  SessionMode
-	CanWrite     bool
-	StatusText   string
-	ImageClient  *client.Client
+	PostsMode          PostsMode
+	Searching          bool
+	SearchInput        string
+	SearchField        textinput.Model
+	SearchActive       bool
+	ActiveTagID        int
+	ActiveTag          string
+	SessionMode        SessionMode
+	CanWrite           bool
+	StatusText         string
+	ImageClient        *client.Client
+	SearchHistory      []string
+	SearchHistoryIndex int
+	SearchHistoryDraft string
 }
 
 func NewPostsPageModel() PostsPageModel {
@@ -60,6 +63,7 @@ func NewPostsPageModel() PostsPageModel {
 	bv := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	cv := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	search := newSearchInput()
+	history := loadSearchHistory()
 	return PostsPageModel{
 		PostPerPage:        20,
 		PostViewport:       &pv,
@@ -71,6 +75,8 @@ func NewPostsPageModel() PostsPageModel {
 		DetailFocus:        DetailFocusComments,
 		CommentCursorLine:  0,
 		SelectedCommentIdx: 0,
+		SearchHistory:      history,
+		SearchHistoryIndex: len(history),
 	}
 }
 
@@ -152,12 +158,7 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 	var b strings.Builder
 	var placements []imagePlacement
 
-	if p.SearchActive {
-		b.WriteString(vTitleStyle.Render(fmt.Sprintf("搜索结果: %s", p.SearchInput)))
-		b.WriteString("\n")
-	} else {
-		b.WriteString("\n")
-	}
+	b.WriteString("\n")
 
 	searchStyle := vSearchInput.Width(width)
 	searchFocusedStyle := vSearchInputFocused.Width(width)
