@@ -703,6 +703,14 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 					return m, loadCommentsCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc, m.Posts.CommentListCursor)
 				}
 			}
+		case key.Matches(msg, keymap.Direct.GoToTop):
+			if m.Posts.DetailFocus == DetailFocusPost {
+				m.Posts.PostBodyViewport.GotoTop()
+			} else if len(m.Posts.CommentList) > 0 {
+				m.Posts.SelectedCommentIdx = 0
+				m.Posts.CommentCursorLine = 0
+				m.Posts.CommentViewport.GotoTop()
+			}
 		}
 		m.syncPostsPage()
 		return m, m.imageRefreshCmd(nil)
@@ -714,10 +722,19 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.clearActiveFilters()
 		}
 	case key.Matches(msg, keymap.Direct.Refresh):
-		if !m.Posts.SearchActive {
-			m.Posts.PostListLoading = true
+		m.Posts.PostListLoading = true
+		if m.Posts.SearchActive {
 			m.Posts.resetList()
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+			return m, searchPostsCmd(m.Provider, m.Posts.SearchInput, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+		}
+		m.Posts.resetList()
+		return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+	case key.Matches(msg, keymap.Direct.GoToTop):
+		if len(m.Posts.PostList) > 0 {
+			m.Posts.SelectedPostIdx = 0
+			m.Posts.CursorLine = 0
+			m.Posts.PostViewport.GotoTop()
+			m.syncPostsPage()
 		}
 	case msg.Text == "o":
 		return m.openCurrentImagePanel()
