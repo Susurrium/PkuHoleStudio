@@ -18,6 +18,7 @@ import (
 	"treehole/internal/db"
 	"treehole/internal/models"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -398,86 +399,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.String() == "esc" &&
-		m.Dialog != DialogNone &&
-		m.Dialog != DialogSessionPrompt &&
-		m.Dialog != DialogAuthChallenge &&
-		!(m.Dialog == DialogTools &&
-			m.ToolsDialog.Section() == ToolsSectionConfig &&
-			m.ToolsDialog.Config.Mode() == ConfigEditorInsert) {
-		m.Dialog = DialogNone
-		return m, nil
+	if next, cmd, handled := m.handleKeymapPrefix(msg); handled {
+		return next, cmd
 	}
-	if msg.String() == "h" && m.Dialog == DialogHelp {
-		m.Dialog = DialogNone
-		return m, nil
-	}
-
-	if msg.String() == "ctrl+q" && m.Dialog == DialogNone && !m.Posts.Searching {
-		return m, tea.Quit
-	}
-
-	if msg.String() == "h" && m.Dialog == DialogNone && !m.Posts.Searching {
-		m.Dialog = DialogHelp
-		return m, nil
-	}
-	if msg.String() == "?" && m.Dialog == DialogNone && !m.Posts.Searching {
-		m.Dialog = DialogTools
-		m.ToolsDialog.Switch(ToolsSectionHelp)
-		return m, nil
-	}
-
-	if m.Dialog == DialogNone && m.Page == PageDashboard {
-		switch msg.String() {
-		case "e":
-			return m.enterDashboardExplore()
-		case "n":
-			m.Dialog = DialogTools
-			m.ToolsDialog.Switch(ToolsSectionInteractive)
-			m.ToolsDialog.Notifications = NewNotificationDialog()
-			m.ToolsDialog.Notifications.SetLoading(true)
-			return m, loadNotificationsCmd(m.Client, models.NotificationTypeInteractive)
-		}
-	}
-
-	if m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
-		switch msg.String() {
-		case "c":
-			m.Dialog = DialogTools
-			m.ToolsDialog.Switch(ToolsSectionConfig)
-			m.ToolsDialog.Config = NewConfigDialog(m.Config)
-			return m, loadConfigCmd()
-		case "l":
-			m.Dialog = DialogTools
-			m.ToolsDialog.Switch(ToolsSectionLogs)
-			m.ToolsDialog.Logs.SetLoading(true)
-			return m, loadLogsCmd()
-		case "b":
-			m.Dialog = DialogTools
-			m.ToolsDialog.Switch(ToolsSectionInteractive)
-			m.ToolsDialog.Notifications = NewNotificationDialog()
-			m.ToolsDialog.Notifications.SetLoading(true)
-			return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
-		}
-	}
-
-	if msg.String() == "tab" && m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
-		m.TabCursor = (m.TabCursor + 1) % pageCount
-		m.Page = Page(m.TabCursor)
-		if m.Page == PagePosts && len(m.Posts.PostList) == 0 {
-			m.Posts.PostListLoading = true
-			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
-		}
-		if m.Page == PageSchedule && len(m.Schedule.Rows) == 0 && m.Schedule.Error == "" {
-			m.Schedule.Loading = true
-			return m, loadCourseScheduleCmd(m.Provider)
-		}
-		if m.Page == PageScores && m.Scores.Summary == nil && m.Scores.Error == "" {
-			m.Scores.Loading = true
-			return m, loadScoresCmd(m.Provider)
-		}
-		m.syncPostsPage()
-		return m, nil
+	if next, cmd, handled := m.handleDirectKey(msg); handled {
+		return next, cmd
 	}
 
 	if m.Dialog != DialogNone {
@@ -560,7 +486,7 @@ func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleScheduleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.String() == "r" {
+	if key.Matches(msg, keymap.Direct.Refresh) {
 		m.Schedule.Loading = true
 		m.Schedule.Error = ""
 		return m, loadCourseScheduleCmd(m.Provider)
@@ -569,18 +495,18 @@ func (m Model) handleScheduleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleScoresKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "r":
+	switch {
+	case key.Matches(msg, keymap.Direct.Refresh):
 		m.Scores.Loading = true
 		m.Scores.Error = ""
 		return m, loadScoresCmd(m.Provider)
-	case "up":
+	case key.Matches(msg, shortcut.Up):
 		m.Scores.Move(-1, m.contentAreaHeightForSize(m.Width, m.Height))
-	case "down":
+	case key.Matches(msg, shortcut.Down):
 		m.Scores.Move(1, m.contentAreaHeightForSize(m.Width, m.Height))
-	case "pgup":
+	case key.Matches(msg, shortcut.PgUp):
 		m.Scores.Move(-maxInt(1, m.contentAreaHeightForSize(m.Width, m.Height)-16), m.contentAreaHeightForSize(m.Width, m.Height))
-	case "pgdown":
+	case key.Matches(msg, shortcut.PgDown):
 		m.Scores.Move(maxInt(1, m.contentAreaHeightForSize(m.Width, m.Height)-16), m.contentAreaHeightForSize(m.Width, m.Height))
 	}
 	return m, nil
@@ -593,14 +519,14 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		if !m.Posts.SearchField.Focused() {
 			_ = m.Posts.SearchField.Focus()
-			switch msg.Code {
-			case tea.KeyLeft:
+			switch {
+			case key.Matches(msg, shortcut.Left):
 				if pos := m.Posts.SearchField.Position(); pos > 0 {
 					m.Posts.SearchField.SetCursor(pos - 1)
 				}
 				m.syncPostsPage()
 				return m, nil
-			case tea.KeyRight:
+			case key.Matches(msg, shortcut.Right):
 				if pos := m.Posts.SearchField.Position(); pos < len([]rune(m.Posts.SearchField.Value())) {
 					m.Posts.SearchField.SetCursor(pos + 1)
 				}
@@ -608,10 +534,10 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		switch msg.Code {
-		case tea.KeyEscape:
+		switch {
+		case key.Matches(msg, shortcut.Escape):
 			return m.cancelSearchInput()
-		case tea.KeyEnter:
+		case key.Matches(msg, shortcut.Enter):
 			if m.Posts.SearchInput != "" {
 				m.Posts.PostListLoading = true
 				m.Posts.PostsMode = PostsModeSearchInput
@@ -628,8 +554,8 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 
 	if m.Posts.ShowPostDetail {
-		switch msg.String() {
-		case "esc":
+		switch {
+		case key.Matches(msg, shortcut.Escape):
 			m.Posts.ShowPostDetail = false
 			m.Posts.CurrentPost = nil
 			m.Posts.postBodyContent = ""
@@ -644,42 +570,42 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			}
 			m.syncPostsPage()
 			return m, m.imageRefreshCmd(nil)
-		case "tab":
+		case key.Matches(msg, keymap.Direct.Tab):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.DetailFocus = DetailFocusComments
 			} else {
 				m.Posts.DetailFocus = DetailFocusPost
 			}
-		case "s":
+		case key.Matches(msg, keymap.Direct.Sort):
 			if m.Posts.CurrentPost != nil {
 				nextSortAsc := !m.Posts.CommentSortAsc
 				m.Posts.resetComments()
 				m.Posts.CommentListLoading = true
 				return m, loadCommentsCmd(m.Provider, m.Posts.CurrentPost.Pid, nextSortAsc, 0)
 			}
-		case "r":
+		case key.Matches(msg, keymap.Direct.Refresh):
 			if m.Posts.CurrentPost != nil {
 				m.Posts.CommentListLoading = true
 				m.Posts.CommentListError = ""
 				return m, loadPostDetailCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc)
 			}
-		case "o":
+		case msg.Text == "o":
 			return m.openCurrentImagePanel()
-		case "p":
+		case key.Matches(msg, keymap.Direct.Praise):
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
 					return m, m.setWriteUnavailableStatus()
 				}
 				return m, togglePraiseCmd(m.Provider, m.Posts.CurrentPost.Pid)
 			}
-		case "f":
+		case key.Matches(msg, keymap.Direct.Follow):
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
 					return m, m.setWriteUnavailableStatus()
 				}
 				return m, toggleAttentionCmd(m.Provider, m.Posts.CurrentPost.Pid)
 			}
-		case "c":
+		case key.Matches(msg, keymap.Direct.Comment):
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
 					return m, m.setWriteUnavailableStatus()
@@ -688,7 +614,7 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.Dialog = DialogComposer
 				return m, nil
 			}
-		case "q":
+		case key.Matches(msg, keymap.Direct.Reply):
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
 					return m, m.setWriteUnavailableStatus()
@@ -702,13 +628,13 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.Dialog = DialogComposer
 				return m, nil
 			}
-		case "up":
+		case key.Matches(msg, shortcut.Up):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.ScrollUp(1)
 			} else {
 				m.Posts.moveCommentSelection(-1)
 			}
-		case "down":
+		case key.Matches(msg, shortcut.Down):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.ScrollDown(1)
 			} else {
@@ -718,13 +644,13 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 					return m, loadCommentsCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc, m.Posts.CommentListCursor)
 				}
 			}
-		case "pgup":
+		case key.Matches(msg, shortcut.PgUp):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.PageUp()
 			} else {
 				m.Posts.commentPageMove(-1)
 			}
-		case "pgdown":
+		case key.Matches(msg, shortcut.PgDown):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.PageDown()
 			} else {
@@ -739,20 +665,20 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, m.imageRefreshCmd(nil)
 	}
 
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, shortcut.Escape):
 		if m.Posts.SearchActive || m.Posts.ActiveTagID != 0 {
 			return m.clearActiveFilters()
 		}
-	case "r":
+	case key.Matches(msg, keymap.Direct.Refresh):
 		if !m.Posts.SearchActive {
 			m.Posts.PostListLoading = true
 			m.Posts.resetList()
 			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
 		}
-	case "o":
+	case msg.Text == "o":
 		return m.openCurrentImagePanel()
-	case "/":
+	case key.Matches(msg, keymap.Direct.Search):
 		m.Posts.Searching = true
 		m.Posts.PostsMode = PostsModeSearchInput
 		m.Posts.SearchInput = ""
@@ -760,36 +686,36 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Posts.SearchField.SetValue("")
 		_ = m.Posts.SearchField.Focus()
 		return m, nil
-	case "t":
+	case key.Matches(msg, keymap.Direct.Tags):
 		m.Dialog = DialogTags
 		if len(m.TagsDialog.groups) == 0 && m.Provider.Mode() == SessionModeOnline {
 			return m, loadTagsCmd(m.Provider)
 		}
 		return m, nil
-	case "n":
+	case key.Matches(msg, keymap.Direct.Post):
 		if !m.Posts.CanWrite {
 			return m, m.setWriteUnavailableStatus()
 		}
 		m.Composer.Configure(ComposerModePost)
 		m.Dialog = DialogComposer
 		return m, nil
-	case "p":
+	case key.Matches(msg, keymap.Direct.Praise):
 		if !m.Posts.CanWrite {
 			return m, m.setWriteUnavailableStatus()
 		}
 		if post := m.Posts.SelectedPost(); post != nil {
 			return m, togglePraiseCmd(m.Provider, post.Pid)
 		}
-	case "f":
+	case key.Matches(msg, keymap.Direct.Follow):
 		if !m.Posts.CanWrite {
 			return m, m.setWriteUnavailableStatus()
 		}
 		if post := m.Posts.SelectedPost(); post != nil {
 			return m, toggleAttentionCmd(m.Provider, post.Pid)
 		}
-	case "up":
+	case key.Matches(msg, shortcut.Up):
 		m.Posts.moveCursor(-1)
-	case "down":
+	case key.Matches(msg, shortcut.Down):
 		m.Posts.moveCursor(1)
 		if m.Posts.shouldPrefetchMore() {
 			m.Posts.PostListLoading = true
@@ -798,7 +724,7 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			}
 			return m, loadPostsCmd(m.Provider, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
 		}
-	case "enter":
+	case key.Matches(msg, keymap.Direct.OpenDetail):
 		if post := m.Posts.SelectedPost(); post != nil {
 			m.Posts.ShowPostDetail = true
 			m.Posts.PostsMode = PostsModeDetail
@@ -810,9 +736,9 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.syncPostsPage()
 			return m, m.imageRefreshCmd(loadPostDetailCmd(m.Provider, post.Pid, true))
 		}
-	case "pgup":
+	case key.Matches(msg, shortcut.PgUp):
 		m.Posts.pageMove(-1)
-	case "pgdown":
+	case key.Matches(msg, shortcut.PgDown):
 		m.Posts.pageMove(1)
 		if m.Posts.shouldPrefetchMore() && m.Posts.PostListHasMore && !m.Posts.PostListLoading {
 			m.Posts.PostListLoading = true
@@ -860,12 +786,12 @@ func (m *Model) syncPostsPage() {
 }
 
 func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.Code == tea.KeyEscape &&
+	if key.Matches(msg, shortcut.Escape) &&
 		(m.ToolsDialog.Section() != ToolsSectionConfig || m.ToolsDialog.Config.Mode() == ConfigEditorNormal) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	if m.ToolsDialog.Section() == ToolsSectionConfig && msg.String() == "ctrl+s" {
+	if m.ToolsDialog.Section() == ToolsSectionConfig && key.Matches(msg, shortcut.Save) {
 		cfg, err := m.ToolsDialog.Config.ToConfig()
 		if err != nil {
 			m.ToolsDialog.Config.SetSaveResult(err)
@@ -878,25 +804,25 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.ToolsDialog.Config.Update(msg)
 		return m, nil
 	}
-	switch msg.String() {
-	case "1":
+	switch {
+	case key.Matches(msg, shortcut.ToolConfig):
 		m.ToolsDialog.Switch(ToolsSectionConfig)
 		return m, nil
-	case "2":
+	case key.Matches(msg, shortcut.ToolLogs):
 		m.ToolsDialog.Switch(ToolsSectionLogs)
 		m.ToolsDialog.Logs.SetLoading(true)
 		return m, loadLogsCmd()
-	case "3":
+	case key.Matches(msg, shortcut.ToolInteractive):
 		m.ToolsDialog.Switch(ToolsSectionInteractive)
 		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeInteractive)
 		m.ToolsDialog.Notifications.SetLoading(true)
 		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
-	case "4":
+	case key.Matches(msg, shortcut.ToolSystem):
 		m.ToolsDialog.Switch(ToolsSectionSystem)
 		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeSystem)
 		m.ToolsDialog.Notifications.SetLoading(true)
 		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
-	case "?":
+	case key.Matches(msg, shortcut.ToolHelp):
 		m.ToolsDialog.Switch(ToolsSectionHelp)
 		return m, nil
 	}
@@ -911,18 +837,18 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 
 	notifications := &m.ToolsDialog.Notifications
-	switch msg.String() {
-	case "r":
+	switch {
+	case key.Matches(msg, keymap.Direct.Refresh):
 		notifications.SetLoading(true)
 		return m, loadNotificationsCmd(m.Client, notifications.MessageType())
-	case "enter":
+	case key.Matches(msg, shortcut.Enter):
 		if !notifications.CanMarkSelectedRead() {
 			return m, nil
 		}
 		selected := notifications.Selected()
 		notifications.SetAction(true)
 		return m, setNotificationReadCmd(m.Client, selected.ID, notifications.MessageType())
-	case "a":
+	case key.Matches(msg, shortcut.MarkAllRead):
 		notifications.SetAction(true)
 		return m, setAllNotificationsReadCmd(m.Client, notifications.MessageType())
 	}
@@ -933,25 +859,25 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleImageDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, shortcut.Escape):
 		m.Dialog = DialogNone
 		m.ImageDialog.Clear()
-	case "left":
+	case key.Matches(msg, shortcut.Left):
 		m.ImageDialog.Prev()
-	case "right":
+	case key.Matches(msg, shortcut.Right):
 		m.ImageDialog.Next()
 	}
 	return m, nil
 }
 
 func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.Code == tea.KeyEscape {
+	if key.Matches(msg, shortcut.Escape) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
 	if m.SessionDialog.NeedsCredentials() {
-		if msg.Code == tea.KeyEnter {
+		if key.Matches(msg, shortcut.Enter) {
 			challenge := m.SessionDialog.Challenge()
 			focusIndex := m.SessionDialog.CredentialFocusIndex()
 			if focusIndex == m.SessionDialog.maxFocusIndex() {
@@ -1011,13 +937,10 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		cmd := m.SessionDialog.Update(msg)
 		return m, cmd
 	}
-	if msg.Code == tea.KeyEnter {
+	if key.Matches(msg, shortcut.Enter) {
 		switch m.SessionDialog.SelectedOption() {
 		case "打开配置":
-			m.Dialog = DialogTools
-			m.ToolsDialog.Switch(ToolsSectionConfig)
-			m.ToolsDialog.Config = NewConfigDialog(m.Config)
-			return m, loadConfigCmd()
+			return m.openConfigDialog(), loadConfigCmd()
 		case "重新登录":
 			return m, refreshSessionCmd(m.Client, m.Config)
 		case "进入离线模式", "确定":
@@ -1076,7 +999,7 @@ func (m Model) currentImageSelection() (string, []resolvedMedia) {
 }
 
 func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.Code == tea.KeyEscape {
+	if key.Matches(msg, shortcut.Escape) {
 		reason := m.Session.ChallengeMessage
 		if reason == "" {
 			reason = m.Session.Message
@@ -1086,14 +1009,14 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Posts.PostListLoading = true
 		return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
 	}
-	if msg.String() == "ctrl+r" && m.AuthDialog.Kind() == AuthChallengeTypeSMS {
+	if key.Matches(msg, shortcut.Resend) && m.AuthDialog.Kind() == AuthChallengeTypeSMS {
 		m.AuthDialog.SetSubmitting(true)
 		m.AuthDialog.SetError(nil)
 		m.AuthDialog.SetStatus("")
 		m.AuthDialog.MarkSMSSent()
 		return m, sendSMSChallengeCmd(m.Client)
 	}
-	if msg.Code == tea.KeyEnter {
+	if key.Matches(msg, shortcut.Enter) {
 		if m.AuthDialog.Kind() == AuthChallengeTypeSMS && m.AuthDialog.IsSendFocused() {
 			m.AuthDialog.SetSubmitting(true)
 			m.AuthDialog.SetError(nil)
@@ -1133,11 +1056,11 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleComposerKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.Code == tea.KeyEscape {
+	if key.Matches(msg, shortcut.Escape) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	if msg.String() == "ctrl+s" {
+	if key.Matches(msg, shortcut.Save) {
 		text := m.Composer.Value()
 		if text == "" {
 			m.Composer.SetError(errors.New("内容不能为空"))
@@ -1154,22 +1077,22 @@ func (m Model) handleComposerKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleTagsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if msg.Code == tea.KeyEscape {
+	if key.Matches(msg, shortcut.Escape) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	switch msg.String() {
-	case "left", "h", "backspace":
+	switch {
+	case key.Matches(msg, shortcut.Left, shortcut.VimLeft, keymap.Direct.Backspace):
 		if m.TagsDialog.Back() {
 			return m, nil
 		}
-	case "c":
+	case key.Matches(msg, shortcut.Clear):
 		m.Posts.ActiveTagID = 0
 		m.Posts.ActiveTag = ""
 		m.Dialog = DialogNone
 		m.Posts.PostListLoading = true
 		return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0)
-	case "enter":
+	case key.Matches(msg, shortcut.Enter):
 		if !m.TagsDialog.Enter() {
 			return m, nil
 		}

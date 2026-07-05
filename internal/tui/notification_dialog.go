@@ -7,6 +7,7 @@ import (
 
 	"treehole/internal/models"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -114,18 +115,18 @@ func (m *NotificationDialogModel) MarkAllRead() {
 
 // Update returns true when the active message type changed and must be reloaded.
 func (m *NotificationDialogModel) Update(msg tea.KeyPressMsg) bool {
-	switch msg.String() {
-	case "up":
+	switch {
+	case key.Matches(msg, shortcut.Up):
 		if m.selected > 0 {
 			m.selected--
 		}
-	case "down":
+	case key.Matches(msg, shortcut.Down):
 		if m.selected < len(m.items)-1 {
 			m.selected++
 		}
-	case "pgup":
+	case key.Matches(msg, shortcut.PgUp):
 		m.selected = maxInt(0, m.selected-10)
-	case "pgdown":
+	case key.Matches(msg, shortcut.PgDown):
 		m.selected = minInt(maxInt(0, len(m.items)-1), m.selected+10)
 	}
 	return false

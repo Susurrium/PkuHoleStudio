@@ -6,6 +6,7 @@ import (
 
 	"treehole/internal/models"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -98,7 +99,7 @@ func (m *ComposerDialogModel) SetError(err error) {
 }
 
 func (m *ComposerDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
-	if msg.String() == "tab" {
+	if key.Matches(msg, shortcut.Tab) {
 		m.focusImages = !m.focusImages
 		if m.focusImages {
 			m.input.Blur()
@@ -185,8 +186,6 @@ func (m ComposerDialogModel) View(width, height int) string {
 		b.WriteString("\n\n")
 		b.WriteString(vErrorStyle.Render(m.errorText))
 	}
-	b.WriteString("\n\n")
-	b.WriteString(vDialogHelpStyle.Render("Tab: 切换 | Ctrl+S: 提交"))
 	return b.String()
 }
 

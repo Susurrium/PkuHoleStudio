@@ -72,27 +72,20 @@ func renderToolsBodyWithFooter(body, footer string, width, height int) string {
 	if width < 1 {
 		width = 1
 	}
-	if height < 2 {
-		height = 2
+	if height < 1 {
+		height = 1
 	}
 	fill := dialogBackgroundFillStyle()
-	bodyHeight := height - 1
 	body = fillRenderedBackground(body, width, fill)
 	body = lipgloss.Place(
 		width,
-		bodyHeight,
+		height,
 		lipgloss.Left,
 		lipgloss.Top,
 		body,
 		lipgloss.WithWhitespaceStyle(fill),
 	)
-	footer = clipToVisibleWidth(footer, width)
-	footer = vDialogHelpStyle.
-		Padding(0).
-		Width(width).
-		Render(footer)
-	footer = fillRenderedBackground(footer, width, fill)
-	return preserveBackgroundAfterReset(lipgloss.JoinVertical(lipgloss.Left, body, footer), colorBg)
+	return preserveBackgroundAfterReset(body, colorBg)
 }
 
 func dialogBackgroundFillStyle() lipgloss.Style {
@@ -105,10 +98,10 @@ func (m ToolsDialogModel) renderTabs() string {
 		label   string
 		section ToolsSection
 	}{
-		{"配置 (1)", ToolsSectionConfig},
-		{"日志 (2)", ToolsSectionLogs},
-		{"互动 (3)", ToolsSectionInteractive},
-		{"系统 (4)", ToolsSectionSystem},
+		{"配置 (C)", ToolsSectionConfig},
+		{"日志 (L)", ToolsSectionLogs},
+		{"互动 (I)", ToolsSectionInteractive},
+		{"系统 (S)", ToolsSectionSystem},
 		{"帮助 (?)", ToolsSectionHelp},
 	}
 	parts := make([]string, 0, len(tabs))
@@ -139,12 +132,12 @@ func renderToolsHelp(width, height int) string {
 	add("")
 	addHeading("全局快捷键")
 	add("Tab: 切换主页面")
-	add("?: 项目帮助")
-	add("h: 当前页面快捷键")
-	add("c: 配置")
-	add("l: 日志")
-	add("b: 通知")
-	add("Ctrl+Q: 退出")
+	add("?: 当前页面快捷键")
+	add("space+?: 项目帮助")
+	add("space+c: 配置")
+	add("space+l: 日志")
+	add("space+b: 通知")
+	add("q: 退出")
 	add("")
 	addHeading("帖子快捷键")
 	add("↑↓: 选择/滚动")
@@ -159,5 +152,5 @@ func renderToolsHelp(width, height int) string {
 	add("t: 标签筛选")
 
 	body := strings.Join(lines, "\n")
-	return renderToolsBodyWithFooter(body, "?: 帮助 | h: 当前页快捷键 | Esc: 关闭", width, height)
+	return renderToolsBodyWithFooter(body, "?: 帮助 | Esc: 关闭", width, height)
 }

@@ -224,7 +224,7 @@ func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
 	}
 	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
 	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+	return m.overlayStatusLine(width, height, body), placements
 }
 
 func (m Model) renderPanelScreen(width, height int, renderContent func(panelW, panelH int) string) (string, []imagePlacement) {
@@ -236,8 +236,10 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	mainModel.Dialog = DialogNone
 	main, placements := mainModel.renderMainLayout(width, height)
 
+	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
+	availableHeight := maxInt(1, height-statusLineHeight)
 	panelW := width * 4 / 5
-	panelH := height * 4 / 5
+	panelH := availableHeight * 4 / 5
 	if panelW < 40 {
 		panelW = 40
 	}
@@ -247,12 +249,12 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	if panelW > width {
 		panelW = width
 	}
-	if panelH > height {
-		panelH = height
+	if panelH > availableHeight {
+		panelH = availableHeight
 	}
 
 	panelX := (width - panelW) / 2
-	panelY := (height - panelH) / 2
+	panelY := (availableHeight - panelH) / 2
 
 	panelStyle := panelContentStyle.Width(panelW).MaxHeight(panelH)
 	if fillPanel {
@@ -265,7 +267,7 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	baseLayer := lipgloss.NewLayer(main)
 	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
 	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+	return m.overlayStatusLine(width, height, body), placements
 }
 
 func (m Model) renderToolsPanelContent(panelW, panelH int) string {
@@ -292,8 +294,10 @@ func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlaceme
 	mainModel.Dialog = DialogNone
 	main, _ := mainModel.renderMainLayout(width, height)
 
+	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
+	availableHeight := maxInt(1, height-statusLineHeight)
 	panelW := width * 4 / 5
-	panelH := height * 4 / 5
+	panelH := availableHeight * 4 / 5
 	if panelW < 40 {
 		panelW = 40
 	}
@@ -303,12 +307,12 @@ func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlaceme
 	if panelW > width {
 		panelW = width
 	}
-	if panelH > height {
-		panelH = height
+	if panelH > availableHeight {
+		panelH = availableHeight
 	}
 
 	panelX := (width - panelW) / 2
-	panelY := (height - panelH) / 2
+	panelY := (availableHeight - panelH) / 2
 
 	content, placements := m.ImageDialog.View(panelW, panelH, m.Images != nil && m.Images.Enabled())
 	for i := range placements {
@@ -322,7 +326,19 @@ func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlaceme
 	baseLayer := lipgloss.NewLayer(main)
 	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
 	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+	return m.overlayStatusLine(width, height, body), placements
+}
+
+func (m Model) overlayStatusLine(width, height int, body string) string {
+	if height < 1 {
+		return ""
+	}
+	body = lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body)
+	status := m.renderStatusLine(width)
+	statusY := maxInt(0, height-lipgloss.Height(status))
+	baseLayer := lipgloss.NewLayer(body)
+	statusLayer := lipgloss.NewLayer(status).X(0).Y(statusY).Z(3)
+	return lipgloss.NewCompositor(baseLayer, statusLayer).Render()
 }
 
 func (m Model) overlayToast(screenWidth int, body string) string {
@@ -475,64 +491,61 @@ func joinStatusSections(width int, left, middle, right string) string {
 }
 
 func (m Model) currentModeLabel() string {
-	switch m.Dialog {
-	case DialogTools:
-		switch m.ToolsDialog.Section() {
-		case ToolsSectionLogs:
-			return "TOOLS-LOGS"
-		case ToolsSectionInteractive:
-			return "TOOLS-NOTIFY"
-		case ToolsSectionSystem:
-			return "TOOLS-SYSTEM"
-		case ToolsSectionHelp:
-			return "TOOLS-HELP"
-		default:
-			return "TOOLS-CONFIG"
-		}
-	case DialogHelp:
-		return "HELP"
-	case DialogSessionPrompt:
-		return "LOGIN"
-	case DialogAuthChallenge:
-		return "AUTH"
-	case DialogComposer:
-		return "COMPOSE"
-	case DialogTags:
-		return "TAGS"
-	}
-
-	if m.Page == PageDashboard {
-		return "DASHBOARD"
-	}
-	if m.Page == PageHome {
-		if m.Home.CrawlerState == CrawlerRunning {
-			return "SYNC"
-		}
-		return "HOME"
-	}
-	if m.Page == PageSchedule {
-		return "SCHEDULE"
-	}
-	if m.Page == PageScores {
-		return "SCORES"
-	}
-
 	if m.Posts.Searching {
 		return "SEARCH"
 	}
-	if m.Posts.ShowPostDetail {
-		if m.Posts.DetailFocus == DetailFocusPost {
-			return "DETAIL-POST"
+	switch m.Dialog {
+	case DialogTools:
+		if m.ToolsDialog.Section() == ToolsSectionConfig &&
+			m.ToolsDialog.Config.Mode() == ConfigEditorInsert {
+			return "INSERT"
 		}
-		return "DETAIL-CMT"
-	}
-	if m.Posts.SearchActive {
-		return "RESULTS"
+		return "NORMAL"
+	case DialogComposer:
+		return "INSERT"
+	case DialogSessionPrompt:
+		if m.SessionDialog.NeedsCredentials() {
+			return "INSERT"
+		}
+	case DialogAuthChallenge:
+		return "INSERT"
 	}
 	return "NORMAL"
 }
 
 func (m Model) currentPageLabel() string {
+	if m.Dialog != DialogNone {
+		switch m.Dialog {
+		case DialogTools:
+			switch m.ToolsDialog.Section() {
+			case ToolsSectionLogs:
+				return "日志"
+			case ToolsSectionInteractive:
+				return "互动通知"
+			case ToolsSectionSystem:
+				return "系统通知"
+			case ToolsSectionHelp:
+				return "工具帮助"
+			default:
+				return "配置"
+			}
+		case DialogImage:
+			return "图片"
+		case DialogHelp:
+			return "快捷键"
+		case DialogSessionPrompt:
+			return "登录"
+		case DialogAuthChallenge:
+			return "认证"
+		case DialogComposer:
+			if m.Composer.Mode() == ComposerModeComment {
+				return "发布评论"
+			}
+			return "发布帖子"
+		case DialogTags:
+			return "标签"
+		}
+	}
 	switch m.Page {
 	case PageDashboard:
 		return "TreeHole"
@@ -560,6 +573,12 @@ func (m Model) currentPageLabel() string {
 }
 
 func (m Model) currentStatusSummary() string {
+	if m.CommandActive {
+		return ":" + m.CommandInput
+	}
+	if m.LeaderPending {
+		return "Space"
+	}
 	if m.LastError != "" {
 		return "错误: " + m.LastError
 	}
@@ -570,7 +589,7 @@ func (m Model) currentStatusSummary() string {
 		if m.Dashboard.Loading {
 			return "正在加载通知"
 		}
-		return "e: 浏览 | n: 通知 | c: 配置"
+		return "e: 浏览 | n: 通知 | SPC+c: 配置"
 	}
 	if m.Page == PageHome {
 		return m.homeStatusSummary()
@@ -587,9 +606,22 @@ func (m Model) currentStatusSummary() string {
 func (m Model) dialogStatusSummary() string {
 	switch m.Dialog {
 	case DialogTools:
-		return "1/2/3/4/?: 配置/日志/互动/系统/帮助 | Ctrl+S: 保存配置 | Esc: 关闭"
+		switch m.ToolsDialog.Section() {
+		case ToolsSectionConfig:
+			if m.ToolsDialog.Config.Mode() == ConfigEditorInsert {
+				return "Ctrl+S: 保存配置 | Esc: Normal"
+			}
+			return "Ctrl+S: 保存配置 | i/a/o: 编辑"
+		case ToolsSectionLogs:
+			return "r: 刷新"
+		case ToolsSectionInteractive, ToolsSectionSystem:
+			return "Enter: 标记已读 | a: 全部已读 | r: 刷新"
+		case ToolsSectionHelp:
+			return ""
+		}
+		return ""
 	case DialogImage:
-		return "o: 图片预览 | Left/Right: 切换 | Esc: 关闭"
+		return "Left/Right: 切换图片 | Esc: 关闭"
 	case DialogHelp:
 		return "当前快捷键"
 	case DialogSessionPrompt:
@@ -597,11 +629,11 @@ func (m Model) dialogStatusSummary() string {
 	case DialogAuthChallenge:
 		return "需要补充登录验证信息"
 	case DialogComposer:
-		return "Ctrl+S: 提交 | Esc: 取消"
+		return "Tab: 切换输入区 | Ctrl+S: 提交 | Esc: 取消"
 	case DialogTags:
 		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
 	default:
-		return "h: 帮助 | Ctrl+Q: 退出"
+		return "?: 帮助 | q: 退出"
 	}
 }
 
@@ -789,7 +821,6 @@ func (m Model) renderHelpPanel(width int) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(vDialogHelpStyle.Render("Esc: 关闭"))
 
 	card := helpCard.Width(cardWidth).Render(b.String())
 	return lipgloss.Place(panelWidth, lipgloss.Height(card), lipgloss.Right, lipgloss.Top, card)
@@ -830,97 +861,7 @@ func (m Model) helpContextTitle() string {
 }
 
 func (m Model) helpItems() []helpItem {
-	items := []helpItem{{key: "Esc", desc: "关闭帮助"}}
-
-	switch {
-	case m.Dialog == DialogImage:
-		items = append(items,
-			helpItem{key: "←→", desc: "切换图片"},
-			helpItem{key: "Esc", desc: "关闭图片"},
-		)
-	case m.Page == PageDashboard:
-		items = append(items,
-			helpItem{key: "e", desc: "进入浏览"},
-			helpItem{key: "n", desc: "打开通知"},
-			helpItem{key: "c", desc: "打开配置"},
-			helpItem{key: "?", desc: "项目帮助"},
-		)
-	case m.Page == PageHome:
-		items = append(items,
-			helpItem{key: "Tab", desc: "切换页面"},
-			helpItem{key: "1-4", desc: "选择模式"},
-			helpItem{key: "←→", desc: "切换按钮"},
-			helpItem{key: "Enter", desc: "启动/停止"},
-			helpItem{key: "c", desc: "打开配置"},
-			helpItem{key: "l", desc: "查看日志"},
-			helpItem{key: "b", desc: "查看通知"},
-		)
-		if m.Home.CrawlerState != CrawlerRunning {
-			items = append(items, helpItem{key: "m", desc: "切换模式"})
-		}
-	case m.Page == PageSchedule || m.Page == PageScores:
-		items = append(items,
-			helpItem{key: "Tab", desc: "切换页面"},
-			helpItem{key: "r", desc: "刷新"},
-			helpItem{key: "c", desc: "打开配置"},
-			helpItem{key: "l", desc: "查看日志"},
-			helpItem{key: "b", desc: "查看通知"},
-		)
-		if m.Page == PageScores {
-			items = append(items,
-				helpItem{key: "↑↓", desc: "滚动成绩"},
-				helpItem{key: "PgUp/PgDn", desc: "成绩翻页"},
-			)
-		}
-	case m.Posts.Searching:
-		items = append(items,
-			helpItem{key: "Enter", desc: "开始搜索"},
-			helpItem{key: "←→", desc: "移动光标"},
-			helpItem{key: "Backspace", desc: "删除字符"},
-		)
-	case m.Posts.ShowPostDetail:
-		items = append(items,
-			helpItem{key: "Tab", desc: "切换正文/评论"},
-			helpItem{key: "↑↓", desc: "滚动当前区域"},
-			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
-			helpItem{key: "o", desc: "打开图片"},
-			helpItem{key: "s", desc: "切换排序"},
-			helpItem{key: "r", desc: "刷新详情"},
-		)
-		if m.Posts.CanWrite {
-			items = append(items,
-				helpItem{key: "p", desc: "切换点赞"},
-				helpItem{key: "f", desc: "切换关注"},
-				helpItem{key: "c", desc: "发表评论"},
-				helpItem{key: "q", desc: "引用评论"},
-			)
-		}
-	default:
-		items = append(items,
-			helpItem{key: "Tab", desc: "切换页面"},
-			helpItem{key: "↑↓", desc: "选择帖子"},
-			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
-			helpItem{key: "Enter", desc: "打开详情"},
-			helpItem{key: "o", desc: "打开图片"},
-			helpItem{key: "/", desc: "搜索帖子"},
-			helpItem{key: "r", desc: "刷新列表"},
-			helpItem{key: "c", desc: "打开配置"},
-			helpItem{key: "l", desc: "查看日志"},
-			helpItem{key: "b", desc: "查看通知"},
-		)
-		if m.Session.Mode == SessionModeOnline {
-			items = append(items, helpItem{key: "t", desc: "标签筛选"})
-		}
-		if m.Posts.CanWrite {
-			items = append(items,
-				helpItem{key: "n", desc: "发布帖子"},
-				helpItem{key: "p", desc: "切换点赞"},
-				helpItem{key: "f", desc: "切换关注"},
-			)
-		}
-	}
-
-	return items
+	return m.contextualHelpItems()
 }
 
 func minInt(a, b int) int {

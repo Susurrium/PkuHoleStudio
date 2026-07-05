@@ -28,8 +28,8 @@ func TestComposerDialogViewUsesPanelSpaceAndShowsQuotePreview(t *testing.T) {
 	if !strings.Contains(large, "引用 #23 tester: quoted comment") {
 		t.Fatalf("quote preview missing from large panel:\n%s", large)
 	}
-	if !strings.Contains(large, "Tab: 切换 | Ctrl+S: 提交") {
-		t.Fatalf("composer help text missing from large panel:\n%s", large)
+	if strings.Contains(large, "Tab: 切换 | Ctrl+S: 提交") {
+		t.Fatalf("composer help text should be rendered by the global status bar, not the panel:\n%s", large)
 	}
 	if len(frameLines(large)) <= len(frameLines(small)) {
 		t.Fatalf("expected larger panel to render taller composer, small=%d large=%d", len(frameLines(small)), len(frameLines(large)))

@@ -171,14 +171,24 @@ func TestDashboardShortcutsOpenExploreNotificationsAndConfig(t *testing.T) {
 	if configModel.Dialog != DialogTools ||
 		configModel.ToolsDialog.Section() != ToolsSectionConfig ||
 		cmd == nil {
-		t.Fatal("c should open config")
+		t.Fatal("c should open config directly on dashboard")
+	}
+	configModel, cmd = m.handleKey(keyPress(' '))
+	if !configModel.LeaderPending || cmd != nil {
+		t.Fatal("space should start leader before opening config")
+	}
+	configModel, cmd = configModel.handleKey(keyPress('c'))
+	if configModel.Dialog != DialogTools ||
+		configModel.ToolsDialog.Section() != ToolsSectionConfig ||
+		cmd == nil {
+		t.Fatal("Space c should open config")
 	}
 
 	help, cmd := m.handleKey(keyPress('?'))
 	if help.Dialog != DialogTools ||
 		help.ToolsDialog.Section() != ToolsSectionHelp ||
 		cmd != nil {
-		t.Fatal("? should open help")
+		t.Fatal("? should open help in tools dialog")
 	}
 }
 

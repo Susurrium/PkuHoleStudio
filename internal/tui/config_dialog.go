@@ -7,6 +7,7 @@ import (
 
 	"treehole/internal/config"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -103,21 +104,21 @@ func (m *ConfigDialogModel) Update(msg tea.KeyPressMsg) {
 }
 
 func (m *ConfigDialogModel) updateInsert(msg tea.KeyPressMsg) {
-	switch msg.Code {
-	case tea.KeyEscape:
+	switch {
+	case key.Matches(msg, shortcut.Escape):
 		m.mode = ConfigEditorNormal
 		if m.cursorCol > 0 {
 			m.cursorCol--
 		}
-	case tea.KeyLeft:
+	case key.Matches(msg, shortcut.Left):
 		m.moveHorizontal(-1)
-	case tea.KeyRight:
+	case key.Matches(msg, shortcut.Right):
 		m.moveHorizontal(1)
-	case tea.KeyUp:
+	case key.Matches(msg, shortcut.Up):
 		m.moveVertical(-1)
-	case tea.KeyDown:
+	case key.Matches(msg, shortcut.Down):
 		m.moveVertical(1)
-	case tea.KeyEnter:
+	case key.Matches(msg, shortcut.Enter):
 		line := []rune(m.lines[m.cursorRow])
 		left := string(line[:m.cursorCol])
 		right := string(line[m.cursorCol:])
@@ -127,7 +128,7 @@ func (m *ConfigDialogModel) updateInsert(msg tea.KeyPressMsg) {
 		m.lines[m.cursorRow+1] = right
 		m.cursorRow++
 		m.cursorCol = 0
-	case tea.KeyBackspace:
+	case key.Matches(msg, keymap.Direct.Backspace):
 		m.backspace()
 	default:
 		if msg.Text != "" {
@@ -137,65 +138,54 @@ func (m *ConfigDialogModel) updateInsert(msg tea.KeyPressMsg) {
 }
 
 func (m *ConfigDialogModel) updateNormal(msg tea.KeyPressMsg) {
-	if msg.String() != "g" {
+	if !key.Matches(msg, shortcut.ConfigGo) {
 		m.pendingG = false
 	}
-	switch msg.Code {
-	case tea.KeyLeft:
+	switch {
+	case key.Matches(msg, shortcut.Left, shortcut.VimLeft):
 		m.moveHorizontal(-1)
-	case tea.KeyRight:
+	case key.Matches(msg, shortcut.Right, shortcut.VimRight):
 		m.moveHorizontal(1)
-	case tea.KeyUp:
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		m.moveVertical(-1)
-	case tea.KeyDown:
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		m.moveVertical(1)
-	default:
-		switch msg.String() {
-		case "h":
-			m.moveHorizontal(-1)
-		case "j":
-			m.moveVertical(1)
-		case "k":
-			m.moveVertical(-1)
-		case "l":
-			m.moveHorizontal(1)
-		case "i":
-			m.mode = ConfigEditorInsert
-		case "a":
-			if m.cursorCol < len([]rune(m.lines[m.cursorRow])) {
-				m.cursorCol++
-			}
-			m.mode = ConfigEditorInsert
-		case "o":
-			m.insertLine(m.cursorRow + 1)
-			m.cursorRow++
-			m.cursorCol = 0
-			m.mode = ConfigEditorInsert
-		case "O":
-			m.insertLine(m.cursorRow)
-			m.cursorCol = 0
-			m.mode = ConfigEditorInsert
-		case "x":
-			m.deleteRune()
-		case "0":
-			m.cursorCol = 0
-		case "$":
-			m.cursorCol = maxInt(0, len([]rune(m.lines[m.cursorRow]))-1)
-		case "G":
-			m.cursorRow = len(m.lines) - 1
-			m.cursorCol = 0
-		case "g":
-			if m.pendingG {
-				m.cursorRow = 0
-				m.cursorCol = 0
-				m.pendingG = false
-			} else {
-				m.pendingG = true
-				return
-			}
-		default:
-			m.pendingG = false
+	case key.Matches(msg, shortcut.ConfigInsert):
+		m.mode = ConfigEditorInsert
+	case key.Matches(msg, shortcut.ConfigAppend):
+		if m.cursorCol < len([]rune(m.lines[m.cursorRow])) {
+			m.cursorCol++
 		}
+		m.mode = ConfigEditorInsert
+	case key.Matches(msg, shortcut.ConfigOpenBelow):
+		m.insertLine(m.cursorRow + 1)
+		m.cursorRow++
+		m.cursorCol = 0
+		m.mode = ConfigEditorInsert
+	case key.Matches(msg, shortcut.ConfigOpenAbove):
+		m.insertLine(m.cursorRow)
+		m.cursorCol = 0
+		m.mode = ConfigEditorInsert
+	case key.Matches(msg, shortcut.ConfigDelete):
+		m.deleteRune()
+	case key.Matches(msg, shortcut.ConfigLineStart):
+		m.cursorCol = 0
+	case key.Matches(msg, shortcut.ConfigLineEnd):
+		m.cursorCol = maxInt(0, len([]rune(m.lines[m.cursorRow]))-1)
+	case key.Matches(msg, shortcut.ConfigDocBottom):
+		m.cursorRow = len(m.lines) - 1
+		m.cursorCol = 0
+	case key.Matches(msg, shortcut.ConfigGo):
+		if m.pendingG {
+			m.cursorRow = 0
+			m.cursorCol = 0
+			m.pendingG = false
+		} else {
+			m.pendingG = true
+			return
+		}
+	default:
+		m.pendingG = false
 	}
 }
 
@@ -287,7 +277,7 @@ func (m *ConfigDialogModel) View(width, height int) string {
 	if m.saving || m.saveOK || m.lastErr != "" {
 		statusHeight = 1
 	}
-	editorHeight := maxInt(1, height-1-statusHeight)
+	editorHeight := maxInt(1, height-statusHeight)
 	m.viewHeight = editorHeight
 	m.ensureCursorVisible()
 
@@ -328,11 +318,7 @@ func (m *ConfigDialogModel) View(width, height int) string {
 		b.WriteString(vErrorStyle.Render(m.lastErr))
 	}
 
-	help := "NORMAL | Ctrl+S: 保存 | i: 编辑"
-	if m.mode == ConfigEditorInsert {
-		help = "INSERT | Ctrl+S: 保存 | Esc: NORMAL"
-	}
-	return renderToolsBodyWithFooter(b.String(), help, width, height)
+	return renderToolsBodyWithFooter(b.String(), "", width, height)
 }
 
 func (m ConfigDialogModel) renderLine(row, width int) string {

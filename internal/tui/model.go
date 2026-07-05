@@ -272,6 +272,10 @@ type Model struct {
 
 	ToastMsg       string
 	ToastExpiresAt time.Time
+
+	LeaderPending bool
+	CommandActive bool
+	CommandInput  string
 }
 
 func NewModel(database *db.Database, client *client.Client, cfg *config.Config, session SessionState) Model {

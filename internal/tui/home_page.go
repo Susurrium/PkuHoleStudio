@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -219,48 +220,48 @@ func compactCardStyle(width int) lipgloss.Style {
 }
 
 func (h *HomePageModel) Update(msg tea.KeyPressMsg) HomeAction {
-	switch msg.String() {
-	case "m":
+	switch {
+	case key.Matches(msg, shortcut.HomeModeCycle):
 		if h.CrawlerState == CrawlerStopped {
 			h.CrawlMode = CrawlMode((int(h.CrawlMode) + 1) % 4)
 		}
-	case "1":
+	case key.Matches(msg, shortcut.ToolConfig):
 		h.setMode(CrawlSequential)
-	case "2":
+	case key.Matches(msg, shortcut.ToolLogs):
 		h.setMode(CrawlMonitor)
-	case "3":
+	case key.Matches(msg, shortcut.ToolInteractive):
 		h.setMode(CrawlFetchImages)
-	case "4":
+	case key.Matches(msg, shortcut.ToolSystem):
 		h.setMode(CrawlFetchThumbnails)
-	case "+", "=":
+	case key.Matches(msg, shortcut.Increase):
 		h.adjustModeParam(1)
-	case "-", "_":
+	case key.Matches(msg, shortcut.Decrease):
 		h.adjustModeParam(-1)
-	case "[":
+	case key.Matches(msg, shortcut.HomeThumbnailPrev):
 		h.adjustThumbnailStart(-100)
-	case "]":
+	case key.Matches(msg, shortcut.HomeThumbnailNext):
 		h.adjustThumbnailStart(100)
-	case "i":
+	case key.Matches(msg, shortcut.HomeFetchImages):
 		if h.CrawlerState == CrawlerStopped {
 			h.FetchImages = !h.FetchImages
 		}
-	case "j":
+	case key.Matches(msg, shortcut.HomeSaveJSON):
 		if h.CrawlerState == CrawlerStopped {
 			h.SaveJSON = !h.SaveJSON
 		}
-	case "w":
+	case key.Matches(msg, shortcut.HomeConvertWebp):
 		if h.CrawlerState == CrawlerStopped {
 			h.ConvertWebp = !h.ConvertWebp
 		}
-	case "left":
+	case key.Matches(msg, shortcut.Left):
 		if h.HomeButtonIdx > 0 {
 			h.HomeButtonIdx--
 		}
-	case "right":
+	case key.Matches(msg, shortcut.Right):
 		if h.HomeButtonIdx < int(HomeFocusMode) {
 			h.HomeButtonIdx++
 		}
-	case "enter":
+	case key.Matches(msg, shortcut.Enter):
 		if h.HomeButtonIdx == int(HomeFocusStart) && h.CrawlerState == CrawlerStopped {
 			h.CrawlerState = CrawlerRunning
 			h.CrawlerStart = time.Now()

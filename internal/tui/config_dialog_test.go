@@ -17,7 +17,7 @@ func TestConfigDialogRendersSingleJSONDocument(t *testing.T) {
 	})
 
 	output := stripANSI(dialog.View(80, 30))
-	for _, want := range []string{`"username": "alice"`, `"database": {`, `"db_file": "./treehole.db"`, "NORMAL | Ctrl+S"} {
+	for _, want := range []string{`"username": "alice"`, `"database": {`, `"db_file": "./treehole.db"`} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("config JSON editor missing %q:\n%s", want, output)
 		}
