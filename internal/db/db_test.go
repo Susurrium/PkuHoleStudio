@@ -36,9 +36,90 @@ func setupTestDB(t *testing.T) (*Database, func()) {
 	cleanup := func() {
 		database.Close()
 		os.Remove(tmpFile.Name())
+		os.Remove(tmpFile.Name() + "-wal")
+		os.Remove(tmpFile.Name() + "-shm")
 	}
 
 	return database, cleanup
+}
+
+func TestSQLiteConnectionSettings(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	sqlDB, err := db.db.DB()
+	if err != nil {
+		t.Fatalf("DB: %v", err)
+	}
+	if got := sqlDB.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("MaxOpenConnections = %d, want 1", got)
+	}
+
+	var journalMode string
+	if err := db.db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+	if journalMode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
+
+	var busyTimeout int
+	if err := db.db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
+		t.Fatalf("PRAGMA busy_timeout: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Fatalf("busy_timeout = %d, want 5000", busyTimeout)
+	}
+
+	var synchronous int
+	if err := db.db.Raw("PRAGMA synchronous").Scan(&synchronous).Error; err != nil {
+		t.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
+
+func TestCommentIndexes(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	var indexNames []string
+	if err := db.db.Raw("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'comments'").Scan(&indexNames).Error; err != nil {
+		t.Fatalf("query indexes: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, name := range indexNames {
+		found[name] = true
+	}
+	for _, name := range []string{"idx_comments_pid_cid", "idx_comments_quote_id"} {
+		if !found[name] {
+			t.Fatalf("missing index %s; got %v", name, indexNames)
+		}
+	}
+}
+
+func TestSaveCrawlResultRollsBackPostsWhenCommentsFail(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	if err := db.db.Exec("CREATE TRIGGER fail_comment_insert BEFORE INSERT ON comments BEGIN SELECT RAISE(ABORT, 'forced comment failure'); END").Error; err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	err := db.SaveCrawlResult(
+		[]models.Post{{Pid: 9001, Text: "should rollback", Type: "text", Timestamp: 1000}},
+		[]models.Comment{{Cid: 9001, Pid: 9001, Text: "fail", Timestamp: 1000}},
+	)
+	if err == nil {
+		t.Fatal("SaveCrawlResult expected error, got nil")
+	}
+
+	_, err = db.GetPostByPid(9001)
+	if err == nil {
+		t.Fatal("post should not exist after transaction rollback")
+	}
 }
 
 func seedPosts(t *testing.T, db *Database, posts []models.Post) {

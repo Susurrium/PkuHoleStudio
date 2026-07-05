@@ -58,14 +58,8 @@ func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bo
 	result.PostCount = len(posts)
 	result.CommentCount = len(comments)
 
-	if err := database.UpsertPosts(posts); err != nil {
-		return result, fmt.Errorf("写入帖子失败: %w", err)
-	}
-
-	if len(comments) > 0 {
-		if err := database.UpsertComments(comments); err != nil {
-			return result, fmt.Errorf("写入评论失败: %w", err)
-		}
+	if err := database.SaveCrawlResult(posts, comments); err != nil {
+		return result, fmt.Errorf("写入抓取结果失败: %w", err)
 	}
 
 	// 如果启用JSON保存，将原始响应添加到全局列表

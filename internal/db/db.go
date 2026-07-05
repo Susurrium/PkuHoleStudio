@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 	"treehole/internal/config"
 	"treehole/internal/models"
 
@@ -65,7 +66,8 @@ func applyPostSearch(query *gorm.DB, raw string) *gorm.DB {
 }
 
 type Database struct {
-	db *gorm.DB
+	db     *gorm.DB
+	dbType string
 }
 
 func NewDatabase(cfg *config.Config) (*Database, error) {
@@ -97,10 +99,21 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 		return nil, err
 	}
 
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(25)
+	if cfg.Database.Type == "sqlite3" {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		if err := configureSQLite(db); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+	} else {
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(25)
+		sqlDB.SetConnMaxLifetime(time.Hour)
+		sqlDB.SetConnMaxIdleTime(10 * time.Minute)
+	}
 
-	database := &Database{db: db}
+	database := &Database{db: db, dbType: cfg.Database.Type}
 	err = database.initTables()
 	if err != nil {
 		return nil, err
@@ -109,12 +122,40 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	return database, nil
 }
 
+func configureSQLite(db *gorm.DB) error {
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA synchronous=NORMAL",
+	}
+	for _, pragma := range pragmas {
+		if err := db.Exec(pragma).Error; err != nil {
+			return fmt.Errorf("configure sqlite %s: %w", pragma, err)
+		}
+	}
+	return nil
+}
+
 func (d *Database) initTables() error {
 	return d.db.AutoMigrate(&models.Post{}, &models.Comment{}, &models.ExclusiveIdInfo{})
 }
 
 func (d *Database) UpsertPosts(posts []models.Post) error {
-	// Check and sanitize null bytes before writing
+	sanitizePosts(posts)
+	err := upsertPosts(d.db, posts)
+
+	if err != nil {
+		pids := make([]int32, len(posts))
+		for i, p := range posts {
+			pids[i] = p.Pid
+		}
+		log.Printf("[Database] UpsertPosts 失败: %v | 涉及帖子 PIDs: %v", err, pids)
+	}
+
+	return err
+}
+
+func sanitizePosts(posts []models.Post) {
 	for i := range posts {
 		if containsNullByte(posts[i].Text) {
 			log.Printf("[Database] Post pid=%d 包含 null 字节，已清理。Text前100字符: %q",
@@ -160,25 +201,45 @@ func (d *Database) UpsertPosts(posts []models.Post) error {
 			}
 		}
 	}
+}
 
-	err := d.db.Clauses(clause.OnConflict{
+func upsertPosts(tx *gorm.DB, posts []models.Post) error {
+	if len(posts) == 0 {
+		return nil
+	}
+	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "pid"}},
 		UpdateAll: true,
 	}).CreateInBatches(posts, 100).Error
+}
+
+func (d *Database) SaveCrawlResult(posts []models.Post, comments []models.Comment) error {
+	sanitizePosts(posts)
+	sanitizeComments(comments)
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		if err := upsertPosts(tx, posts); err != nil {
+			return err
+		}
+		return upsertComments(tx, comments)
+	})
+}
+
+func (d *Database) UpsertComments(comments []models.Comment) error {
+	sanitizeComments(comments)
+	err := upsertComments(d.db, comments)
 
 	if err != nil {
-		pids := make([]int32, len(posts))
-		for i, p := range posts {
-			pids[i] = p.Pid
+		cids := make([]int32, len(comments))
+		for i, c := range comments {
+			cids[i] = c.Cid
 		}
-		log.Printf("[Database] UpsertPosts 失败: %v | 涉及帖子 PIDs: %v", err, pids)
+		log.Printf("[Database] UpsertComments 失败: %v | 涉及评论 CIDs: %v", err, cids)
 	}
 
 	return err
 }
 
-func (d *Database) UpsertComments(comments []models.Comment) error {
-	// Check and sanitize null bytes before writing
+func sanitizeComments(comments []models.Comment) {
 	for i := range comments {
 		if containsNullByte(comments[i].Text) {
 			log.Printf("[Database] Comment cid=%d pid=%d 包含 null 字节，已清理。Text前100字符: %q",
@@ -200,21 +261,16 @@ func (d *Database) UpsertComments(comments []models.Comment) error {
 			comments[i].NameTag = sanitizeNullBytes(comments[i].NameTag)
 		}
 	}
+}
 
-	err := d.db.Clauses(clause.OnConflict{
+func upsertComments(tx *gorm.DB, comments []models.Comment) error {
+	if len(comments) == 0 {
+		return nil
+	}
+	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "cid"}},
 		UpdateAll: true,
 	}).CreateInBatches(comments, 100).Error
-
-	if err != nil {
-		cids := make([]int32, len(comments))
-		for i, c := range comments {
-			cids[i] = c.Cid
-		}
-		log.Printf("[Database] UpsertComments 失败: %v | 涉及评论 CIDs: %v", err, cids)
-	}
-
-	return err
 }
 
 func (d *Database) UpsertExclusiveIdInfo(info models.ExclusiveIdInfo) error {
@@ -234,6 +290,9 @@ func (d *Database) Close() error {
 
 // Checkpoint 执行WAL checkpoint
 func (d *Database) Checkpoint() error {
+	if d.dbType != "sqlite3" {
+		return nil
+	}
 	return d.db.Exec("PRAGMA wal_checkpoint(RESTART)").Error
 }
 
