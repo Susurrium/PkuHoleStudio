@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
@@ -80,16 +81,7 @@ func (m *AuthChallengeDialogModel) ApplyState(state SessionState) {
 
 func (m *AuthChallengeDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if m.kind == AuthChallengeTypeSMS {
-		switch msg.Code {
-		case tea.KeyTab, tea.KeyUp, tea.KeyDown:
-			m.focusSend = !m.focusSend
-			if m.focusSend {
-				m.input.Blur()
-				return nil
-			}
-			return m.input.Focus()
-		}
-		if msg.String() == "shift+tab" {
+		if key.Matches(msg, shortcut.Tab, shortcut.Up, shortcut.Down, shortcut.ShiftTab) {
 			m.focusSend = !m.focusSend
 			if m.focusSend {
 				m.input.Blur()

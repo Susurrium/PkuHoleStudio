@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -101,9 +102,9 @@ func (m *SessionPromptDialogModel) ApplyState(state SessionState) {
 
 func (m *SessionPromptDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if m.needsCredentials {
-		switch msg.Code {
-		case tea.KeyTab, tea.KeyUp, tea.KeyDown:
-			if msg.Code == tea.KeyUp {
+		switch {
+		case key.Matches(msg, shortcut.Tab, shortcut.Up, shortcut.Down):
+			if key.Matches(msg, shortcut.Up) {
 				m.focusIndex--
 			} else {
 				m.focusIndex++
@@ -113,7 +114,7 @@ func (m *SessionPromptDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 			m.updateCredentialFocus()
 			return nil
 		}
-		if msg.String() == "shift+tab" {
+		if key.Matches(msg, shortcut.ShiftTab) {
 			maxFocus := m.maxFocusIndex() + 1
 			m.focusIndex = (m.focusIndex + maxFocus - 1) % maxFocus
 			m.updateCredentialFocus()
@@ -136,12 +137,12 @@ func (m *SessionPromptDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
-	switch msg.String() {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		if m.Selected > 0 {
 			m.Selected--
 		}
-	case "down", "j":
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		if m.Selected < len(m.Options)-1 {
 			m.Selected++
 		}

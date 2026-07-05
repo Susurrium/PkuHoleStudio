@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -58,26 +59,26 @@ func (m *LogsDialogModel) Loading() bool {
 }
 
 func (m *LogsDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
-	switch msg.String() {
-	case "up":
+	switch {
+	case key.Matches(msg, shortcut.Up):
 		if m.offset > 0 {
 			m.offset--
 		}
-	case "down":
+	case key.Matches(msg, shortcut.Down):
 		if m.offset < len(m.lines)-1 {
 			m.offset++
 		}
-	case "pgup":
+	case key.Matches(msg, shortcut.PgUp):
 		m.offset -= 20
 		if m.offset < 0 {
 			m.offset = 0
 		}
-	case "pgdown":
+	case key.Matches(msg, shortcut.PgDown):
 		m.offset += 20
 		if m.offset >= len(m.lines) {
 			m.offset = len(m.lines) - 1
 		}
-	case "r":
+	case key.Matches(msg, keymap.Direct.Refresh):
 		m.loading = true
 		return loadLogsCmd()
 	}

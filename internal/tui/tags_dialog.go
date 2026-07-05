@@ -6,6 +6,7 @@ import (
 
 	"treehole/internal/models"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -81,12 +82,12 @@ func (m TagsDialogModel) phaseName() string {
 }
 
 func (m *TagsDialogModel) Update(msg tea.KeyPressMsg) {
-	switch msg.String() {
-	case "left", "h", "backspace":
+	switch {
+	case key.Matches(msg, shortcut.Left, shortcut.VimLeft, keymap.Direct.Backspace):
 		if m.phase == tagsPhaseChildren {
 			m.phase = tagsPhaseGroups
 		}
-	case "up", "k":
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		if m.phase == tagsPhaseChildren {
 			if m.selectedChild > 0 {
 				m.selectedChild--
@@ -94,7 +95,7 @@ func (m *TagsDialogModel) Update(msg tea.KeyPressMsg) {
 		} else if m.selectedGroup > 0 {
 			m.selectedGroup--
 		}
-	case "down", "j":
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		if m.phase == tagsPhaseChildren {
 			if m.selectedChild < len(m.currentChildren())-1 {
 				m.selectedChild++

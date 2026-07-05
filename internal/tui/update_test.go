@@ -269,22 +269,11 @@ func TestUpdateTickMsg(t *testing.T) {
 func TestHandleKeyQuit(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(keyCtrl('q'))
-	m = result
-
-	if cmd == nil {
-		t.Error("Ctrl+Q should trigger tea.Quit")
-	}
-}
-
-func TestHandleKeyQDoesNotQuitOutsideDetail(t *testing.T) {
-	m := newTestModel()
-
 	result, cmd := m.handleKey(keyPress('q'))
 	m = result
 
-	if cmd != nil {
-		t.Error("q outside detail view should not trigger any cmd")
+	if cmd == nil {
+		t.Error("q should trigger tea.Quit")
 	}
 }
 
@@ -303,10 +292,18 @@ func TestHandleKeyQuitInDialog(t *testing.T) {
 	}
 }
 
-func TestHandleKeyOpenConfig(t *testing.T) {
+func TestHandleKeyOpenConfigWithLeader(t *testing.T) {
 	m := newTestModel()
 
 	result, cmd := m.handleKey(keyPress('c'))
+	if result.Dialog == DialogTools || cmd != nil {
+		t.Fatal("bare c should not open config after config moved behind leader")
+	}
+	result, cmd = result.handleKey(keyPress(' '))
+	if !result.LeaderPending || cmd != nil {
+		t.Fatal("space should start leader before opening config")
+	}
+	result, cmd = result.handleKey(keyPress('c'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionConfig {
@@ -320,7 +317,14 @@ func TestHandleKeyOpenConfig(t *testing.T) {
 func TestHandleKeyOpenLogs(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(keyPress('l'))
+	result, cmd := m.handleKey(keyPress(' '))
+	if cmd != nil {
+		t.Fatal("leader prefix should not emit command")
+	}
+	if !result.LeaderPending {
+		t.Fatal("space should enter leader pending state")
+	}
+	result, cmd = result.handleKey(keyPress('l'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionLogs {
@@ -338,7 +342,14 @@ func TestHandleKeyOpenNotifications(t *testing.T) {
 	m := newTestModel()
 	m.Client = &client.Client{}
 
-	result, cmd := m.handleKey(keyPress('b'))
+	result, cmd := m.handleKey(keyPress(' '))
+	if cmd != nil {
+		t.Fatal("leader prefix should not emit command")
+	}
+	if !result.LeaderPending {
+		t.Fatal("space should enter leader pending state")
+	}
+	result, cmd = result.handleKey(keyPress('n'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionInteractive {
@@ -352,28 +363,160 @@ func TestHandleKeyOpenNotifications(t *testing.T) {
 	}
 }
 
+func TestLeaderOpensGlobalToolsAndHelp(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         rune
+		wantDialog  DialogType
+		wantSection ToolsSection
+		wantCmd     bool
+	}{
+		{name: "config", key: 'c', wantDialog: DialogTools, wantSection: ToolsSectionConfig, wantCmd: true},
+		{name: "logs", key: 'l', wantDialog: DialogTools, wantSection: ToolsSectionLogs, wantCmd: true},
+		{name: "notifications", key: 'n', wantDialog: DialogTools, wantSection: ToolsSectionInteractive, wantCmd: true},
+		{name: "help", key: '?', wantDialog: DialogTools, wantSection: ToolsSectionHelp, wantCmd: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestModel()
+			m.Client = &client.Client{}
+
+			result, cmd := m.handleKey(keyPress(' '))
+			if cmd != nil {
+				t.Fatal("leader prefix should not emit command")
+			}
+			if !result.LeaderPending {
+				t.Fatal("space should enter leader pending state")
+			}
+			result, cmd = result.handleKey(keyPress(tt.key))
+
+			if result.Dialog != tt.wantDialog {
+				t.Fatalf("dialog = %v, want %v", result.Dialog, tt.wantDialog)
+			}
+			if result.Dialog == DialogTools && result.ToolsDialog.Section() != tt.wantSection {
+				t.Fatalf("section = %v, want %v", result.ToolsDialog.Section(), tt.wantSection)
+			}
+			if (cmd != nil) != tt.wantCmd {
+				t.Fatalf("cmd present = %v, want %v", cmd != nil, tt.wantCmd)
+			}
+			if result.LeaderPending {
+				t.Fatal("leader state should be cleared after second key")
+			}
+		})
+	}
+}
+
+func TestLeaderDoesNotStealSearchInput(t *testing.T) {
+	m := newTestModel()
+	m.Posts.Searching = true
+	m.Posts.SearchField = newSearchInput()
+	_ = m.Posts.SearchField.Focus()
+
+	result, _ := m.handleKey(keyPress(' '))
+	if result.LeaderPending {
+		t.Fatal("space should not start leader while search input is active")
+	}
+	if result.Posts.SearchInput != " " {
+		t.Fatalf("search input = %q, want a space", result.Posts.SearchInput)
+	}
+
+	result, _ = result.handleKey(keyPress(':'))
+	if result.CommandActive {
+		t.Fatal("colon should not start command while search input is active")
+	}
+	if result.Posts.SearchInput != " :" {
+		t.Fatalf("search input = %q, want space+colon", result.Posts.SearchInput)
+	}
+}
+
+func TestCommandOpensToolsAndSwitchesPage(t *testing.T) {
+	m := newTestModel()
+	m.Client = &client.Client{}
+
+	m, _ = m.handleKey(keyPress(':'))
+	for _, r := range "logs" {
+		m, _ = m.handleKey(keyPress(r))
+	}
+	result, cmd := m.handleKey(keyCode(tea.KeyEnter))
+
+	if result.CommandActive || result.CommandInput != "" {
+		t.Fatal("command input should reset after Enter")
+	}
+	if result.Dialog != DialogTools || result.ToolsDialog.Section() != ToolsSectionLogs {
+		t.Fatalf("dialog/section = %v/%v, want tools/logs", result.Dialog, result.ToolsDialog.Section())
+	}
+	if cmd == nil {
+		t.Fatal(":logs should load logs")
+	}
+
+	result, _ = result.handleKey(keyPress(':'))
+	for _, r := range "home" {
+		result, _ = result.handleKey(keyPress(r))
+	}
+	result, cmd = result.handleKey(keyCode(tea.KeyEnter))
+	if cmd != nil {
+		t.Fatal(":home should not load data")
+	}
+	if result.Page != PageHome || result.Dialog != DialogNone {
+		t.Fatalf("page/dialog = %v/%v, want home/no dialog", result.Page, result.Dialog)
+	}
+}
+
+func TestCommandSearchAndClearPostsFilters(t *testing.T) {
+	m := newTestModel()
+	m.Provider = &stubPostsProvider{}
+
+	m, _ = m.handleKey(keyPress(':'))
+	for _, r := range "search abc" {
+		m, _ = m.handleKey(keyPress(r))
+	}
+	result, cmd := m.handleKey(keyCode(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal(":search should trigger search command")
+	}
+	if !result.Posts.PostListLoading || result.Posts.SearchInput != "abc" {
+		t.Fatalf("loading/input = %v/%q, want true/abc", result.Posts.PostListLoading, result.Posts.SearchInput)
+	}
+
+	result.Posts.SearchActive = true
+	result.Posts.ActiveTagID = 3
+	result.Posts.ActiveTag = "tag"
+	result, _ = result.handleKey(keyPress(':'))
+	for _, r := range "clear" {
+		result, _ = result.handleKey(keyPress(r))
+	}
+	result, cmd = result.handleKey(keyCode(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal(":clear should reload posts after clearing filters")
+	}
+	if result.Posts.SearchActive || result.Posts.ActiveTagID != 0 || result.Posts.ActiveTag != "" {
+		t.Fatalf("filters not cleared: search=%v tag=%d/%q", result.Posts.SearchActive, result.Posts.ActiveTagID, result.Posts.ActiveTag)
+	}
+}
+
 func TestToolsDialogSwitchesSectionsWithoutNestedTabs(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogTools
 	m.ToolsDialog.Switch(ToolsSectionConfig)
 
-	result, cmd := m.handleToolsDialogKey(keyPress('2'))
+	result, cmd := m.handleToolsDialogKey(keyPress('L'))
 	if result.ToolsDialog.Section() != ToolsSectionLogs || cmd == nil {
-		t.Fatal("2 should switch to logs and load them")
+		t.Fatal("L should switch to logs and load them")
 	}
-	result, cmd = result.handleToolsDialogKey(keyPress('3'))
+	result, cmd = result.handleToolsDialogKey(keyPress('I'))
 	if result.ToolsDialog.Section() != ToolsSectionInteractive || cmd == nil {
-		t.Fatal("3 should switch to notifications and load them")
+		t.Fatal("I should switch to notifications and load them")
 	}
-	result, cmd = result.handleToolsDialogKey(keyPress('1'))
+	result, cmd = result.handleToolsDialogKey(keyPress('C'))
 	if result.ToolsDialog.Section() != ToolsSectionConfig || cmd != nil {
-		t.Fatal("1 should return to the existing config buffer without reloading it")
+		t.Fatal("C should return to the existing config buffer without reloading it")
 	}
-	result, cmd = result.handleToolsDialogKey(keyPress('4'))
+	result, cmd = result.handleToolsDialogKey(keyPress('S'))
 	if result.ToolsDialog.Section() != ToolsSectionSystem ||
 		result.ToolsDialog.Notifications.MessageType() != models.NotificationTypeSystem ||
 		cmd == nil {
-		t.Fatal("4 should switch to system notifications and load them")
+		t.Fatal("S should switch to system notifications and load them")
 	}
 	result, cmd = result.handleToolsDialogKey(keyPress('?'))
 	if result.ToolsDialog.Section() != ToolsSectionHelp || cmd != nil {
@@ -470,7 +613,7 @@ func TestUpdateNotificationActionMarksRequestedNotificationRead(t *testing.T) {
 func TestHandleKeyOpenHelp(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(keyPress('h'))
+	result, cmd := m.handleKey(keyPress('?'))
 	m = result
 
 	if m.Dialog != DialogHelp {
@@ -487,7 +630,7 @@ func TestHandleKeyOpenHelpInDetail(t *testing.T) {
 	m.Posts.ShowPostDetail = true
 	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
 
-	result, cmd := m.handleKey(keyPress('h'))
+	result, cmd := m.handleKey(keyPress('?'))
 	m = result
 
 	if m.Dialog != DialogHelp {

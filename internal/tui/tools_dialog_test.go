@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
 	"treehole/internal/config"
 	"treehole/internal/models"
+
+	"charm.land/lipgloss/v2"
 )
 
 func TestToolsDialogFlattensNotificationTypesIntoPrimaryTabs(t *testing.T) {
@@ -77,7 +78,7 @@ func TestToolsDialogLogsDoNotRepeatTitle(t *testing.T) {
 	}
 }
 
-func TestToolsDialogPinsFooterToLastLine(t *testing.T) {
+func TestToolsDialogUsesFullHeightWithoutLocalFooter(t *testing.T) {
 	dialog := NewToolsDialog(&config.Config{})
 	dialog.Switch(ToolsSectionLogs)
 	dialog.Logs.SetLines([]string{"one line"})
@@ -87,11 +88,11 @@ func TestToolsDialogPinsFooterToLastLine(t *testing.T) {
 	if len(lines) != 20 {
 		t.Fatalf("height = %d, want 20:\n%s", len(lines), output)
 	}
-	if !strings.Contains(lines[len(lines)-1], "r: 刷新") {
-		t.Fatalf("footer is not on the last line:\n%s", output)
+	if strings.Contains(lines[len(lines)-1], "r: 刷新") {
+		t.Fatalf("tools dialog should not render a local footer:\n%s", output)
 	}
-	if strings.TrimSpace(lines[len(lines)-2]) != "" {
-		t.Fatalf("short body should expand before the footer:\n%s", output)
+	if !strings.Contains(output, "日志: 1 行") {
+		t.Fatalf("logs body should still render pagination content:\n%s", output)
 	}
 }
 
@@ -108,7 +109,7 @@ func TestToolsDialogHelpTabShowsUsageAndShortcuts(t *testing.T) {
 	dialog.Switch(ToolsSectionHelp)
 
 	output := stripANSI(dialog.View(60, 20))
-	for _, want := range []string{"帮助 (?)", "项目用法", "全局快捷键", "?: 项目帮助", "h: 当前页面快捷键", "帖子快捷键"} {
+	for _, want := range []string{"帮助 (?)", "项目用法", "全局快捷键", "space+?: 项目帮助", "?: 当前页面快捷键", "帖子快捷键"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help tab missing %q:\n%s", want, output)
 		}

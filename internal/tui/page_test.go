@@ -1277,7 +1277,7 @@ func TestViewStatusLineShowsDetailMode(t *testing.T) {
 	m.Posts.CommentList = []models.Comment{{Cid: 1, Text: "comment", Timestamp: 1001}}
 
 	output := stripANSI(viewString(m))
-	expected := []string{"DETAIL-CMT", "#42", "评论 1"}
+	expected := []string{"NORMAL", "#42", "评论 1"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("detail status line missing %q in output:\n%s", want, output)
@@ -1812,7 +1812,7 @@ func TestViewHelpDialogUsesDetailContext(t *testing.T) {
 	m.Height = 24
 
 	output := strings.Join(visibleLines(viewString(m)), " ")
-	expected := []string{"帖子详情", "Tab", "切换正文/评论", "s", "切换排序", "q", "引用评论"}
+	expected := []string{"帖子详情", "Tab", "切换正文/评论", "s", "切换排序", "Enter", "引用评论"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("detail help missing %q in output:\n%s", want, output)

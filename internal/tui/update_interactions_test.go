@@ -409,7 +409,7 @@ func TestHandlePostsKeyQuoteOpensComposerWithSelectedComment(t *testing.T) {
 	}
 	m.Posts.SelectedCommentIdx = 1
 
-	result, cmd := m.handlePostsKey(keyPress('q'))
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyEnter))
 	if cmd != nil {
 		t.Fatal("quote shortcut should not emit async command")
 	}
