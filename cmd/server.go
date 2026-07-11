@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
+	"github.com/Susurrium/PkuHoleStudio/internal/app"
 	"github.com/Susurrium/PkuHoleStudio/server"
 
 	"github.com/gin-gonic/gin"
@@ -34,18 +36,22 @@ func newServerCmd() *cobra.Command {
 }
 
 func runServer() error {
-	database, cleanup, err := initDB()
+	application, err := app.Open(context.Background(), app.Options{})
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer application.Close()
 
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	server.Init(r, database)
+	server.Init(r, server.Dependencies{
+		Posts:  application.Posts,
+		Search: application.Search,
+		Media:  application.Media,
+	})
 
 	addr := fmt.Sprintf("%s:%s", serverHost, serverPort)
 	log.Printf("Starting PKU Hole API server on %s...", addr)

@@ -8,6 +8,7 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,7 +47,12 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	Init(r, database)
+	posts := service.NewPostService(database, nil)
+	Init(r, Dependencies{
+		Posts:  posts,
+		Search: service.NewSearchService(posts),
+		Media:  service.NewMediaService(t.TempDir(), nil),
+	})
 
 	cleanup := func() {
 		database.Close()

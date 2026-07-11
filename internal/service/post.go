@@ -184,6 +184,56 @@ func (s *PostService) Comments(ctx context.Context, pid int32, query CommentQuer
 	}
 }
 
+// GetComment returns a single comment from the requested source. The live API
+// does not expose a lookup by CID, so this operation is currently local-only.
+func (s *PostService) GetComment(ctx context.Context, cid int32, source string) (*models.Comment, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	if cid <= 0 {
+		return nil, errors.New("cid must be positive")
+	}
+	if normalizeSource(source) != SourceLocal {
+		return nil, errLiveOnly
+	}
+	if s == nil || s.repository == nil {
+		return nil, errRepositoryUnavailable
+	}
+	comment, err := s.repository.GetCommentByCid(cid)
+	if err != nil {
+		return nil, err
+	}
+	if comment == nil {
+		return nil, errors.New("comment was not found")
+	}
+	return comment, contextError(ctx)
+}
+
+// Counts reports the number of locally archived posts and comments.
+func (s *PostService) Counts(ctx context.Context, source string) (postCount int, commentCount int, err error) {
+	if err := contextError(ctx); err != nil {
+		return 0, 0, err
+	}
+	if normalizeSource(source) != SourceLocal {
+		return 0, 0, errLiveOnly
+	}
+	if s == nil || s.repository == nil {
+		return 0, 0, errRepositoryUnavailable
+	}
+	postCount, err = s.repository.GetPostCount()
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := contextError(ctx); err != nil {
+		return 0, 0, err
+	}
+	commentCount, err = s.repository.GetCommentCount()
+	if err != nil {
+		return 0, 0, err
+	}
+	return postCount, commentCount, contextError(ctx)
+}
+
 func (s *PostService) ListTags(ctx context.Context, source string) ([]models.Tag, error) {
 	if normalizeSource(source) != SourceLive {
 		return nil, errLiveOnly
