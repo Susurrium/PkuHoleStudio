@@ -4,15 +4,23 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 
-	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 	"github.com/Susurrium/PkuHoleStudio/server/utils"
 
 	"github.com/gin-gonic/gin"
 )
+
+// Dependencies contains the application services used by the legacy HTTP
+// handlers. Keeping the old routes behind this boundary preserves compatibility
+// while preventing handlers from reaching into GORM directly.
+type Dependencies struct {
+	Posts  *service.PostService
+	Search *service.SearchService
+	Media  *service.MediaService
+}
 
 func Health(c *gin.Context) {
 	utils.RespondSuccess(c, gin.H{"status": "ok", "message": "PKU Hole API is running"})
@@ -30,69 +38,56 @@ func Help(c *gin.Context) {
 	})
 }
 
-func GetPost(database *db.Database) gin.HandlerFunc {
+func GetPost(posts *service.PostService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pid, err := strconv.ParseInt(c.Param("pid"), 10, 32)
-		if err != nil {
-			utils.RespondError(c, 400, "InvalidParam", err)
+		if err != nil || pid <= 0 {
+			utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid pid"))
+			return
+		}
+		if posts == nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("post service is not configured"))
 			return
 		}
 
-		p, err := database.GetPostByPid(int32(pid))
+		post, err := posts.RefreshPost(c.Request.Context(), int32(pid), service.SourceLocal)
 		if err != nil {
-			utils.RespondError(c, 404, "NotFound", err)
+			utils.RespondError(c, http.StatusNotFound, "NotFound", err)
 			return
 		}
-
-		username := "anonymous"
-		if !p.Anonymous {
-			username = ""
-		}
-
-		postData := map[string]interface{}{
-			"id":        p.Pid,
-			"text":      p.Text,
-			"userid":    65535,
-			"username":  username,
-			"timestamp": p.Timestamp,
-			"reply":     p.Reply,
-			"follownum": p.Likenum,
-			"is_follow": 0,
-			"likenum":   p.PraiseNum,
-			"is_like":   0,
-			"type":      p.Type,
-			"tags":      []string{},
-			"media_ids": p.MediaIds,
-		}
-
-		utils.RespondSuccess(c, postData)
+		utils.RespondSuccess(c, serializePost(*post))
 	}
 }
 
-func GetComment(database *db.Database) gin.HandlerFunc {
+func GetComment(posts *service.PostService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cid, err := strconv.ParseInt(c.Query("cid"), 10, 32)
-		if err != nil {
-			utils.RespondError(c, 400, "InvalidParam", err)
+		if err != nil || cid <= 0 {
+			utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid cid"))
+			return
+		}
+		if posts == nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("post service is not configured"))
 			return
 		}
 
-		comment, err := database.GetCommentByCid(int32(cid))
+		comment, err := posts.GetComment(c.Request.Context(), int32(cid), service.SourceLocal)
 		if err != nil {
-			utils.RespondError(c, 404, "NotFound", err)
+			utils.RespondError(c, http.StatusNotFound, "NotFound", err)
 			return
 		}
-
 		utils.RespondSuccess(c, serializeComment(comment))
 	}
 }
 
-// GetPosts 统一处理帖子获取和搜索
-func GetPosts(database *db.Database) gin.HandlerFunc {
+// GetPosts preserves the legacy begin/order_by response contract while all
+// query policy is delegated to application services.
+func GetPosts(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		keyword := c.Query("keyword")
-		orderBy := c.Query("order_by")
-		id := c.Query("id")
+		if dependencies.Posts == nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("post service is not configured"))
+			return
+		}
 
 		limit, err := strconv.Atoi(c.DefaultQuery("limit", "25"))
 		if err != nil || limit < 1 {
@@ -101,66 +96,64 @@ func GetPosts(database *db.Database) gin.HandlerFunc {
 		if limit > 100 {
 			limit = 100
 		}
-
 		cursor, _ := strconv.Atoi(c.DefaultQuery("begin", "0"))
+		keyword := c.Query("keyword")
+		orderBy := c.Query("order_by")
 
-		var posts []models.Post
-		var dbErr error
-
-		if id != "" {
-			var pid int64
-			var post *models.Post
-			pid, _ = strconv.ParseInt(id, 10, 32)
-			post, dbErr = database.GetPostByPid(int32(pid))
-			posts = []models.Post{*post}
-		} else if orderBy != "" && keyword == "" {
-			posts, dbErr = database.GetPostsOrderBy(orderBy, cursor, limit)
-		} else if orderBy != "" && keyword != "" {
-			posts, dbErr = database.SearchPostsOrderBy(keyword, orderBy, cursor, limit)
-		} else if keyword != "" {
-			posts, dbErr = database.SearchPostsCursor(keyword, cursor, limit, false)
-		} else {
-			posts, dbErr = database.GetPostsCursor(cursor, limit, false)
-		}
-
-		if dbErr != nil {
-			utils.RespondError(c, 500, "ServerError", dbErr)
+		if id := c.Query("id"); id != "" {
+			pid, parseErr := strconv.ParseInt(id, 10, 32)
+			if parseErr != nil || pid <= 0 {
+				utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid id"))
+				return
+			}
+			post, getErr := dependencies.Posts.RefreshPost(c.Request.Context(), int32(pid), service.SourceLocal)
+			if getErr != nil {
+				utils.RespondError(c, http.StatusNotFound, "NotFound", getErr)
+				return
+			}
+			utils.RespondSuccess(c, []map[string]any{serializePost(*post)})
 			return
 		}
 
-		postData := make([]map[string]interface{}, len(posts))
-		for i, p := range posts {
-			username := "anonymous"
-			if !p.Anonymous {
-				username = ""
+		query := service.PostQuery{
+			Cursor: cursor,
+			Limit:  limit,
+			Query:  keyword,
+			Source: service.SourceLocal,
+			Sort:   orderBy,
+		}
+		var page service.PostPage
+		if keyword != "" || orderBy != "" {
+			if dependencies.Search == nil {
+				utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("search service is not configured"))
+				return
 			}
-
-			postData[i] = map[string]interface{}{
-				"id":        p.Pid,
-				"text":      p.Text,
-				"userid":    65535,
-				"username":  username,
-				"timestamp": p.Timestamp,
-				"reply":     p.Reply,
-				"follownum": p.Likenum,
-				"is_follow": 0,
-				"likenum":   p.PraiseNum,
-				"is_like":   0,
-				"type":      p.Type,
-				"tags":      []string{},
-				"media_ids": p.MediaIds,
-			}
+			page, err = dependencies.Search.Search(c.Request.Context(), query)
+		} else {
+			page, err = dependencies.Posts.List(c.Request.Context(), query)
+		}
+		if err != nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", err)
+			return
 		}
 
+		postData := make([]map[string]any, len(page.Items))
+		for i := range page.Items {
+			postData[i] = serializePost(page.Items[i].Post)
+		}
 		utils.RespondSuccess(c, postData)
 	}
 }
 
-func GetComments(database *db.Database) gin.HandlerFunc {
+func GetComments(posts *service.PostService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pid, err := strconv.ParseInt(c.Param("pid"), 10, 32)
-		if err != nil {
-			utils.RespondError(c, 400, "InvalidParam", err)
+		if err != nil || pid <= 0 {
+			utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid pid"))
+			return
+		}
+		if posts == nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("post service is not configured"))
 			return
 		}
 
@@ -171,88 +164,104 @@ func GetComments(database *db.Database) gin.HandlerFunc {
 		if limit > 100 {
 			limit = 100
 		}
-
 		cursor, _ := strconv.ParseInt(c.DefaultQuery("begin", "0"), 10, 32)
-
-		// 添加sort参数，0表示升序(asc)，1表示降序(desc)，默认为0（升序）
-		sortParam := c.DefaultQuery("sort", "0")
-		sortAsc := true
-		if sortParam == "1" {
-			sortAsc = false
+		sort := "asc"
+		if c.DefaultQuery("sort", "0") == "1" {
+			sort = "desc"
 		}
 
-		comments, err := database.GetCommentsByPidCursor(int32(pid), int32(cursor), limit, sortAsc)
+		page, err := posts.Comments(c.Request.Context(), int32(pid), service.CommentQuery{
+			Cursor: int32(cursor),
+			Limit:  limit,
+			Sort:   sort,
+			Source: service.SourceLocal,
+		})
 		if err != nil {
-			utils.RespondError(c, 500, "ServerError", err)
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", err)
 			return
 		}
 
-		commentData := make([]map[string]interface{}, len(comments))
-		for i, cmt := range comments {
-			commentData[i] = serializeComment(&cmt)
+		commentData := make([]map[string]any, len(page.Items))
+		for i := range page.Items {
+			commentData[i] = serializeComment(&page.Items[i])
 		}
-
 		utils.RespondSuccess(c, commentData)
 	}
 }
 
-func serializeComment(cmt *models.Comment) map[string]interface{} {
-	return map[string]interface{}{
-		"cid":       cmt.Cid,
-		"pid":       cmt.Pid,
+func serializePost(post models.Post) map[string]any {
+	username := "anonymous"
+	if !post.Anonymous {
+		username = ""
+	}
+	return map[string]any{
+		"id":        post.Pid,
+		"text":      post.Text,
 		"userid":    65535,
-		"username":  cmt.NameTag,
-		"text":      cmt.Text,
-		"timestamp": cmt.Timestamp,
-		"quote":     cmt.Quote,
-		"media_ids": cmt.MediaIds,
+		"username":  username,
+		"timestamp": post.Timestamp,
+		"reply":     post.Reply,
+		"follownum": post.Likenum,
+		"is_follow": 0,
+		"likenum":   post.PraiseNum,
+		"is_like":   0,
+		"type":      post.Type,
+		"tags":      []string{},
+		"media_ids": post.MediaIds,
 	}
 }
 
-func GetImage(c *gin.Context) {
-	idStr := c.Query("id")
-	pidStr := c.Query("pid")
-
-	if idStr == "" && pidStr == "" {
-		utils.RespondError(c, 400, "InvalidParam", errors.New("missing id or pid parameter"))
-		return
+func serializeComment(comment *models.Comment) map[string]any {
+	return map[string]any{
+		"cid":       comment.Cid,
+		"pid":       comment.Pid,
+		"userid":    65535,
+		"username":  comment.NameTag,
+		"text":      comment.Text,
+		"timestamp": comment.Timestamp,
+		"quote":     comment.Quote,
+		"media_ids": comment.MediaIds,
 	}
-
-	var filename string
-	dir := "data/images"
-
-	if idStr != "" {
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			utils.RespondError(c, 400, "InvalidParam", errors.New("invalid id"))
-			return
-		}
-
-		filename = findImageFile(dir, strconv.Itoa(id))
-	} else {
-		pid, err := strconv.Atoi(pidStr)
-		if err != nil {
-			utils.RespondError(c, 400, "InvalidParam", errors.New("invalid pid"))
-			return
-		}
-		filename = findImageFile(dir, strconv.Itoa(pid))
-	}
-
-	if filename == "" {
-		c.Status(http.StatusNotFound)
-		return
-	}
-
-	c.File(filename)
 }
 
-func findImageFile(dir, base string) string {
-	exts := []string{".jpg", ".png", ".gif", ".webp"}
-	for _, ext := range exts {
-		path := filepath.Join(dir, base+ext)
-		if _, err := os.Stat(path); err == nil {
-			return path
+func GetImage(media *service.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idValue := c.Query("id")
+		pidValue := c.Query("pid")
+		if idValue == "" && pidValue == "" {
+			utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("missing id or pid parameter"))
+			return
 		}
+		if media == nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", errors.New("media service is not configured"))
+			return
+		}
+
+		request := service.MediaRequest{}
+		if idValue != "" {
+			if _, err := strconv.ParseInt(idValue, 10, 64); err != nil {
+				utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid id"))
+				return
+			}
+			request.ID = idValue
+		} else {
+			pid, err := strconv.ParseInt(pidValue, 10, 32)
+			if err != nil || pid <= 0 {
+				utils.RespondError(c, http.StatusBadRequest, "InvalidParam", errors.New("invalid pid"))
+				return
+			}
+			request.PID = int32(pid)
+		}
+
+		file, err := media.Locate(c.Request.Context(), request)
+		if errors.Is(err, os.ErrNotExist) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			utils.RespondError(c, http.StatusInternalServerError, "ServerError", err)
+			return
+		}
+		c.File(file.Path)
 	}
-	return ""
 }

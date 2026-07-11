@@ -12,7 +12,6 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/app"
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
-	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 	"github.com/Susurrium/PkuHoleStudio/internal/tui"
 
@@ -73,28 +72,6 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newCrawlerCmd())
 
 	return rootCmd
-}
-
-func initDB() (*db.Database, func(), error) {
-	// 加载配置文件以获取数据库配置
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return nil, nil, fmt.Errorf("加载配置文件失败: %w", err)
-	}
-
-	database, err := db.NewDatabase(cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("初始化数据库失败: %w", err)
-	}
-
-	cleanup := func() {
-		if err := database.Checkpoint(); err != nil {
-			log.Printf("[Database] checkpoint failed: %v", err)
-		}
-		database.Close()
-	}
-
-	return database, cleanup, nil
 }
 
 func runTUI() error {

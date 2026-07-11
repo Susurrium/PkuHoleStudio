@@ -10,6 +10,7 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,14 +51,20 @@ func setupTestDB(t *testing.T) (*db.Database, func()) {
 func setupTestRouter(t *testing.T, database *db.Database) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	posts := service.NewPostService(database, nil)
+	dependencies := Dependencies{
+		Posts:  posts,
+		Search: service.NewSearchService(posts),
+		Media:  service.NewMediaService(t.TempDir(), nil),
+	}
 	r := gin.New()
 	r.GET("/health", Health)
 	r.GET("/help", Help)
-	r.GET("/posts", GetPosts(database))
-	r.GET("/post/:pid", GetPost(database))
-	r.GET("/comment", GetComment(database))
-	r.GET("/comments/:pid", GetComments(database))
-	r.GET("/media/image", GetImage)
+	r.GET("/posts", GetPosts(dependencies))
+	r.GET("/post/:pid", GetPost(posts))
+	r.GET("/comment", GetComment(posts))
+	r.GET("/comments/:pid", GetComments(posts))
+	r.GET("/media/image", GetImage(dependencies.Media))
 	return r
 }
 
@@ -414,6 +421,24 @@ func TestGetPostsWithInvalidLimit(t *testing.T) {
 	}
 }
 
+func TestGetPostsWithInvalidIDDoesNotPanic(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	for path, expected := range map[string]int{
+		"/posts?id=bad":   http.StatusBadRequest,
+		"/posts?id=99999": http.StatusNotFound,
+	} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != expected {
+			t.Errorf("GET %s status = %d, want %d", path, w.Code, expected)
+		}
+	}
+}
+
 func TestGetComments(t *testing.T) {
 	database, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -587,7 +612,7 @@ func TestGetCommentsEmpty(t *testing.T) {
 
 func TestGetImageNoParam(t *testing.T) {
 	r := gin.New()
-	r.GET("/media/image", GetImage)
+	r.GET("/media/image", GetImage(service.NewMediaService(t.TempDir(), nil)))
 
 	req := httptest.NewRequest("GET", "/media/image", nil)
 	w := httptest.NewRecorder()
@@ -600,7 +625,7 @@ func TestGetImageNoParam(t *testing.T) {
 
 func TestGetImageInvalidId(t *testing.T) {
 	r := gin.New()
-	r.GET("/media/image", GetImage)
+	r.GET("/media/image", GetImage(service.NewMediaService(t.TempDir(), nil)))
 
 	req := httptest.NewRequest("GET", "/media/image?id=abc", nil)
 	w := httptest.NewRecorder()
@@ -613,7 +638,7 @@ func TestGetImageInvalidId(t *testing.T) {
 
 func TestGetImageNotFound(t *testing.T) {
 	r := gin.New()
-	r.GET("/media/image", GetImage)
+	r.GET("/media/image", GetImage(service.NewMediaService(t.TempDir(), nil)))
 
 	req := httptest.NewRequest("GET", "/media/image?id=99999", nil)
 	w := httptest.NewRecorder()
@@ -626,7 +651,7 @@ func TestGetImageNotFound(t *testing.T) {
 
 func TestGetImageByPid(t *testing.T) {
 	r := gin.New()
-	r.GET("/media/image", GetImage)
+	r.GET("/media/image", GetImage(service.NewMediaService(t.TempDir(), nil)))
 
 	req := httptest.NewRequest("GET", "/media/image?pid=abc", nil)
 	w := httptest.NewRecorder()
