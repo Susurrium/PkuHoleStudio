@@ -2,12 +2,12 @@ package db
 
 import (
 	"fmt"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"log"
 	"strconv"
 	"strings"
 	"time"
-	"github.com/Susurrium/PkuHoleStudio/internal/config"
-	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -114,8 +114,8 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	}
 
 	database := &Database{db: db, dbType: cfg.Database.Type}
-	err = database.initTables()
-	if err != nil {
+	if err = database.runMigrations(); err != nil {
+		_ = sqlDB.Close()
 		return nil, err
 	}
 
@@ -127,6 +127,7 @@ func configureSQLite(db *gorm.DB) error {
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA synchronous=NORMAL",
+		"PRAGMA foreign_keys=ON",
 	}
 	for _, pragma := range pragmas {
 		if err := db.Exec(pragma).Error; err != nil {
@@ -134,10 +135,6 @@ func configureSQLite(db *gorm.DB) error {
 		}
 	}
 	return nil
-}
-
-func (d *Database) initTables() error {
-	return d.db.AutoMigrate(&models.Post{}, &models.Comment{}, &models.ExclusiveIdInfo{})
 }
 
 func (d *Database) UpsertPosts(posts []models.Post) error {
