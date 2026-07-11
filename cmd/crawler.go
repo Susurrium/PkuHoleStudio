@@ -1,7 +1,9 @@
 package main
 
 import (
-	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
+	"context"
+
+	"github.com/Susurrium/PkuHoleStudio/internal/app"
 
 	"github.com/spf13/cobra"
 )
@@ -40,19 +42,13 @@ func newFetchImagesCmd() *cobra.Command {
 		Short: "Download missing images from database",
 		Long:  `从数据库中查找有图片的帖子和评论，下载缺失的图片到 data/images/。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			database, cleanup, err := initDB()
+			application, err := openCrawlerApplication(cmd.Context())
 			if err != nil {
 				return err
 			}
-			defer cleanup()
+			defer application.Close()
 
-			client, _, err := initClientForCrawler()
-			if err != nil {
-				return err
-			}
-
-			crawler.FetchImagesFromDB(client, database, convertWebp)
-			return nil
+			return application.Sync.FetchImages(cmd.Context(), convertWebp)
 		},
 	}
 
@@ -71,17 +67,18 @@ func newFetchThumbnailsCmd() *cobra.Command {
 		Short: "Download thumbnails by media ID range",
 		Long:  `按 media id 区间批量下载缩略图到 data/thumbnails/。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, _, err := initClientForCrawler()
+			application, err := openCrawlerApplication(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer application.Close()
+
+			result, err := application.Sync.FetchThumbnails(cmd.Context(), startID, endID, convertThumbWebp)
 			if err != nil {
 				return err
 			}
 
-			downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(client, startID, endID, convertThumbWebp)
-			if err != nil {
-				return err
-			}
-
-			cmd.Printf("thumbnails completed: downloaded=%d skipped=%d range=%d-%d\n", downloaded, skipped, startID, endID)
+			cmd.Printf("thumbnails completed: downloaded=%d skipped=%d range=%d-%d\n", result.Downloaded, result.Skipped, startID, endID)
 			return nil
 		},
 	}
@@ -93,4 +90,16 @@ func newFetchThumbnailsCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("end-id")
 
 	return cmd
+}
+
+func openCrawlerApplication(ctx context.Context) (*app.App, error) {
+	application, err := app.Open(ctx, app.Options{})
+	if err != nil {
+		return nil, err
+	}
+	if err := authenticateClientForCrawler(application.Client, application.Config); err != nil {
+		_ = application.Close()
+		return nil, err
+	}
+	return application, nil
 }

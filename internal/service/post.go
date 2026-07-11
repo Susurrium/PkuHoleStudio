@@ -58,6 +58,16 @@ func ParsePostQuery(raw string) ParsedPostQuery {
 	return result
 }
 
+// MentionedPostID returns the positive PID referenced by a post's Mention
+// field, or zero when the field is empty or invalid.
+func MentionedPostID(post models.Post) int32 {
+	pid, err := strconv.ParseInt(strings.TrimSpace(post.Mention), 10, 32)
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return int32(pid)
+}
+
 type PostService struct {
 	repository Repository
 	remote     Remote
@@ -357,13 +367,13 @@ func (s *PostService) listLive(ctx context.Context, query PostQuery, parsed Pars
 func (s *PostService) enrichPosts(ctx context.Context, posts []models.Post, source string) {
 	cache := make(map[int32]*models.Post)
 	for i := range posts {
-		pid, err := strconv.ParseInt(strings.TrimSpace(posts[i].Mention), 10, 32)
-		if err != nil || pid <= 0 {
+		mentionedPID := MentionedPostID(posts[i])
+		if mentionedPID <= 0 {
 			continue
 		}
-		mentionedPID := int32(pid)
 		mentioned, found := cache[mentionedPID]
 		if !found {
+			var err error
 			switch source {
 			case SourceLocal:
 				mentioned, err = s.repository.GetPostByPid(mentionedPID)

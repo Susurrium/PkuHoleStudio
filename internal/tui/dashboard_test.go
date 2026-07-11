@@ -17,7 +17,7 @@ import (
 )
 
 func TestNewModelStartsOnDashboardWithoutRecoveryDialog(t *testing.T) {
-	m := NewModel(nil, nil, &config.Config{}, SessionState{
+	m := NewModel(nil, nil, nil, &config.Config{}, SessionState{
 		Mode:          SessionModeOffline,
 		FailureReason: SessionFailureReasonNetwork,
 		Message:       "offline",
