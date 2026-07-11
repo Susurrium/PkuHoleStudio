@@ -1,0 +1,202 @@
+// Package app contains the application composition root shared by the TUI,
+// crawler commands, HTTP server, and future background workers.
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
+)
+
+// JobManager is a placeholder for the persistent job manager introduced in
+// Phase 2. Keeping the named boundary here lets callers inject that manager
+// without making the composition root depend on its implementation today.
+type JobManager interface{}
+
+// Options supplies existing process-wide dependencies when an application is
+// embedded in a command or test. Dependencies omitted here are created by
+// Open and owned by the returned App.
+type Options struct {
+	Config     *config.Config
+	Repository *db.Database
+	Client     *client.Client
+	DataDir    string
+	Archive    service.ArchiveService
+	AI         service.AIService
+	Jobs       JobManager
+}
+
+// Ownership reports which resources were created by Open. Config and Client
+// currently have no shutdown operation, but recording their ownership keeps
+// lifecycle decisions explicit as those packages evolve.
+type Ownership struct {
+	Config     bool
+	Repository bool
+	Client     bool
+}
+
+// App is the common composition root for every user interface. Higher layers
+// should depend on these services instead of assembling database, crawler, and
+// online-client dependencies themselves.
+type App struct {
+	Config     *config.Config
+	Repository *db.Database
+	Client     *client.Client
+
+	Posts   *service.PostService
+	Search  *service.SearchService
+	Sync    *service.SyncService
+	Media   *service.MediaService
+	Archive service.ArchiveService
+	AI      service.AIService
+	Jobs    JobManager
+
+	DataDir string
+
+	ownership Ownership
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Open loads configuration, opens the repository, creates the Treehole client,
+// and wires all application services. It only constructs local dependencies;
+// creating the client does not perform a network login.
+func Open(ctx context.Context, options Options) (_ *App, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	application := &App{
+		Archive: options.Archive,
+		AI:      options.AI,
+		Jobs:    options.Jobs,
+		DataDir: normalizedDataDir(options.DataDir),
+	}
+
+	// Any future fallible constructor added below automatically participates in
+	// rollback. Close is safe even when only part of App has been initialized.
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		if closeErr := application.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("clean up application: %w", closeErr))
+		}
+	}()
+
+	if options.Config != nil {
+		application.Config = options.Config
+	} else {
+		application.Config, err = config.LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load config: %w", err)
+		}
+		application.ownership.Config = true
+	}
+	if application.Config == nil {
+		return nil, errors.New("load config: returned nil config")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if options.Repository != nil {
+		application.Repository = options.Repository
+	} else {
+		application.Repository, err = db.NewDatabase(application.Config)
+		if err != nil {
+			return nil, fmt.Errorf("open repository: %w", err)
+		}
+		application.ownership.Repository = true
+	}
+	if application.Repository == nil {
+		return nil, errors.New("open repository: returned nil repository")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if options.Client != nil {
+		application.Client = options.Client
+	} else {
+		application.Client, err = client.NewClient(application.Config.DeviceUUID)
+		if err != nil {
+			return nil, fmt.Errorf("create treehole client: %w", err)
+		}
+		application.ownership.Client = true
+	}
+	if application.Client == nil {
+		return nil, errors.New("create treehole client: returned nil client")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	remote := service.NewTreeholeRemote(application.Client)
+	application.Posts = service.NewPostService(application.Repository, remote)
+	application.Search = service.NewSearchService(application.Posts)
+	application.Sync = service.NewSyncService(application.Client, application.Repository)
+	application.Media = service.NewMediaService(
+		application.DataDir,
+		service.NewTreeholeMediaRemote(application.Client),
+	)
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	completed = true
+	return application, nil
+}
+
+// Ownership returns a snapshot of the application's dependency ownership.
+func (a *App) Ownership() Ownership {
+	if a == nil {
+		return Ownership{}
+	}
+	return a.ownership
+}
+
+// Close releases resources created by Open. Injected repositories remain the
+// caller's responsibility. Close is safe to call repeatedly and concurrently.
+func (a *App) Close() error {
+	if a == nil {
+		return nil
+	}
+
+	a.closeOnce.Do(func() {
+		if !a.ownership.Repository || a.Repository == nil {
+			return
+		}
+
+		// Always attempt Close, including when a checkpoint fails, so an error
+		// cannot leave the application's owned connection pool running.
+		checkpointErr := a.Repository.Checkpoint()
+		closeErr := a.Repository.Close()
+		if checkpointErr != nil {
+			checkpointErr = fmt.Errorf("checkpoint repository: %w", checkpointErr)
+		}
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close repository: %w", closeErr)
+		}
+		a.closeErr = errors.Join(checkpointErr, closeErr)
+	})
+	return a.closeErr
+}
+
+func normalizedDataDir(dataDir string) string {
+	if strings.TrimSpace(dataDir) == "" {
+		return "data"
+	}
+	return dataDir
+}
