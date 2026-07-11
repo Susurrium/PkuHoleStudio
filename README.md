@@ -57,19 +57,20 @@ PkuHoleStudio 基于 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完
 
 ```bash
 go mod tidy
-go build -tags withserver -o treehole ./cmd/
+go build -tags "withserver,sqlite_fts5" -o treehole ./cmd/
 ```
 
 ### 精简版本（仅 TUI + 数据采集，不包含 API 服务器）
 
 ```bash
 go mod tidy
-go build -o treehole ./cmd/
+go build -tags sqlite_fts5 -o treehole ./cmd/
 ```
 
 说明：
 - 使用 `-tags withserver` 编译时会打包 Gin 框架和所有 API 路由
 - 默认编译（无 tag）会跳过 server 子命令，减少二进制体积和依赖
+- 正式构建使用 `sqlite_fts5`，以启用本地 trigram/BM25 全文索引；未带该 tag 的开发构建会自动回退到 LIKE 搜索
 
 ## 配置
 

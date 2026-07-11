@@ -142,7 +142,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 
 	remote := service.NewTreeholeRemote(application.Client)
 	application.Posts = service.NewPostService(application.Repository, remote)
-	application.Search = service.NewSearchService(application.Posts)
+	application.Search = service.NewSearchService(application.Posts, application.Repository)
 	application.Sync = service.NewSyncService(application.Client, application.Repository)
 	application.Media = service.NewMediaService(
 		application.DataDir,
@@ -156,6 +156,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 			return nil, fmt.Errorf("create job manager: %w", err)
 		}
 		application.ownership.Jobs = true
+	}
+	if err := registerJobHandlers(application); err != nil {
+		return nil, err
 	}
 
 	if err := ctx.Err(); err != nil {

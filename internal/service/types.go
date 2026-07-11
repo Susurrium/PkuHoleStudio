@@ -13,13 +13,17 @@ const (
 // opaque value: local repositories use a PID while the live API uses a page
 // number.
 type PostQuery struct {
-	Cursor   int    `json:"cursor,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
-	Query    string `json:"query,omitempty"`
-	Source   string `json:"source,omitempty"`
-	Sort     string `json:"sort,omitempty"`
-	HasMedia *bool  `json:"has_media,omitempty"`
-	Label    int    `json:"label,omitempty"`
+	Cursor   int      `json:"cursor,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
+	Query    string   `json:"query,omitempty"`
+	Source   string   `json:"source,omitempty"`
+	Sort     string   `json:"sort,omitempty"`
+	HasMedia *bool    `json:"has_media,omitempty"`
+	Label    int      `json:"label,omitempty"`
+	From     int64    `json:"from,omitempty"`
+	To       int64    `json:"to,omitempty"`
+	Origins  []string `json:"origins,omitempty"`
+	TagIDs   []uint   `json:"tag_ids,omitempty"`
 }
 
 // ParsedPostQuery is the service-level interpretation of the compact query
@@ -34,6 +38,9 @@ type ParsedPostQuery struct {
 // metadata and search snippets without changing models.Post.
 type PostSummary struct {
 	models.Post
+	Snippet        string                    `json:"snippet,omitempty"`
+	Score          float64                   `json:"score,omitempty"`
+	CommentMatches []models.CommentSearchHit `json:"comment_matches,omitempty"`
 }
 
 type PostPage struct {
