@@ -1,15 +1,10 @@
 package tui
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
+	"context"
 
-	"github.com/Susurrium/PkuHoleStudio/internal/client"
-	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 )
 
 type PostsProvider interface {
@@ -29,401 +24,179 @@ type PostsProvider interface {
 	Mode() SessionMode
 }
 
+// postsServiceAdapter keeps the TUI's context-free provider contract isolated
+// from the application service API. Query interpretation, pagination, mention
+// enrichment, uploads, and source-specific validation all belong to PostService.
+type postsServiceAdapter struct {
+	posts  *service.PostService
+	source string
+}
+
 type OfflinePostsProvider struct {
-	database *db.Database
+	postsServiceAdapter
 }
 
-func NewOfflinePostsProvider(database *db.Database) *OfflinePostsProvider {
-	return &OfflinePostsProvider{database: database}
+func NewOfflinePostsProvider(posts *service.PostService) *OfflinePostsProvider {
+	return &OfflinePostsProvider{postsServiceAdapter: postsServiceAdapter{
+		posts:  posts,
+		source: service.SourceLocal,
+	}}
 }
 
-func (p *OfflinePostsProvider) ListPosts(cursor, limit, label int, keyword string) ([]models.Post, int, bool, error) {
-	search := parsePostListSearch(keyword)
-	if search.isFollow != nil {
-		return nil, 0, false, fmt.Errorf("离线模式暂不支持关注筛选")
-	}
-	if keyword != "" {
-		return p.SearchPosts(keyword, cursor, limit, label)
-	}
-	if label != 0 {
-		return nil, 0, false, fmt.Errorf("离线模式暂不支持标签筛选")
-	}
-	posts, err := p.database.GetPostsCursor(cursor, limit, false)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	p.enrichMentionedPosts(posts)
-	next := nextPostCursor(posts)
-	return posts, next, len(posts) == limit, nil
-}
-
-func (p *OfflinePostsProvider) SearchPosts(keyword string, cursor, limit, label int) ([]models.Post, int, bool, error) {
-	search := parsePostListSearch(keyword)
-	if search.isFollow != nil {
-		return nil, 0, false, fmt.Errorf("离线模式暂不支持关注筛选")
-	}
-	if label != 0 {
-		return nil, 0, false, fmt.Errorf("离线模式暂不支持标签筛选")
-	}
-	posts, err := p.database.SearchPostsCursor(search.keywordWithPID(), cursor, limit, false)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	p.enrichMentionedPosts(posts)
-	next := nextPostCursor(posts)
-	return posts, next, len(posts) == limit, nil
-}
-
-func (p *OfflinePostsProvider) GetPostDetail(pid int32, sortAsc bool) (*models.Post, []models.Comment, int32, bool, error) {
-	post, err := p.database.GetPostByPid(pid)
-	if err != nil {
-		return nil, nil, 0, false, err
-	}
-	comments, err := p.database.GetCommentsByPidCursor(pid, 0, 50, sortAsc)
-	if err != nil {
-		return nil, nil, 0, false, err
-	}
-	next := nextCommentCursor(comments)
-	return post, comments, next, len(comments) == 50, nil
-}
-
-func (p *OfflinePostsProvider) ListComments(pid int32, sortAsc bool, cursor int32) ([]models.Comment, int32, bool, error) {
-	comments, err := p.database.GetCommentsByPidCursor(pid, cursor, 50, sortAsc)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	next := nextCommentCursor(comments)
-	return comments, next, len(comments) == 50, nil
-}
-
-func (p *OfflinePostsProvider) ListTags() ([]models.Tag, error) {
-	return nil, fmt.Errorf("离线模式暂不支持标签读取")
-}
-
-func (p *OfflinePostsProvider) GetCourseTable() ([]models.CourseScheduleRow, error) {
-	return nil, fmt.Errorf("离线模式暂不支持课表读取")
-}
-
-func (p *OfflinePostsProvider) GetCourseScores() (*models.ScoreSummary, error) {
-	return nil, fmt.Errorf("离线模式暂不支持成绩查询")
-}
-
-func (p *OfflinePostsProvider) RefreshPost(pid int32) (*models.Post, error) {
-	return p.database.GetPostByPid(pid)
-}
-
-func (p *OfflinePostsProvider) TogglePraise(pid int32) error {
-	return fmt.Errorf("离线模式不支持点赞")
-}
-
-func (p *OfflinePostsProvider) ToggleAttention(pid int32) error {
-	return fmt.Errorf("离线模式不支持关注")
-}
-
-func (p *OfflinePostsProvider) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
-	return fmt.Errorf("离线模式不支持发评论")
-}
-
-func (p *OfflinePostsProvider) CreatePost(text string, imagePaths []string) error {
-	return fmt.Errorf("离线模式不支持发帖")
-}
-
-func (p *OfflinePostsProvider) CanWrite() bool    { return false }
 func (p *OfflinePostsProvider) Mode() SessionMode { return SessionModeOffline }
 
-func (p *OfflinePostsProvider) enrichMentionedPosts(posts []models.Post) {
-	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
-		return p.database.GetPostByPid(pid)
-	})
-}
-
 type OnlinePostsProvider struct {
-	client *client.Client
+	postsServiceAdapter
 }
 
-func NewOnlinePostsProvider(c *client.Client) *OnlinePostsProvider {
-	return &OnlinePostsProvider{client: c}
-}
-
-func (p *OnlinePostsProvider) ListPosts(cursor, limit, label int, keyword string) ([]models.Post, int, bool, error) {
-	page := cursorToPage(cursor)
-	search := parsePostListSearch(keyword)
-	posts, total, err := p.client.ListPostsV3(client.V3ListPostsParams{
-		Page:          page,
-		Limit:         limit,
-		CommentLimit:  10,
-		CommentStream: 1,
-		Keyword:       search.keyword,
-		Label:         label,
-		Pid:           search.pid,
-		IsFollow:      search.isFollow,
-	})
-	if err != nil {
-		return nil, 0, false, err
-	}
-	p.enrichMentionedPosts(posts)
-	hasMore := page*limit < total
-	return posts, page, hasMore, nil
-}
-
-func (p *OnlinePostsProvider) SearchPosts(keyword string, cursor, limit, label int) ([]models.Post, int, bool, error) {
-	return p.ListPosts(cursor, limit, label, keyword)
-}
-
-func (p *OnlinePostsProvider) GetPostDetail(pid int32, sortAsc bool) (*models.Post, []models.Comment, int32, bool, error) {
-	post, err := p.client.GetPostGet(pid)
-	if err != nil {
-		return nil, nil, 0, false, err
-	}
-	sort := 0
-	if !sortAsc {
-		sort = 1
-	}
-	comments, total, err := p.client.ListCommentsV3(pid, 1, 50, sort, 1)
-	if err != nil {
-		return nil, nil, 0, false, err
-	}
-	return post, comments, 1, 50 < total, nil
-}
-
-func (p *OnlinePostsProvider) ListComments(pid int32, sortAsc bool, cursor int32) ([]models.Comment, int32, bool, error) {
-	page := commentCursorToPage(cursor)
-	sort := 0
-	if !sortAsc {
-		sort = 1
-	}
-	comments, total, err := p.client.ListCommentsV3(pid, page, 50, sort, 1)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	return comments, int32(page), page*50 < total, nil
-}
-
-func (p *OnlinePostsProvider) ListTags() ([]models.Tag, error) {
-	return p.client.GetTagsTreeV3()
-}
-
-func (p *OnlinePostsProvider) GetCourseTable() ([]models.CourseScheduleRow, error) {
-	return p.client.GetCourseTableV2()
-}
-
-func (p *OnlinePostsProvider) GetCourseScores() (*models.ScoreSummary, error) {
-	return p.client.GetCourseScoresV2()
-}
-
-func (p *OnlinePostsProvider) RefreshPost(pid int32) (*models.Post, error) {
-	return p.client.GetPostGet(pid)
-}
-
-func (p *OnlinePostsProvider) TogglePraise(pid int32) error {
-	return p.client.TogglePraiseV3(pid)
-}
-
-func (p *OnlinePostsProvider) ToggleAttention(pid int32) error {
-	return p.client.ToggleAttentionV3(pid)
-}
-
-func (p *OnlinePostsProvider) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
-	mediaIDs, err := p.uploadImages(imagePaths)
-	if err != nil {
-		return err
-	}
-	_, err = p.client.CreateCommentV3(client.CreateCommentPayload{
-		PID:       pid,
-		CommentID: commentIDPayloadStringPtr(quoteID),
-		Text:      text,
-		MediaIDs:  strings.Join(mediaIDs, ","),
-	})
-	return err
-}
-
-func (p *OnlinePostsProvider) CreatePost(text string, imagePaths []string) error {
-	mediaIDs, err := p.uploadImages(imagePaths)
-	if err != nil {
-		return err
-	}
-	postType := "text"
-	if len(mediaIDs) > 0 {
-		postType = "image"
-	}
-	_, err = p.client.CreatePostV3(client.CreatePostPayload{
-		Type:       postType,
-		Kind:       0,
-		RewardCost: 0,
-		Text:       text,
-		MediaIDs:   strings.Join(mediaIDs, ","),
-	})
-	return err
-}
-
-func (p *OnlinePostsProvider) uploadImages(paths []string) ([]string, error) {
-	if len(paths) == 0 {
-		return nil, nil
-	}
-	ids := make([]string, 0, len(paths))
-	for _, path := range paths {
-		resolved, err := normalizeUploadImagePath(path)
-		if err != nil {
-			return nil, err
-		}
-		id, err := p.client.UploadImageV3(resolved)
-		if err != nil {
-			return nil, fmt.Errorf("上传图片 %s 失败: %w", path, err)
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
-func normalizeUploadImagePath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	path = strings.Trim(path, `"'`)
-	if path == "" {
-		return "", fmt.Errorf("图片路径不能为空")
-	}
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", err
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("图片路径是目录: %s", path)
-	}
-	return path, nil
-}
-
-func commentIDPayloadStringPtr(id *int32) *string {
-	if id == nil {
-		return nil
-	}
-	value := strconv.Itoa(int(*id))
-	return &value
-}
-
-func (p *OnlinePostsProvider) enrichMentionedPosts(posts []models.Post) {
-	enrichMentionedPosts(posts, func(pid int32) (*models.Post, error) {
-		return p.client.GetPostGet(pid)
-	})
-}
-
-func (p *OnlinePostsProvider) CanWrite() bool {
-	status := p.client.ProbeSession()
-	return status.CanWriteOnline
+func NewOnlinePostsProvider(posts *service.PostService) *OnlinePostsProvider {
+	return &OnlinePostsProvider{postsServiceAdapter: postsServiceAdapter{
+		posts:  posts,
+		source: service.SourceLive,
+	}}
 }
 
 func (p *OnlinePostsProvider) Mode() SessionMode { return SessionModeOnline }
 
+func (p *postsServiceAdapter) ListPosts(cursor, limit, label int, keyword string) ([]models.Post, int, bool, error) {
+	page, err := p.posts.List(context.Background(), service.PostQuery{
+		Cursor: cursor,
+		Limit:  limit,
+		Query:  keyword,
+		Source: p.source,
+		Label:  label,
+	})
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return postSummariesToModels(page.Items), page.NextCursor, page.HasMore, nil
+}
+
+func (p *postsServiceAdapter) SearchPosts(keyword string, cursor, limit, label int) ([]models.Post, int, bool, error) {
+	page, err := p.posts.Search(context.Background(), service.PostQuery{
+		Cursor: cursor,
+		Limit:  limit,
+		Query:  keyword,
+		Source: p.source,
+		Label:  label,
+	})
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return postSummariesToModels(page.Items), page.NextCursor, page.HasMore, nil
+}
+
+func (p *postsServiceAdapter) GetPostDetail(pid int32, sortAsc bool) (*models.Post, []models.Comment, int32, bool, error) {
+	detail, err := p.posts.Get(context.Background(), pid, service.CommentQuery{
+		Limit:  50,
+		Sort:   commentSort(sortAsc),
+		Source: p.source,
+	})
+	if err != nil {
+		return nil, nil, 0, false, err
+	}
+	post := detail.Post
+	return &post, detail.Comments, detail.NextCommentCursor, detail.HasMoreComments, nil
+}
+
+func (p *postsServiceAdapter) ListComments(pid int32, sortAsc bool, cursor int32) ([]models.Comment, int32, bool, error) {
+	page, err := p.posts.Comments(context.Background(), pid, service.CommentQuery{
+		Cursor: cursor,
+		Limit:  50,
+		Sort:   commentSort(sortAsc),
+		Source: p.source,
+	})
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return page.Items, page.NextCursor, page.HasMore, nil
+}
+
+func (p *postsServiceAdapter) ListTags() ([]models.Tag, error) {
+	return p.posts.ListTags(context.Background(), p.source)
+}
+
+func (p *postsServiceAdapter) GetCourseTable() ([]models.CourseScheduleRow, error) {
+	return p.posts.GetCourseTable(context.Background(), p.source)
+}
+
+func (p *postsServiceAdapter) GetCourseScores() (*models.ScoreSummary, error) {
+	return p.posts.GetCourseScores(context.Background(), p.source)
+}
+
+func (p *postsServiceAdapter) RefreshPost(pid int32) (*models.Post, error) {
+	return p.posts.RefreshPost(context.Background(), pid, p.source)
+}
+
+func (p *postsServiceAdapter) TogglePraise(pid int32) error {
+	return p.posts.TogglePraise(context.Background(), pid, p.source)
+}
+
+func (p *postsServiceAdapter) ToggleAttention(pid int32) error {
+	return p.posts.ToggleAttention(context.Background(), pid, p.source)
+}
+
+func (p *postsServiceAdapter) CreateComment(pid int32, text string, quoteID *int32, imagePaths []string) error {
+	return p.posts.CreateComment(context.Background(), pid, text, quoteID, imagePaths, p.source)
+}
+
+func (p *postsServiceAdapter) CreatePost(text string, imagePaths []string) error {
+	return p.posts.CreatePost(context.Background(), text, imagePaths, p.source)
+}
+
+func (p *postsServiceAdapter) CanWrite() bool {
+	return p.posts.CanWrite(context.Background(), p.source)
+}
+
+func postSummariesToModels(items []service.PostSummary) []models.Post {
+	if items == nil {
+		return nil
+	}
+	posts := make([]models.Post, len(items))
+	for i := range items {
+		posts[i] = items[i].Post
+	}
+	return posts
+}
+
+func commentSort(sortAsc bool) string {
+	if sortAsc {
+		return "asc"
+	}
+	return "desc"
+}
+
+// Compatibility helpers delegate compact query and upload-path rules to the
+// service layer so older TUI callers and focused tests have one source of truth.
 type postListSearch struct {
 	pid      int32
 	keyword  string
 	isFollow *bool
 }
 
-func enrichMentionedPosts(posts []models.Post, fetch func(int32) (*models.Post, error)) {
-	if len(posts) == 0 || fetch == nil {
-		return
-	}
-	cache := make(map[int32]*models.Post)
-	for i := range posts {
-		pid := mentionedPostID(posts[i])
-		if pid <= 0 {
-			continue
-		}
-		mentioned, ok := cache[pid]
-		if !ok {
-			var err error
-			mentioned, err = fetch(pid)
-			if err != nil || mentioned == nil || mentioned.Pid != pid {
-				cache[pid] = nil
-				continue
-			}
-			cache[pid] = mentioned
-		}
-		if mentioned != nil {
-			posts[i].MentionedPost = mentioned
-		}
-	}
-}
-
-func mentionedPostID(post models.Post) int32 {
-	mention := strings.TrimSpace(post.Mention)
-	if mention == "" {
-		return 0
-	}
-	pid, err := strconv.Atoi(mention)
-	if err != nil || pid <= 0 {
-		return 0
-	}
-	return int32(pid)
-}
-
-func (s postListSearch) keywordWithPID() string {
-	if s.pid == 0 {
-		return s.keyword
-	}
-	if s.keyword == "" {
-		return fmt.Sprintf("#%d", s.pid)
-	}
-	return fmt.Sprintf("#%d %s", s.pid, s.keyword)
-}
-
 func parsePostListSearch(raw string) postListSearch {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return postListSearch{}
+	parsed := service.ParsePostQuery(raw)
+	return postListSearch{
+		pid:      parsed.PID,
+		keyword:  parsed.Keyword,
+		isFollow: parsed.IsFollow,
 	}
-
-	parts := strings.Fields(trimmed)
-	if len(parts) == 0 {
-		return postListSearch{}
-	}
-
-	var result postListSearch
-	keywords := make([]string, 0, len(parts))
-	for _, part := range parts {
-		switch part {
-		case ":follow":
-			value := true
-			result.isFollow = &value
-			continue
-		}
-
-		if result.pid == 0 && len(keywords) == 0 && strings.HasPrefix(part, "#") && len(part) > 1 {
-			pid, err := strconv.Atoi(strings.TrimPrefix(part, "#"))
-			if err == nil {
-				result.pid = int32(pid)
-				continue
-			}
-		}
-
-		keywords = append(keywords, part)
-	}
-
-	result.keyword = strings.Join(keywords, " ")
-	return result
 }
 
 func splitPIDSearch(keyword string) (int32, string) {
-	search := parsePostListSearch(keyword)
-	return search.pid, search.keyword
+	parsed := service.ParsePostQuery(keyword)
+	return parsed.PID, parsed.Keyword
 }
 
-func cursorToPage(cursor int) int {
-	if cursor <= 0 {
-		return 1
-	}
-	return cursor + 1
+func normalizeUploadImagePath(path string) (string, error) {
+	return service.NormalizeUploadImagePath(path)
 }
 
-func commentCursorToPage(cursor int32) int {
-	if cursor <= 0 {
-		return 1
-	}
-	return int(cursor) + 1
+func mentionedPostID(post models.Post) int32 {
+	return service.MentionedPostID(post)
 }
+
+var (
+	_ PostsProvider = (*OfflinePostsProvider)(nil)
+	_ PostsProvider = (*OnlinePostsProvider)(nil)
+)

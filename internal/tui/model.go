@@ -1,12 +1,13 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
-	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -239,6 +240,16 @@ type SessionState struct {
 	ChallengeMessage   string
 }
 
+// SyncOperations is the crawler-backed write surface needed by the TUI. The
+// narrow interface keeps the UI independent from crawler and database details
+// while allowing service.SyncService to be used directly.
+type SyncOperations interface {
+	FetchPage(context.Context, int, service.CrawlOptions) (service.SyncResult, error)
+	FetchImages(context.Context, bool) error
+	FetchThumbnails(context.Context, int, int, bool) (service.ThumbnailResult, error)
+	SaveRawResponses(context.Context) error
+}
+
 type Model struct {
 	Page      Page
 	Width     int
@@ -247,12 +258,13 @@ type Model struct {
 
 	Dialog DialogType
 
-	Home     HomePageModel
-	Database *db.Database
-	Client   *client.Client
-	Config   *config.Config
-	Provider PostsProvider
-	Session  SessionState
+	Home           HomePageModel
+	PostsService   *service.PostService
+	SyncOperations SyncOperations
+	Client         *client.Client
+	Config         *config.Config
+	Provider       PostsProvider
+	Session        SessionState
 
 	Posts     PostsPageModel
 	Schedule  CourseSchedulePageModel
@@ -278,13 +290,13 @@ type Model struct {
 	CommandInput  string
 }
 
-func NewModel(database *db.Database, client *client.Client, cfg *config.Config, session SessionState) Model {
+func NewModel(posts *service.PostService, syncOperations SyncOperations, client *client.Client, cfg *config.Config, session SessionState) Model {
 	applyTheme("")
 
-	var provider PostsProvider = NewOfflinePostsProvider(database)
+	var provider PostsProvider = NewOfflinePostsProvider(posts)
 	if session.CanReadOnline {
 		session.Mode = SessionModeOnline
-		provider = NewOnlinePostsProvider(client)
+		provider = NewOnlinePostsProvider(posts)
 	} else {
 		session.Mode = SessionModeOffline
 	}
@@ -293,23 +305,24 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 	authDialog := NewAuthChallengeDialog(session)
 
 	return Model{
-		Page:          PageDashboard,
-		TabCursor:     1,
-		Dialog:        DialogNone,
-		Home:          NewHomePageModel(),
-		Database:      database,
-		Client:        client,
-		Config:        cfg,
-		Provider:      provider,
-		Session:       session,
-		Posts:         NewPostsPageModel(),
-		Dashboard:     NewDashboardModel(),
-		ToolsDialog:   NewToolsDialog(cfg),
-		ImageDialog:   NewImageDialog(),
-		SessionDialog: sessionDialog,
-		AuthDialog:    authDialog,
-		Composer:      NewComposerDialog(),
-		TagsDialog:    NewTagsDialog(),
+		Page:           PageDashboard,
+		TabCursor:      1,
+		Dialog:         DialogNone,
+		Home:           NewHomePageModel(),
+		PostsService:   posts,
+		SyncOperations: syncOperations,
+		Client:         client,
+		Config:         cfg,
+		Provider:       provider,
+		Session:        session,
+		Posts:          NewPostsPageModel(),
+		Dashboard:      NewDashboardModel(),
+		ToolsDialog:    NewToolsDialog(cfg),
+		ImageDialog:    NewImageDialog(),
+		SessionDialog:  sessionDialog,
+		AuthDialog:     authDialog,
+		Composer:       NewComposerDialog(),
+		TagsDialog:     NewTagsDialog(),
 	}
 }
 

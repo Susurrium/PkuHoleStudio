@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,9 +15,8 @@ import (
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
-	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
-	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -78,10 +78,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Home.LastCrawlSummary = msg.Summary
 			if m.Home.CrawlerState == CrawlerRunning {
 				if m.Home.CrawlMode == CrawlMonitor {
-					return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
+					return m, crawlMonitorWithOptionsCmd(m.SyncOperations, m.Home)
 				}
 				if m.Home.CrawlMode == CrawlSequential {
-					return m, crawlPageWithOptionsCmd(m.Client, m.Database, msg.Page+1, m.Home)
+					return m, crawlPageWithOptionsCmd(m.SyncOperations, msg.Page+1, m.Home)
 				}
 				m.Home.CrawlerState = CrawlerStopped
 			}
@@ -470,15 +470,15 @@ func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch action {
 	case HomeActionStartCrawler:
 		if m.Home.CrawlMode == CrawlMonitor {
-			return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
+			return m, crawlMonitorWithOptionsCmd(m.SyncOperations, m.Home)
 		}
 		if m.Home.CrawlMode == CrawlFetchImages {
-			return m, crawlFetchImagesCmd(m.Client, m.Database, m.Home.ConvertWebp)
+			return m, crawlFetchImagesCmd(m.SyncOperations, m.Home.ConvertWebp)
 		}
 		if m.Home.CrawlMode == CrawlFetchThumbnails {
-			return m, crawlFetchThumbnailsCmd(m.Client, m.Home.ThumbnailStartID, m.Home.ThumbnailEndID, m.Home.ConvertWebp)
+			return m, crawlFetchThumbnailsCmd(m.SyncOperations, m.Home.ThumbnailStartID, m.Home.ThumbnailEndID, m.Home.ConvertWebp)
 		}
-		return m, crawlPageWithOptionsCmd(m.Client, m.Database, 1, m.Home)
+		return m, crawlPageWithOptionsCmd(m.SyncOperations, 1, m.Home)
 	case HomeActionStopCrawler:
 		log.Printf("[Crawler] 爬虫已手动停止")
 	}
@@ -1182,21 +1182,25 @@ func (m Model) handleTagsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func crawlPageCmd(c *client.Client, database *db.Database, page int) tea.Cmd {
+func crawlPageCmd(syncOperations SyncOperations, page int) tea.Cmd {
 	options := NewHomePageModel()
-	return crawlPageWithOptionsCmd(c, database, page, options)
+	return crawlPageWithOptionsCmd(syncOperations, page, options)
 }
 
-func crawlPageWithOptionsCmd(c *client.Client, database *db.Database, page int, options HomePageModel) tea.Cmd {
+func crawlPageWithOptionsCmd(syncOperations SyncOperations, page int, options HomePageModel) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
-		result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
+		if syncOperations == nil {
+			return CrawlMsg{Error: errors.New("sync service is not configured"), Page: page}
+		}
+		ctx := context.Background()
+		result, err := syncOperations.FetchPage(ctx, page, crawlOptionsFromHome(options))
 		duration := time.Since(startTime)
 		if err != nil {
 			return CrawlMsg{Error: err, Page: page}
 		}
 		if options.SaveJSON {
-			if err := crawler.SaveRawResponsesToFile(); err != nil {
+			if err := syncOperations.SaveRawResponses(ctx); err != nil {
 				return CrawlMsg{Error: err, Page: page}
 			}
 		}
@@ -1208,19 +1212,23 @@ func crawlPageWithOptionsCmd(c *client.Client, database *db.Database, page int, 
 	}
 }
 
-func crawlMonitorCmd(c *client.Client, database *db.Database, monitorPages int) tea.Cmd {
+func crawlMonitorCmd(syncOperations SyncOperations, monitorPages int) tea.Cmd {
 	options := NewHomePageModel()
 	options.MonitorPages = monitorPages
-	return crawlMonitorWithOptionsCmd(c, database, options)
+	return crawlMonitorWithOptionsCmd(syncOperations, options)
 }
 
-func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options HomePageModel) tea.Cmd {
+func crawlMonitorWithOptionsCmd(syncOperations SyncOperations, options HomePageModel) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
+		if syncOperations == nil {
+			return CrawlMsg{Error: errors.New("sync service is not configured"), Page: options.MonitorPages}
+		}
+		ctx := context.Background()
 		totalPosts := 0
 		totalComments := 0
 		for page := 1; page <= options.MonitorPages; page++ {
-			result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
+			result, err := syncOperations.FetchPage(ctx, page, crawlOptionsFromHome(options))
 			if err != nil {
 				log.Printf("[Crawler] 监控模式第 %d 页抓取失败: %v", page, err)
 				continue
@@ -1229,7 +1237,7 @@ func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options
 			totalComments += result.CommentCount
 		}
 		if options.SaveJSON {
-			if err := crawler.SaveRawResponsesToFile(); err != nil {
+			if err := syncOperations.SaveRawResponses(ctx); err != nil {
 				return CrawlMsg{Error: err, Page: options.MonitorPages}
 			}
 		}
@@ -1241,25 +1249,43 @@ func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options
 	}
 }
 
-func crawlFetchImagesCmd(c *client.Client, database *db.Database, convertWebp bool) tea.Cmd {
+func crawlFetchImagesCmd(syncOperations SyncOperations, convertWebp bool) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
-		crawler.FetchImagesFromDB(c, database, convertWebp)
+		if syncOperations == nil {
+			return CrawlMsg{Error: errors.New("sync service is not configured")}
+		}
+		if err := syncOperations.FetchImages(context.Background(), convertWebp); err != nil {
+			return CrawlMsg{Error: err}
+		}
 		return CrawlMsg{Duration: time.Since(startTime), Summary: "数据库图片补齐完成"}
 	}
 }
 
-func crawlFetchThumbnailsCmd(c *client.Client, startID, endID int, convertWebp bool) tea.Cmd {
+func crawlFetchThumbnailsCmd(syncOperations SyncOperations, startID, endID int, convertWebp bool) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
-		downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(c, startID, endID, convertWebp)
+		if syncOperations == nil {
+			return CrawlMsg{Error: errors.New("sync service is not configured")}
+		}
+		result, err := syncOperations.FetchThumbnails(context.Background(), startID, endID, convertWebp)
 		if err != nil {
 			return CrawlMsg{Error: err}
 		}
 		return CrawlMsg{
 			Duration: time.Since(startTime),
-			Summary:  fmt.Sprintf("缩略图完成：downloaded=%d skipped=%d range=%d-%d", downloaded, skipped, startID, endID),
+			Summary:  fmt.Sprintf("缩略图完成：downloaded=%d skipped=%d range=%d-%d", result.Downloaded, result.Skipped, startID, endID),
 		}
+	}
+}
+
+func crawlOptionsFromHome(options HomePageModel) service.CrawlOptions {
+	return service.CrawlOptions{
+		SaveJSON:     options.SaveJSON,
+		PostLimit:    options.PostsPerRequest,
+		CommentLimit: options.CommentsPerPost,
+		FetchImages:  options.FetchImages,
+		ConvertWebP:  options.ConvertWebp,
 	}
 }
 
@@ -1565,11 +1591,17 @@ func InitClientForTUI() (*client.Client, *config.Config, SessionState, error) {
 	if err != nil {
 		return nil, nil, SessionState{}, err
 	}
-	state := attemptBootstrapSession(c, cfg)
+	state := InitSessionForTUI(c, cfg)
 	if cfg == nil && cfgErr == nil {
 		cfg, _ = config.LoadConfig()
 	}
 	return c, cfg, state, nil
+}
+
+// InitSessionForTUI bootstraps the TUI session using an already composed
+// client and configuration.
+func InitSessionForTUI(c *client.Client, cfg *config.Config) SessionState {
+	return attemptBootstrapSession(c, cfg)
 }
 
 func refreshSessionCmd(c *client.Client, cfg *config.Config) tea.Cmd {
@@ -1732,11 +1764,11 @@ func (m *Model) applySessionState(state SessionState) tea.Cmd {
 	m.Session = state
 	var cmd tea.Cmd
 	if state.CanReadOnline {
-		m.Provider = NewOnlinePostsProvider(m.Client)
+		m.Provider = NewOnlinePostsProvider(m.PostsService)
 		m.Session.Mode = SessionModeOnline
 		m.Home.LoggedIn = true
 	} else {
-		m.Provider = NewOfflinePostsProvider(m.Database)
+		m.Provider = NewOfflinePostsProvider(m.PostsService)
 		m.Session.Mode = SessionModeOffline
 		m.Posts.ActiveTagID = 0
 		m.Posts.ActiveTag = ""
@@ -1761,7 +1793,7 @@ func (m *Model) forceOfflineMode(reason string) tea.Cmd {
 	m.Session.ChallengeMessage = ""
 	m.Session.Message = ""
 	m.Session.LastFallbackReason = reason
-	m.Provider = NewOfflinePostsProvider(m.Database)
+	m.Provider = NewOfflinePostsProvider(m.PostsService)
 	m.Posts.ActiveTagID = 0
 	m.Posts.ActiveTag = ""
 	m.Home.LoggedIn = false

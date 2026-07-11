@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -8,10 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Susurrium/PkuHoleStudio/internal/app"
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
-	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 	"github.com/Susurrium/PkuHoleStudio/internal/tui"
 
 	tea "charm.land/bubbletea/v2"
@@ -96,24 +98,25 @@ func initDB() (*db.Database, func(), error) {
 }
 
 func runTUI() error {
-	database, cleanup, err := initDB()
+	application, err := app.Open(context.Background(), app.Options{})
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer func() {
+		if closeErr := application.Close(); closeErr != nil {
+			log.Printf("[App] close failed: %v", closeErr)
+		}
+	}()
 
-	client, cfg, session, err := tui.InitClientForTUI()
-	if err != nil {
-		return fmt.Errorf("初始化客户端失败: %w", err)
-	}
+	session := tui.InitSessionForTUI(application.Client, application.Config)
 
 	if tuiLogPath, err := config.TUILogPath(); err == nil {
 		if tuiLogFile, err := os.OpenFile(tuiLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
-			client.SetLogger(tuiLogFile)
+			application.Client.SetLogger(tuiLogFile)
 		}
 	}
 
-	model := tui.NewModel(database, client, cfg, session)
+	model := tui.NewModel(application.Posts, application.Sync, application.Client, application.Config, session)
 	model.Images = tui.NewKittyImageRenderer()
 	opts := []tea.ProgramOption{}
 
@@ -142,55 +145,55 @@ func runTUI() error {
 	return nil
 }
 
-func initClientForCrawler() (*client.Client, *config.Config, error) {
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return nil, nil, fmt.Errorf("加载配置文件失败: %w", err)
+func authenticateClientForCrawler(c *client.Client, cfg *config.Config) error {
+	if c == nil || cfg == nil {
+		return fmt.Errorf("crawler application is not initialized")
 	}
-
-	c, err := client.NewClient(cfg.DeviceUUID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("初始化客户端失败: %w", err)
-	}
-
 	result := c.BootstrapSession(cfg)
 	if result.Status.CanReadOnline {
-		return c, cfg, nil
+		return nil
 	}
 
 	switch result.Challenge {
 	case client.AuthChallengeSMS:
-		return nil, nil, fmt.Errorf("登录需要短信验证，crawler 不支持交互式短信验证")
+		return fmt.Errorf("登录需要短信验证，crawler 不支持交互式短信验证")
 	case client.AuthChallengeOTP:
 		if !cfg.HasTOTPSecret() {
-			return nil, nil, fmt.Errorf("登录需要令牌验证，但未配置 secret_key")
+			return fmt.Errorf("登录需要令牌验证，但未配置 secret_key")
 		}
-		return nil, nil, fmt.Errorf("令牌验证未完成: %s", result.ChallengeReason)
+		return fmt.Errorf("令牌验证未完成: %s", result.ChallengeReason)
 	default:
 		if !result.LoginAttempted && !cfg.HasPasswordLogin() {
-			return nil, nil, fmt.Errorf("没有可用登录态，且未配置 username/password")
+			return fmt.Errorf("没有可用登录态，且未配置 username/password")
 		}
 		if result.Status.Message != "" {
-			return nil, nil, fmt.Errorf("登录失败: %s", result.Status.Message)
+			return fmt.Errorf("登录失败: %s", result.Status.Message)
 		}
-		return nil, nil, fmt.Errorf("登录失败")
+		return fmt.Errorf("登录失败")
 	}
 }
 
 func runDaemon() error {
-	database, cleanup, err := initDB()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	application, err := app.Open(ctx, app.Options{})
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer func() {
+		if closeErr := application.Close(); closeErr != nil {
+			log.Printf("[App] close failed: %v", closeErr)
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	client, _, err := initClientForCrawler()
-	if err != nil {
+	if err := authenticateClientForCrawler(application.Client, application.Config); err != nil {
 		return fmt.Errorf("初始化客户端失败: %w", err)
 	}
+	syncService := application.Sync
 
 	if resume {
 		log.Printf("[Daemon] 断点续爬模式已启用，但未保存断点页码；将从配置的第 %d 页开始", startPage)
@@ -214,9 +217,9 @@ func runDaemon() error {
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveJSON && crawler.RawResponses() > 0 {
+			if saveJSON && syncService.RawResponseCount() > 0 {
 				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
+				if err := syncService.SaveRawResponses(context.Background()); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
 				} else {
 					log.Printf("[Daemon] 原始响应已保存到JSON文件")
@@ -251,7 +254,13 @@ func runDaemon() error {
 				break
 			}
 
-			result, err := crawler.FetchAndSave(client, database, page, saveJSON, postsPerReq, commentsPerPost, fetchImages, convertWebp)
+			result, err := syncService.FetchPage(ctx, page, service.CrawlOptions{
+				SaveJSON:     saveJSON,
+				PostLimit:    postsPerReq,
+				CommentLimit: commentsPerPost,
+				FetchImages:  fetchImages,
+				ConvertWebP:  convertWebp,
+			})
 			if err != nil {
 				log.Printf("[Daemon] 第 %d 页抓取失败: %v", page, err)
 				time.Sleep(time.Duration(pageInterval) * time.Second)
@@ -279,7 +288,7 @@ func runDaemon() error {
 			log.Printf("[Daemon] 抓取完成! 共处理 %d 页, +%d帖子 +%d评论", crawled, totalPosts, totalComments)
 			if saveJSON {
 				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
+				if err := syncService.SaveRawResponses(ctx); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
 				} else {
 					log.Printf("[Daemon] 原始响应已保存到JSON文件")
@@ -295,9 +304,9 @@ func runDaemon() error {
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveJSON && crawler.RawResponses() > 0 {
+			if saveJSON && syncService.RawResponseCount() > 0 {
 				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
+				if err := syncService.SaveRawResponses(context.Background()); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
 				} else {
 					log.Printf("[Daemon] 原始响应已保存到JSON文件")
