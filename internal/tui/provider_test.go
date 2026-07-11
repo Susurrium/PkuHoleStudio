@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 func TestSplitPIDSearch(t *testing.T) {

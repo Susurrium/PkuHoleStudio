@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"treehole/server"
+	"github.com/Susurrium/PkuHoleStudio/server"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"

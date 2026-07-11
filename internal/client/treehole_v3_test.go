@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 func TestFlattenTagsSupportsTagNameChildren(t *testing.T) {

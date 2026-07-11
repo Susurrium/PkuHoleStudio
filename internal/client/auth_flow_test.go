@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 func TestDetectAuthChallenge(t *testing.T) {

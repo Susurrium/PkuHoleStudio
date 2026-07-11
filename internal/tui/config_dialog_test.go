@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

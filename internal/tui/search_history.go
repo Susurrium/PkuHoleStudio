@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 const searchHistoryMaxEntries = 200

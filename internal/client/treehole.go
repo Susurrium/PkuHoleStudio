@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 type TreeHoleWeb string

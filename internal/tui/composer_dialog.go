@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"

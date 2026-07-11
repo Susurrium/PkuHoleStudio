@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 // TestHelpPanelWriteRealFrame renders the help panel with representative state

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 
 	"github.com/pquerna/otp/totp"
 )

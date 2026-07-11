@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 // skipIfNoLiveEnv skips the test unless PKUHOLE_LIVE_TEST=1 is set.

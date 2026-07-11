@@ -1,7 +1,7 @@
 package main
 
 import (
-	"treehole/internal/crawler"
+	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
 
 	"github.com/spf13/cobra"
 )
