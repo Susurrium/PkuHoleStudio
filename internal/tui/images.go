@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"treehole/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 )
 
 const (

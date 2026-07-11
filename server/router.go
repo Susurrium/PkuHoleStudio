@@ -1,9 +1,9 @@
 package server
 
 import (
-	"treehole/internal/config"
-	"treehole/internal/db"
-	"treehole/server/handlers"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/server/handlers"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"

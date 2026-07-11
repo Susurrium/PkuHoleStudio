@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"

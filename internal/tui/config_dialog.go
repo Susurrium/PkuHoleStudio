@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"

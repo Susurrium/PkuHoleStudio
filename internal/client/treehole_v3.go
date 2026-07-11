@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"treehole/internal/config"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"

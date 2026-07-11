@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/lipgloss/v2"
 )

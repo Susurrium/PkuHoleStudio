@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/client"
-	"treehole/internal/config"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"

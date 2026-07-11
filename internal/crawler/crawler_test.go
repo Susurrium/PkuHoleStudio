@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"treehole/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 )
 
 func TestGetJSONStringFromInterface(t *testing.T) {

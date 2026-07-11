@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"treehole/internal/client"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"treehole/internal/db"
-	"treehole/internal/models"
-	"treehole/server/utils"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/server/utils"
 
 	"github.com/gin-gonic/gin"
 )

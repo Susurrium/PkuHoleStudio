@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/config"
-	"treehole/internal/db"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

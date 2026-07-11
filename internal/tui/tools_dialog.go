@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"treehole/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 
 	"charm.land/lipgloss/v2"
 )

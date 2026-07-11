@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"treehole/internal/client"
-	"treehole/internal/db"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 type PostsProvider interface {

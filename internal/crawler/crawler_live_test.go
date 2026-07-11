@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"treehole/internal/client"
-	"treehole/internal/config"
-	"treehole/internal/db"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 func skipIfNoLiveEnv(t *testing.T) {

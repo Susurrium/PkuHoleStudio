@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"treehole/internal/config"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 func setupTestDB(t *testing.T) (*Database, func()) {

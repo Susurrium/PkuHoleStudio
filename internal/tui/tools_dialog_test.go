@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"treehole/internal/config"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/lipgloss/v2"
 )

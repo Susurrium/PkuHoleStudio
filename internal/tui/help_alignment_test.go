@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"charm.land/lipgloss/v2"
 )

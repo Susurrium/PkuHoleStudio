@@ -1,6 +1,10 @@
-# PKUHoleTUI
+# PkuHoleStudio
 
-北京大学树洞命令行数据管理工具
+本地优先的北京大学树洞资料库、全文检索与 AI 工作台。
+
+PkuHoleStudio 基于 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来。当前基线保留原有 TUI、Crawler、REST API、SQLite/PostgreSQL 支持与命令兼容性；后续功能通过共享 Service 层增量加入 Web、归档和 AI，不改变 PkuHoleToolkit 的独立项目定位。
+
+> 上游锚点：`PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`（本仓库标签 `upstream-pkuholetui-f9d6221`）。
 
 ![](doc/assets/dashboard.png)
 ![](doc/assets/main.png)

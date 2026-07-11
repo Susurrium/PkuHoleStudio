@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"treehole/internal/config"
-	"treehole/internal/db"
-	"treehole/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 
 	"github.com/gin-gonic/gin"
 )

@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"treehole/internal/client"
-	"treehole/internal/config"
-	"treehole/internal/crawler"
-	"treehole/internal/db"
-	"treehole/internal/tui"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/tui"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
@@ -54,8 +54,8 @@ var (
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "treehole",
-		Short: "PKU Hole Crawler & API Server",
-		Long:  `PKU Hole 爬虫、TUI 交互式界面和 API 服务器的统一工具。`,
+		Short: "PkuHoleStudio local archive and Treehole client",
+		Long:  `PkuHoleStudio：兼容 PKUHoleTUI 的本地资料库、TUI、采集与 API 工具。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI()
 		},
