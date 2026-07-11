@@ -12,13 +12,9 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 )
-
-// JobManager is a placeholder for the persistent job manager introduced in
-// Phase 2. Keeping the named boundary here lets callers inject that manager
-// without making the composition root depend on its implementation today.
-type JobManager interface{}
 
 // Options supplies existing process-wide dependencies when an application is
 // embedded in a command or test. Dependencies omitted here are created by
@@ -30,7 +26,7 @@ type Options struct {
 	DataDir    string
 	Archive    service.ArchiveService
 	AI         service.AIService
-	Jobs       JobManager
+	Jobs       *jobs.Manager
 }
 
 // Ownership reports which resources were created by Open. Config and Client
@@ -40,6 +36,7 @@ type Ownership struct {
 	Config     bool
 	Repository bool
 	Client     bool
+	Jobs       bool
 }
 
 // App is the common composition root for every user interface. Higher layers
@@ -56,7 +53,7 @@ type App struct {
 	Media   *service.MediaService
 	Archive service.ArchiveService
 	AI      service.AIService
-	Jobs    JobManager
+	Jobs    *jobs.Manager
 
 	DataDir string
 
@@ -151,6 +148,15 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		application.DataDir,
 		service.NewTreeholeMediaRemote(application.Client),
 	)
+	if options.Jobs != nil {
+		application.Jobs = options.Jobs
+	} else {
+		application.Jobs, err = jobs.NewManager(ctx, application.Repository)
+		if err != nil {
+			return nil, fmt.Errorf("create job manager: %w", err)
+		}
+		application.ownership.Jobs = true
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -175,21 +181,26 @@ func (a *App) Close() error {
 	}
 
 	a.closeOnce.Do(func() {
-		if !a.ownership.Repository || a.Repository == nil {
-			return
+		var jobErr error
+		if a.ownership.Jobs && a.Jobs != nil {
+			if err := a.Jobs.Close(); err != nil {
+				jobErr = fmt.Errorf("close job manager: %w", err)
+			}
 		}
-
-		// Always attempt Close, including when a checkpoint fails, so an error
-		// cannot leave the application's owned connection pool running.
-		checkpointErr := a.Repository.Checkpoint()
-		closeErr := a.Repository.Close()
-		if checkpointErr != nil {
-			checkpointErr = fmt.Errorf("checkpoint repository: %w", checkpointErr)
+		var checkpointErr, closeErr error
+		if a.ownership.Repository && a.Repository != nil {
+			// Always attempt Close, including when a checkpoint fails, so an
+			// error cannot leave the owned connection pool running.
+			checkpointErr = a.Repository.Checkpoint()
+			closeErr = a.Repository.Close()
+			if checkpointErr != nil {
+				checkpointErr = fmt.Errorf("checkpoint repository: %w", checkpointErr)
+			}
+			if closeErr != nil {
+				closeErr = fmt.Errorf("close repository: %w", closeErr)
+			}
 		}
-		if closeErr != nil {
-			closeErr = fmt.Errorf("close repository: %w", closeErr)
-		}
-		a.closeErr = errors.Join(checkpointErr, closeErr)
+		a.closeErr = errors.Join(jobErr, checkpointErr, closeErr)
 	})
 	return a.closeErr
 }
