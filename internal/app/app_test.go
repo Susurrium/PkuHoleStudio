@@ -46,7 +46,6 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 	treeholeClient := &client.Client{}
 	archive := &archiveStub{}
 	ai := &aiStub{}
-	jobs := &struct{ name string }{name: "jobs"}
 	dataDir := filepath.Join(t.TempDir(), "library")
 
 	application, err := Open(context.Background(), Options{
@@ -56,7 +55,6 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 		DataDir:    dataDir,
 		Archive:    archive,
 		AI:         ai,
-		Jobs:       jobs,
 	})
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
@@ -71,7 +69,7 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 	if application.Client != treeholeClient {
 		t.Error("Open() did not retain the injected client")
 	}
-	if application.Archive != archive || application.AI != ai || application.Jobs != jobs {
+	if application.Archive != archive || application.AI != ai || application.Jobs == nil {
 		t.Error("Open() did not retain an injected application boundary")
 	}
 	if application.DataDir != dataDir {
@@ -80,8 +78,8 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 	if application.Posts == nil || application.Search == nil || application.Sync == nil || application.Media == nil {
 		t.Fatal("Open() did not compose every concrete service")
 	}
-	if got := application.Ownership(); got != (Ownership{}) {
-		t.Errorf("Ownership() = %+v, want no ownership for injected dependencies", got)
+	if got := application.Ownership(); got != (Ownership{Jobs: true}) {
+		t.Errorf("Ownership() = %+v, want only job manager ownership", got)
 	}
 
 	if err := application.Close(); err != nil {
@@ -147,7 +145,7 @@ func TestCloseIsIdempotentAndClosesOwnedRepository(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 
-	if got, want := application.Ownership(), (Ownership{Repository: true}); got != want {
+	if got, want := application.Ownership(), (Ownership{Repository: true, Jobs: true}); got != want {
 		t.Errorf("Ownership() = %+v, want %+v", got, want)
 	}
 	if err := application.Close(); err != nil {
@@ -173,7 +171,7 @@ func TestOpenLoadsConfigAndOwnsCreatedDependencies(t *testing.T) {
 	if application.Config == nil || application.Repository == nil || application.Client == nil {
 		t.Fatal("Open() did not create its default dependencies")
 	}
-	if got, want := application.Ownership(), (Ownership{Config: true, Repository: true, Client: true}); got != want {
+	if got, want := application.Ownership(), (Ownership{Config: true, Repository: true, Client: true, Jobs: true}); got != want {
 		t.Errorf("Ownership() = %+v, want %+v", got, want)
 	}
 	if application.DataDir != "data" {
