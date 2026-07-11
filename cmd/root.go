@@ -70,6 +70,7 @@ func NewRootCmd() *cobra.Command {
 		rootCmd.AddCommand(serverCmd)
 	}
 	rootCmd.AddCommand(newCrawlerCmd())
+	rootCmd.AddCommand(newRebuildSearchIndexCmd())
 
 	return rootCmd
 }

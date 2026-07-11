@@ -22,8 +22,9 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("SchemaVersion() = %d, want 2", version)
+	expectedVersion := expectedSchemaVersion(t, database)
+	if version != expectedVersion {
+		t.Fatalf("SchemaVersion() = %d, want %d", version, expectedVersion)
 	}
 	for _, table := range []string{
 		"schema_migrations", "posts", "comments", "exclusive_id_infos",
@@ -49,8 +50,8 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("applied migrations after reopen = %d, want 2", len(migrations))
+	if len(migrations) != expectedVersion {
+		t.Fatalf("applied migrations after reopen = %d, want %d", len(migrations), expectedVersion)
 	}
 	post, err := reopened.GetPostByPid(12345)
 	if err != nil || post.Text != "preserved" {
@@ -75,7 +76,8 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
-	if len(migrations) != 2 || migrations[0].Version != 1 || migrations[1].Version != 2 {
+	expectedVersion := expectedSchemaVersion(t, database)
+	if len(migrations) != expectedVersion || migrations[0].Version != 1 || migrations[1].Version != 2 {
 		t.Fatalf("legacy migrations = %+v", migrations)
 	}
 	if migrations[0].Name != "pkuholetui baseline (adopted)" {
@@ -85,6 +87,18 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 	if err != nil || post.Text != "legacy" {
 		t.Fatalf("legacy post = %+v, error = %v", post, err)
 	}
+}
+
+func expectedSchemaVersion(t *testing.T, database *Database) int {
+	t.Helper()
+	available, err := database.FTS5Available()
+	if err != nil {
+		t.Fatalf("FTS5Available() error = %v", err)
+	}
+	if available {
+		return 3
+	}
+	return 2
 }
 
 func TestMigrationsRejectIncompleteOrIncompatibleLegacySchema(t *testing.T) {

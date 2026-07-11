@@ -33,11 +33,15 @@ func (d *Database) runMigrations() error {
 	if err := d.establishLegacyBaseline(); err != nil {
 		return err
 	}
-	return d.applyMigrations(d.schemaMigrations())
+	migrations, err := d.schemaMigrations()
+	if err != nil {
+		return err
+	}
+	return d.applyMigrations(migrations)
 }
 
-func (d *Database) schemaMigrations() []schemaMigration {
-	return []schemaMigration{
+func (d *Database) schemaMigrations() ([]schemaMigration, error) {
+	migrations := []schemaMigration{
 		{
 			version: 1,
 			name:    "pkuholetui baseline",
@@ -71,6 +75,26 @@ func (d *Database) schemaMigrations() []schemaMigration {
 			},
 		},
 	}
+	if d.dbType == "postgres" {
+		migrations = append(migrations, schemaMigration{
+			version: 3,
+			name:    "sqlite fts5 search index (not applicable to postgres)",
+			apply:   func(*gorm.DB) error { return nil },
+		})
+		return migrations, nil
+	}
+	available, err := d.FTS5Available()
+	if err != nil {
+		return nil, fmt.Errorf("check FTS5 capability: %w", err)
+	}
+	if available {
+		migrations = append(migrations, schemaMigration{
+			version: 3,
+			name:    "sqlite fts5 post and comment index",
+			apply:   createFTSSchema,
+		})
+	}
+	return migrations, nil
 }
 
 func (d *Database) ensureMigrationTable() error {
