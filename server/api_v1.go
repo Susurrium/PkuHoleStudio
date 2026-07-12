@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -82,6 +83,11 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/imports", apiCreateImport(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
 	group.POST("/exports", apiCreateExport(dependencies))
+	group.POST("/bridge/pairings", apiCreateBridgePairing(dependencies))
+	group.GET("/bridge/pairings/:token", apiBridgePairing(dependencies))
+	group.POST("/bridge/pairings/:token/archive", apiUploadBridgeArchive(dependencies))
+	group.POST("/bridge/pairings/:token/confirm", apiConfirmBridgePairing(dependencies))
+	group.POST("/bridge/pairings/:token/cancel", apiCancelBridgePairing(dependencies))
 
 	group.GET("/ai/providers", apiAIProviders(dependencies))
 	group.GET("/ai/sessions", apiAISessions(dependencies))
@@ -90,6 +96,100 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/ai/sessions/:id/messages", apiCreateAIMessage(dependencies))
 	group.GET("/ai/sessions/:id/events", apiAIEvents(dependencies))
 	group.POST("/ai/sessions/:id/cancel", apiAICancel(dependencies))
+}
+
+func apiCreateBridgePairing(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "Toolkit bridge is unavailable", nil)
+			return
+		}
+		if !requireStudioBrowser(c) {
+			return
+		}
+		host, port, err := net.SplitHostPort(c.Request.Host)
+		_ = host
+		if err != nil || port == "" {
+			apiFailure(c, http.StatusBadRequest, "invalid_host", "the local Web port could not be determined", nil)
+			return
+		}
+		pairing, err := dependencies.Bridge.Create(port + ":")
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "pairing_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, pairing)
+	}
+}
+
+func apiBridgePairing(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			return
+		}
+		pairing, ok := dependencies.Bridge.Get(c.Param("token"))
+		if !ok {
+			apiFailure(c, http.StatusNotFound, "pairing_not_found", "pairing expired or was not found", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, pairing)
+	}
+}
+
+func apiUploadBridgeArchive(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireLoopback(c) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, archive.MaxArchiveBytes+(1<<20))
+		file, header, err := c.Request.FormFile("file")
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "multipart field file is required", nil)
+			return
+		}
+		defer file.Close()
+		pairing, err := dependencies.Bridge.Upload(c.Request.Context(), c.Param("token"), header.Filename, file)
+		if errors.Is(err, os.ErrNotExist) {
+			apiFailure(c, http.StatusNotFound, "pairing_not_found", "pairing expired or was not found", nil)
+			return
+		}
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_archive", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusAccepted, pairing)
+	}
+}
+
+func apiConfirmBridgePairing(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			return
+		}
+		pairing, err := dependencies.Bridge.Confirm(c.Request.Context(), c.Param("token"))
+		if errors.Is(err, os.ErrNotExist) {
+			apiFailure(c, http.StatusNotFound, "pairing_not_found", "pairing expired or was not found", nil)
+			return
+		}
+		if err != nil {
+			apiFailure(c, http.StatusConflict, "pairing_not_ready", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusAccepted, pairing)
+	}
+}
+
+func apiCancelBridgePairing(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			return
+		}
+		if !dependencies.Bridge.Cancel(c.Param("token")) {
+			apiFailure(c, http.StatusNotFound, "pairing_not_found", "pairing expired or was not found", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"status": "cancelled"})
+	}
 }
 
 func apiSendSessionSMS(dependencies Dependencies) gin.HandlerFunc {
@@ -282,6 +382,28 @@ func requireLoopback(c *gin.Context) bool {
 	ip := net.ParseIP(strings.TrimSpace(host))
 	if ip == nil || !ip.IsLoopback() {
 		apiFailure(c, http.StatusForbidden, "local_access_required", "login endpoints are only available from this computer", nil)
+		return false
+	}
+	return true
+}
+
+func requireStudioBrowser(c *gin.Context) bool {
+	if !requireLoopback(c) {
+		return false
+	}
+	origin := strings.TrimSpace(c.GetHeader("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		apiFailure(c, http.StatusForbidden, "local_origin_required", "this action must be started from PkuHoleStudio", nil)
+		return false
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		apiFailure(c, http.StatusForbidden, "local_origin_required", "this action must be started from PkuHoleStudio", nil)
 		return false
 	}
 	return true
