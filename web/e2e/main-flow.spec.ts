@@ -9,6 +9,8 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
     else if (path === '/api/v1/capabilities') data = { api_version: 'v1', schema_version: 3, fts5: true, archive_import: true, jobs: true, ai: false, live_search: false }
 		else if (path === '/api/v1/jobs') data = []
 		else if (path === '/api/v1/search/history') data = []
+		else if (path === '/api/v1/ai/providers') data = [{ name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: false }]
+		else if (path === '/api/v1/ai/sessions') data = []
     else if (path === '/api/v1/imports' && route.request().method() === 'POST') data = {
       job: { id: 'import-1', type: 'import_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
       preflight: { format: 'v2', status: 'completed', hash: 'abc', run_id: 'run-1', counts: { items: 1, comments: 1 }, issues: [] },
@@ -38,5 +40,5 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
   await expect(page.getByText('作业量适中')).toBeVisible()
 
   await page.getByRole('link', { name: 'AI 研究' }).click()
-  await expect(page.getByRole('heading', { name: '可追溯的本地问答，而不是黑盒聊天' })).toBeVisible()
+	await expect(page.getByRole('heading', { name: '从资料出发，而不是凭空回答' })).toBeVisible()
 })

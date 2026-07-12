@@ -14,9 +14,10 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
 - PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入。
 - React Web：总览、帖子、详情、搜索、导入、设置，以及 AI 功能入口。
+- OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。
 
-AI Provider 与本地检索 Agent 正在下一阶段接入。实时树洞搜索将保持显式、默认关闭。
+AI 默认关闭；实时树洞搜索保持显式、独立且默认关闭。
 
 ## 构建
 
@@ -56,6 +57,29 @@ go build -tags sqlite_fts5 -o treehole ./cmd
 
 Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。
 
+启用 DeepSeek 或其他 OpenAI-compatible Provider：
+
+```json
+{
+  "ai": {
+    "enabled": true,
+    "allow_live_search": false,
+    "max_search_rounds": 5,
+    "provider": {
+      "name": "DeepSeek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "",
+      "model": "deepseek-chat",
+      "temperature": 0.2,
+      "max_output_tokens": 4096,
+      "request_timeout_seconds": 120
+    }
+  }
+}
+```
+
+API key 也可通过 `PKUHOLE_AI_API_KEY` 环境变量提供，网页不会回显密钥。
+
 前端开发：
 
 ```bash
@@ -88,6 +112,14 @@ POST /jobs/:id/pause|resume|cancel|retry
 
 POST /imports
 GET  /imports/:id
+
+GET  /ai/providers
+GET  /ai/sessions
+POST /ai/sessions
+GET  /ai/sessions/:id
+POST /ai/sessions/:id/messages
+GET  /ai/sessions/:id/events
+POST /ai/sessions/:id/cancel
 ```
 
 错误统一返回：
