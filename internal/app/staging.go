@@ -69,3 +69,36 @@ func cleanupExpiredImportStaging(ctx context.Context, dataDir string, manager *j
 	}
 	return nil
 }
+
+func cleanupExpiredExports(ctx context.Context, dataDir string, maxAge time.Duration) error {
+	directory := filepath.Join(dataDir, "exports")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".zip") && !strings.HasSuffix(entry.Name(), ".tmp")) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if info.ModTime().Before(cutoff) {
+			if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}

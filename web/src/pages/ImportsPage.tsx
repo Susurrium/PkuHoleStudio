@@ -90,8 +90,11 @@ function ExportPanel() {
   const [pidsValue, setPidsValue] = useState('')
   const [includeComments, setIncludeComments] = useState(true)
   const selectedPIDs = [...new Set(pidsValue.split(/[\s,，]+/).map(Number).filter((value) => Number.isInteger(value) && value > 0))]
-  const download = useMutation({
-    mutationFn: (format: 'treehole-v2' | 'markdown') => api.exportArchive(format, selectedPIDs, includeComments),
+	const exports = useQuery({ queryKey: ['export-jobs'], queryFn: api.exportJobs, refetchInterval: (query) => Array.isArray(query.state.data) && query.state.data.some((job) => job.status === 'queued' || job.status === 'running') ? 1000 : 5000 })
+	const exportRows = Array.isArray(exports.data) ? exports.data : []
+	const create = useMutation({ mutationFn: (format: 'treehole-v2' | 'markdown') => api.createExportJob(format, selectedPIDs, includeComments), onSuccess: () => exports.refetch() })
+	const download = useMutation({
+	mutationFn: api.downloadExportJob,
     onSuccess: ({ blob, filename }) => {
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -105,10 +108,11 @@ function ExportPanel() {
     <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-coral-soft text-coral"><Download size={20} /></div><div><p className="eyebrow">STUDIO EXPORT</p><h2 className="mt-1 text-xl font-semibold">从本机资料库导出</h2><p className="mt-2 text-sm leading-6 text-ink-soft">留空 PID 会导出全部本地帖子；也可以只导出指定 PID。archive v2 可重新导入 Studio 或 Toolkit，Markdown 包适合阅读和整理。</p></div></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
       <label className="text-xs font-medium text-ink-soft">指定 PID（可选，最多 2000 个）<textarea className="field mt-1.5 min-h-20 resize-y" value={pidsValue} onChange={(event) => setPidsValue(event.target.value)} placeholder="留空导出全部；或输入 1234567, 2345678" /></label>
-      <div className="flex min-w-64 flex-col justify-end gap-2"><label className="mb-1 inline-flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" checked={includeComments} onChange={(event) => setIncludeComments(event.target.checked)} />包含评论</label><button className="button-primary" disabled={download.isPending || selectedPIDs.length > 2000} onClick={() => download.mutate('treehole-v2')}><FileArchive size={16} />导出 archive v2</button><button className="button-secondary" disabled={download.isPending || selectedPIDs.length > 2000} onClick={() => download.mutate('markdown')}><FileText size={16} />导出 Markdown 包</button></div>
+      <div className="flex min-w-64 flex-col justify-end gap-2"><label className="mb-1 inline-flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" checked={includeComments} onChange={(event) => setIncludeComments(event.target.checked)} />包含评论</label><button className="button-primary" disabled={create.isPending || selectedPIDs.length > 2000} onClick={() => create.mutate('treehole-v2')}><FileArchive size={16} />创建 archive v2 任务</button><button className="button-secondary" disabled={create.isPending || selectedPIDs.length > 2000} onClick={() => create.mutate('markdown')}><FileText size={16} />创建 Markdown 任务</button></div>
     </div>
-    {download.isPending && <p className="mt-4 text-sm text-ink-soft">正在生成导出文件，请保持页面打开…</p>}
-    {download.error && <div className="mt-4"><ErrorState error={download.error} /></div>}
+		{create.isPending && <p className="mt-4 text-sm text-ink-soft">正在创建持久导出任务…</p>}
+		{(create.error || download.error || exports.error) && <div className="mt-4"><ErrorState error={create.error || download.error || exports.error} /></div>}
+		<div className="mt-6 border-t border-line pt-5"><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">导出历史</h3><span className="text-xs text-ink-soft">完成文件保留 30 天</span></div><div className="grid gap-3">{exportRows.length ? exportRows.map((job) => <div key={job.id} className="rounded-xl border border-line bg-white/45 p-3"><JobRow job={job} /><div className="mt-3 flex justify-end gap-2">{job.status === 'completed' && <button className="button-primary !py-1.5" disabled={download.isPending} onClick={() => download.mutate(job.id)}><Download size={14} />下载</button>}{(job.status === 'failed' || job.status === 'cancelled' || job.status === 'partial') && <button className="button-secondary !py-1.5" onClick={() => api.jobAction(job.id, 'retry').then(() => exports.refetch())}>重试</button>}</div></div>) : <p className="rounded-xl border border-dashed border-line p-5 text-center text-sm text-ink-soft">还没有导出任务。</p>}</div></div>
   </section>
 }
 

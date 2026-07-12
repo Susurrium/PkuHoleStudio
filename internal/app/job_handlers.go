@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,6 +52,18 @@ type importArchivePayload struct {
 	Size int64  `json:"size,omitempty"`
 }
 
+type exportArchivePayload struct {
+	Format          archive.ExportFormat `json:"format"`
+	PIDs            []int32              `json:"pids,omitempty"`
+	IncludeComments bool                 `json:"include_comments"`
+}
+
+type exportArchiveCheckpoint struct {
+	Filename  string               `json:"filename"`
+	ExpiresAt time.Time            `json:"expires_at"`
+	Report    archive.ExportReport `json:"report"`
+}
+
 func registerJobHandlers(application *App) error {
 	if application == nil || application.Jobs == nil {
 		return nil
@@ -71,6 +84,7 @@ func registerJobHandlers(application *App) error {
 		{jobs.TypeMonitorLatest, application.handleMonitorLatest},
 		{jobs.TypeRepairThumbnails, application.handleRepairThumbnails},
 		{jobs.TypeCleanupStaging, application.handleCleanupStaging},
+		{jobs.TypeExportArchive, application.handleExportArchive},
 	}
 	for _, registration := range registrations {
 		if err := application.Jobs.Register(registration.typeName, registration.handler); err != nil {
@@ -78,6 +92,67 @@ func registerJobHandlers(application *App) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) handleExportArchive(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
+	if a.Archive == nil {
+		return fmt.Errorf("archive service is not configured")
+	}
+	var payload exportArchivePayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return fmt.Errorf("decode export payload: %w", err)
+	}
+	if payload.Format == "" {
+		payload.Format = archive.ExportFormatTreeholeV2
+	}
+	if payload.Format != archive.ExportFormatTreeholeV2 && payload.Format != archive.ExportFormatMarkdown {
+		return fmt.Errorf("unsupported export format %q", payload.Format)
+	}
+	if len(payload.PIDs) > 2000 {
+		return fmt.Errorf("at most 2000 PIDs may be exported")
+	}
+	for _, pid := range payload.PIDs {
+		if pid <= 0 {
+			return fmt.Errorf("invalid PID %d", pid)
+		}
+	}
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	directory := filepath.Join(a.DataDir, "exports")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	suffix := ".treehole.zip"
+	if payload.Format == archive.ExportFormatMarkdown {
+		suffix = "-markdown.zip"
+	}
+	filename := job.ID + suffix
+	finalPath := filepath.Join(directory, filename)
+	temporary, err := os.CreateTemp(directory, ".export-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	report, exportErr := a.Archive.Export(ctx, temporary, archive.ExportRequest{Format: payload.Format, PIDs: payload.PIDs, IncludeComments: payload.IncludeComments})
+	closeErr := temporary.Close()
+	if exportErr != nil || closeErr != nil {
+		failure := errors.Join(exportErr, closeErr)
+		_ = execution.ItemFailed(ctx, "archive", failure)
+		return failure
+	}
+	_ = os.Remove(finalPath)
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		_ = execution.ItemFailed(ctx, "archive", err)
+		return err
+	}
+	checkpoint := exportArchiveCheckpoint{Filename: filename, ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour), Report: report}
+	if err := execution.Checkpoint(ctx, checkpoint); err != nil {
+		_ = os.Remove(finalPath)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "archive", checkpoint)
 }
 
 func (a *App) handleImportArchive(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
@@ -426,14 +501,21 @@ func (a *App) handleCleanupStaging(ctx context.Context, execution *jobs.Executio
 	if payload.RetentionDays <= 0 || payload.RetentionDays > 365 {
 		payload.RetentionDays = 7
 	}
-	if err := execution.SetTotal(ctx, 1); err != nil {
+	if err := execution.SetTotal(ctx, 2); err != nil {
 		return err
 	}
 	if err := cleanupExpiredImportStaging(ctx, a.DataDir, a.Jobs, time.Duration(payload.RetentionDays)*24*time.Hour); err != nil {
 		_ = execution.ItemFailed(ctx, "staging", err)
 		return err
 	}
-	return execution.ItemSucceeded(ctx, "staging", map[string]any{"retention_days": payload.RetentionDays})
+	if err := execution.ItemSucceeded(ctx, "staging", map[string]any{"retention_days": payload.RetentionDays}); err != nil {
+		return err
+	}
+	if err := cleanupExpiredExports(ctx, a.DataDir, 30*24*time.Hour); err != nil {
+		_ = execution.ItemFailed(ctx, "exports", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "exports", map[string]any{"retention_days": 30})
 }
 
 func decodePIDPayload(raw json.RawMessage) (pidJobPayload, error) {

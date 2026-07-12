@@ -79,6 +79,22 @@ describe('PkuHoleStudio Web', () => {
 		expect(screen.queryByText('queued')).not.toBeInTheDocument()
 	})
 
+	it('creates a persistent export job and restores it in export history', async () => {
+		const job = { id: 'export-1', type: 'export_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }
+		let rows: unknown[] = []
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/exports/jobs') && init?.method === 'POST') { rows = [job]; return json(job, 202) }
+			if (path.endsWith('/exports/jobs')) return json(rows)
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/imports')
+		await user.click(await screen.findByRole('button', { name: '创建 archive v2 任务' }))
+		expect(await screen.findByText('export-1')).toBeInTheDocument()
+		expect(screen.getByText('queued')).toBeInTheDocument()
+	})
+
 	it('shows provider guidance when AI is not configured', async () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
