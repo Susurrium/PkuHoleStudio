@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	aipkg "github.com/Susurrium/PkuHoleStudio/internal/ai"
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
@@ -58,11 +59,14 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 		t.Fatalf("NewManager: %v", err)
 	}
 	dataDir := t.TempDir()
+	search := service.NewSearchService(posts, database)
+	aiService := aipkg.NewService(context.Background(), database, posts, search, nil, cfg.AI, aipkg.ProviderInfo{Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", Configured: false})
 	Init(r, Dependencies{
 		Posts:      posts,
-		Search:     service.NewSearchService(posts, database),
+		Search:     search,
 		Media:      service.NewMediaService(dataDir, nil),
 		Archive:    archive.NewImporter(database),
+		AI:         aiService,
 		Jobs:       manager,
 		Repository: database,
 		DataDir:    dataDir,
@@ -83,18 +87,19 @@ func TestRouterRegistration(t *testing.T) {
 
 	routes := r.Routes()
 	expectedPaths := map[string]bool{
-		"/health":         false,
-		"/help":           false,
-		"/posts":          false,
-		"/post/:pid":      false,
-		"/comment":        false,
-		"/comments/:pid":  false,
-		"/media/image":    false,
-		"/api/v1/health":  false,
-		"/api/v1/posts":   false,
-		"/api/v1/search":  false,
-		"/api/v1/jobs":    false,
-		"/api/v1/imports": false,
+		"/health":             false,
+		"/help":               false,
+		"/posts":              false,
+		"/post/:pid":          false,
+		"/comment":            false,
+		"/comments/:pid":      false,
+		"/media/image":        false,
+		"/api/v1/health":      false,
+		"/api/v1/posts":       false,
+		"/api/v1/search":      false,
+		"/api/v1/jobs":        false,
+		"/api/v1/imports":     false,
+		"/api/v1/ai/sessions": false,
 	}
 
 	for _, route := range routes {

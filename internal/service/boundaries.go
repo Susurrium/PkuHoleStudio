@@ -28,6 +28,8 @@ type AIRequest struct {
 	Mode      string
 	Prompt    string
 	PIDs      []int32
+	Course    string
+	Teachers  []string
 }
 
 type AIEvent struct {
