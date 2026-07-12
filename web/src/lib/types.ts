@@ -27,7 +27,8 @@ export interface PostSummary extends Post { snippet?: string; score?: number; co
 export interface PostPage { items: PostSummary[]; next_cursor?: number; has_more: boolean }
 export interface CommentPage { items: Comment[]; next_cursor?: number; has_more: boolean }
 export interface Reference { kind: string; source_pid: number; source_cid?: number; target_pid: number; target_cid?: number }
-export interface PostDetail { post: Post; comments: Comment[]; references: Reference[]; next_comment_cursor?: number; has_more_comments: boolean }
+export interface Media { id: number; owner_type: 'post' | 'comment'; owner_id: number; remote_id?: string; variant: string; mime_type?: string; width?: number; height?: number; status: 'available' | 'missing' | 'failed'; last_error?: string }
+export interface PostDetail { post: Post; comments: Comment[]; references: Reference[]; media: Media[]; next_comment_cursor?: number; has_more_comments: boolean }
 
 export type JobStatus = 'queued' | 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled'
 export interface Job {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	aipkg "github.com/Susurrium/PkuHoleStudio/internal/ai"
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
@@ -151,15 +152,16 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	application.Posts = service.NewPostService(application.Repository, remote)
 	application.Search = service.NewSearchService(application.Posts, application.Repository)
 	application.Sync = service.NewSyncService(application.Client, application.Repository)
-	application.Media = service.NewMediaService(
+	application.Media = service.NewMediaServiceWithRepository(
 		application.DataDir,
 		service.NewTreeholeMediaRemote(application.Client),
+		application.Repository,
 	)
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}
 	if application.Archive == nil {
-		application.Archive = archive.NewImporter(application.Repository)
+		application.Archive = archive.NewImporterWithDataDir(application.Repository, application.DataDir)
 	}
 	if application.AI == nil {
 		aiConfig := application.Config.AI
@@ -208,6 +210,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	}
 	if err := registerJobHandlers(application); err != nil {
 		return nil, err
+	}
+	if err := cleanupExpiredImportStaging(ctx, application.DataDir, application.Jobs, 7*24*time.Hour); err != nil {
+		return nil, fmt.Errorf("clean import staging: %w", err)
 	}
 
 	if err := ctx.Err(); err != nil {

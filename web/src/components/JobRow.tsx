@@ -3,7 +3,7 @@ import type { Job } from '../lib/types'
 
 const labels: Record<string, string> = {
   sync_followed: '同步关注', sync_pids: '同步指定 PID', sync_latest: '同步最新时间线',
-  repair_comments: '补全评论', repair_media: '补全媒体', import_archive: '导入归档', rebuild_search_index: '重建搜索索引',
+  repair_comments: '补全评论', repair_media: '补全媒体', import_archive: '导入归档', rebuild_search_index: '重建搜索索引', rebuild_references: '重建引用关系',
 }
 
 export function JobRow({ job, onAction, busy }: { job: Job; onAction?: (action: 'pause' | 'resume' | 'cancel' | 'retry') => void; busy?: boolean }) {

@@ -57,6 +57,26 @@ func (d *Database) ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]a
 			records[index].Sources = append(records[index].Sources, source)
 		}
 	}
+	var media []models.Media
+	if err := d.db.WithContext(ctx).Where("(owner_type = ? AND owner_id IN ?) OR (owner_type = ? AND owner_id IN (SELECT cid FROM comments WHERE pid IN ?))", "post", matchedPIDs, "comment", matchedPIDs).Order("owner_type ASC, owner_id ASC, variant ASC").Find(&media).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range media {
+		if item.OwnerType == "post" {
+			if index, ok := indexByPID[int32(item.OwnerID)]; ok {
+				records[index].Media = append(records[index].Media, item)
+			}
+			continue
+		}
+		for index := range records {
+			for _, comment := range records[index].Comments {
+				if int64(comment.Cid) == item.OwnerID {
+					records[index].Media = append(records[index].Media, item)
+					break
+				}
+			}
+		}
+	}
 	return records, nil
 }
 
@@ -171,6 +191,37 @@ func (a *archiveTransaction) UpsertReferences(ctx context.Context, references []
 			{Name: "target_id"}, {Name: "kind"},
 		},
 		DoNothing: true,
+	}).CreateInBatches(rows, 100).Error
+}
+
+func (a *archiveTransaction) UpsertMedia(ctx context.Context, media []archivepkg.MediaRecord) error {
+	rows := make([]models.Media, 0, len(media))
+	now := time.Now().UTC()
+	for _, item := range media {
+		rows = append(rows, models.Media{
+			RemoteID: item.RemoteID, RemoteURL: item.RemoteURL, ContentHash: item.SHA256,
+			OwnerType: item.OwnerType, OwnerID: item.OwnerID, Variant: item.Variant,
+			Path: item.Path, MIMEType: item.MIMEType, Size: item.Size,
+			Width: item.Width, Height: item.Height, Status: item.Status,
+			CreatedAt: now, UpdatedAt: now,
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return a.tx.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "owner_type"}, {Name: "owner_id"}, {Name: "variant"}, {Name: "remote_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"remote_url":   gorm.Expr("CASE WHEN excluded.remote_url <> '' THEN excluded.remote_url ELSE media.remote_url END"),
+			"content_hash": gorm.Expr("CASE WHEN excluded.content_hash <> '' THEN excluded.content_hash ELSE media.content_hash END"),
+			"path":         gorm.Expr("CASE WHEN excluded.path <> '' THEN excluded.path ELSE media.path END"),
+			"mime_type":    gorm.Expr("CASE WHEN excluded.mime_type <> '' THEN excluded.mime_type ELSE media.mime_type END"),
+			"size":         gorm.Expr("CASE WHEN excluded.size > 0 THEN excluded.size ELSE media.size END"),
+			"width":        gorm.Expr("CASE WHEN excluded.width > 0 THEN excluded.width ELSE media.width END"),
+			"height":       gorm.Expr("CASE WHEN excluded.height > 0 THEN excluded.height ELSE media.height END"),
+			"status":       gorm.Expr("CASE WHEN excluded.status = 'available' THEN excluded.status ELSE media.status END"),
+			"updated_at":   now,
+		}),
 	}).CreateInBatches(rows, 100).Error
 }
 

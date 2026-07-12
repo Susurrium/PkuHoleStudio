@@ -22,16 +22,19 @@ type ExportRequest struct {
 }
 
 type ExportReport struct {
-	Format   ExportFormat `json:"format"`
-	Posts    int          `json:"posts"`
-	Comments int          `json:"comments"`
-	RunID    string       `json:"run_id"`
+	Format       ExportFormat `json:"format"`
+	Posts        int          `json:"posts"`
+	Comments     int          `json:"comments"`
+	Media        int          `json:"media"`
+	MissingMedia int          `json:"missing_media"`
+	RunID        string       `json:"run_id"`
 }
 
 type ExportRecord struct {
 	Post     models.Post
 	Comments []models.Comment
 	Sources  []models.PostSource
+	Media    []models.Media
 }
 
 type ExportStore interface {
@@ -45,6 +48,7 @@ type Exporter interface {
 const (
 	MaxArchiveBytes      int64 = 200 << 20
 	MaxUncompressedBytes int64 = 500 << 20
+	MaxMediaBytes        int64 = 50 << 20
 )
 
 type Format string
@@ -91,6 +95,9 @@ type Counts struct {
 	SkippedComments  int `json:"skipped_comments"`
 	Sources          int `json:"sources"`
 	References       int `json:"references"`
+	Media            int `json:"media"`
+	AvailableMedia   int `json:"available_media"`
+	MissingMedia     int `json:"missing_media"`
 }
 
 type ManifestCounts struct {
@@ -120,6 +127,7 @@ type PreflightReport struct {
 	Issues      []Issue   `json:"issues"`
 	Manifest    *Manifest `json:"manifest,omitempty"`
 	records     []Record
+	media       []MediaRecord
 }
 
 type ImportReport struct {
@@ -142,6 +150,25 @@ type Record struct {
 	Comments    []models.Comment
 	ContextOnly bool
 	References  []Reference
+}
+
+// MediaRecord is the portable representation used by Studio's backward-
+// compatible archive v2 media extension. Content is populated only while an
+// archive is being parsed and is never exposed through API reports.
+type MediaRecord struct {
+	OwnerType string `json:"ownerType"`
+	OwnerID   int64  `json:"ownerId"`
+	RemoteID  string `json:"remoteId,omitempty"`
+	RemoteURL string `json:"remoteUrl,omitempty"`
+	Variant   string `json:"variant"`
+	Path      string `json:"path,omitempty"`
+	MIMEType  string `json:"mimeType,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	Status    string `json:"status"`
+	Content   []byte `json:"-"`
 }
 
 type PostSource struct {
@@ -184,5 +211,6 @@ type Transaction interface {
 	UpsertComments(ctx context.Context, comments []models.Comment) error
 	UpsertSources(ctx context.Context, sources []PostSource) error
 	UpsertReferences(ctx context.Context, references []Reference) error
+	UpsertMedia(ctx context.Context, media []MediaRecord) error
 	SaveImportRun(ctx context.Context, run ImportRun) error
 }

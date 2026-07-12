@@ -49,6 +49,7 @@ func registerJobHandlers(application *App) error {
 		{jobs.TypeRepairMedia, application.handleRepairMedia},
 		{jobs.TypeImportArchive, application.handleImportArchive},
 		{jobs.TypeRebuildSearchIndex, application.handleRebuildSearchIndex},
+		{jobs.TypeRebuildReferences, application.handleRebuildReferences},
 	}
 	for _, registration := range registrations {
 		if err := application.Jobs.Register(registration.typeName, registration.handler); err != nil {
@@ -78,6 +79,12 @@ func (a *App) handleImportArchive(ctx context.Context, execution *jobs.Execution
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("archive path must be a file inside %s", stagingDir)
 	}
+	removeArchive := false
+	defer func() {
+		if removeArchive || ctx.Err() != nil {
+			_ = os.Remove(archivePath)
+		}
+	}()
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open archive: %w", err)
@@ -106,6 +113,9 @@ func (a *App) handleImportArchive(ctx context.Context, execution *jobs.Execution
 	}
 	if err := execution.Checkpoint(ctx, report); err != nil {
 		return err
+	}
+	if report.Status == archive.StatusCompleted || report.Status == archive.StatusDuplicate {
+		removeArchive = true
 	}
 	if report.Status == archive.StatusPartial {
 		return fmt.Errorf("archive imported partially; inspect the import report")
@@ -266,20 +276,32 @@ func (a *App) handleRepairComments(ctx context.Context, execution *jobs.Executio
 }
 
 func (a *App) handleRepairMedia(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
-	var payload mediaJobPayload
-	if len(job.Payload) > 0 {
-		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+	candidates, err := a.Media.PendingRepairs(ctx, 10_000)
+	if err != nil {
+		return err
+	}
+	if err := execution.SetTotal(ctx, len(candidates)); err != nil {
+		return err
+	}
+	completed := completedItemKeys(ctx, execution)
+	for _, candidate := range candidates {
+		key := "media:" + strconv.FormatUint(uint64(candidate.ID), 10)
+		if completed[key] {
+			continue
+		}
+		file, repairErr := a.Media.Repair(ctx, candidate)
+		if repairErr != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			_ = execution.ItemFailed(ctx, key, repairErr)
+			continue
+		}
+		if err := execution.ItemSucceeded(ctx, key, map[string]any{"id": candidate.ID, "size": file.Size}); err != nil {
 			return err
 		}
 	}
-	if err := execution.SetTotal(ctx, 1); err != nil {
-		return err
-	}
-	if err := a.Sync.FetchImages(ctx, payload.ConvertWebP); err != nil {
-		_ = execution.ItemFailed(ctx, "media", err)
-		return err
-	}
-	return execution.ItemSucceeded(ctx, "media", nil)
+	return nil
 }
 
 func (a *App) handleRebuildSearchIndex(ctx context.Context, execution *jobs.Execution, _ jobs.Job) error {
@@ -291,6 +313,18 @@ func (a *App) handleRebuildSearchIndex(ctx context.Context, execution *jobs.Exec
 		return err
 	}
 	return execution.ItemSucceeded(ctx, "index", nil)
+}
+
+func (a *App) handleRebuildReferences(ctx context.Context, execution *jobs.Execution, _ jobs.Job) error {
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	count, err := a.Repository.RebuildReferences(ctx)
+	if err != nil {
+		_ = execution.ItemFailed(ctx, "references", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "references", map[string]any{"references": count})
 }
 
 func decodePIDPayload(raw json.RawMessage) (pidJobPayload, error) {

@@ -53,6 +53,7 @@ type PostDetail struct {
 	Post              models.Post      `json:"post"`
 	Comments          []models.Comment `json:"comments"`
 	References        []Reference      `json:"references"`
+	Media             []models.Media   `json:"media"`
 	NextCommentCursor int32            `json:"next_comment_cursor,omitempty"`
 	HasMoreComments   bool             `json:"has_more_comments"`
 }

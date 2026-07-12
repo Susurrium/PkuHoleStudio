@@ -4,11 +4,15 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,11 +53,17 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 	report := ExportReport{Format: request.Format, Posts: len(records), RunID: runID}
 	for _, record := range records {
 		report.Comments += len(record.Comments)
+		report.Media += len(record.Media)
+		for _, item := range record.Media {
+			if item.Status != "available" || strings.TrimSpace(item.Path) == "" {
+				report.MissingMedia++
+			}
+		}
 	}
 	if request.Format == ExportFormatMarkdown {
-		err = writeMarkdownBundle(ctx, writer, records, report)
+		err = writeMarkdownBundle(ctx, writer, records, report, i.dataDir)
 	} else {
-		err = writeTreeholeV2(ctx, writer, records, report, len(request.PIDs) > 0)
+		err = writeTreeholeV2(ctx, writer, records, report, len(request.PIDs) > 0, i.dataDir)
 	}
 	if err != nil {
 		return ExportReport{}, err
@@ -61,7 +71,7 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 	return report, nil
 }
 
-func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool) error {
+func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool, dataDir string) error {
 	archiveWriter := zip.NewWriter(output)
 	closeWithError := func(err error) error {
 		return errors.Join(err, archiveWriter.Close())
@@ -74,11 +84,18 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 	if selected {
 		scopeType = "pids"
 	}
+	mediaIndex, mediaFiles := prepareExportMedia(ctx, records, dataDir)
+	report.MissingMedia = 0
+	for _, item := range mediaIndex {
+		if item.Status != "available" {
+			report.MissingMedia++
+		}
+	}
 	manifest := map[string]any{
 		"schemaVersion": 2, "toolVersion": "PkuHoleStudio", "runId": report.RunID,
 		"exportedAt": time.Now().UTC().Format(time.RFC3339), "scope": map[string]any{"type": scopeType},
 		"complete": true, "counts": map[string]any{
-			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "failed": 0,
+			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia, "failed": 0,
 		}, "errors": []any{},
 	}
 	if err := json.NewEncoder(manifestEntry).Encode(manifest); err != nil {
@@ -105,6 +122,29 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 	if err := json.NewEncoder(dataEntry).Encode(map[string]any{"items": items}); err != nil {
 		return closeWithError(err)
 	}
+	if len(mediaIndex) > 0 {
+		indexEntry, err := archiveWriter.Create("media/index.json")
+		if err != nil {
+			return closeWithError(err)
+		}
+		if err := json.NewEncoder(indexEntry).Encode(mediaIndex); err != nil {
+			return closeWithError(err)
+		}
+		paths := make([]string, 0, len(mediaFiles))
+		for name := range mediaFiles {
+			paths = append(paths, name)
+		}
+		sort.Strings(paths)
+		for _, name := range paths {
+			entry, err := archiveWriter.Create(name)
+			if err != nil {
+				return closeWithError(err)
+			}
+			if _, err := entry.Write(mediaFiles[name]); err != nil {
+				return closeWithError(err)
+			}
+		}
+	}
 	readableEntry, err := archiveWriter.Create("readable.txt")
 	if err != nil {
 		return closeWithError(err)
@@ -115,8 +155,48 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 	return archiveWriter.Close()
 }
 
-func writeMarkdownBundle(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport) error {
+func prepareExportMedia(ctx context.Context, records []ExportRecord, dataDir string) ([]MediaRecord, map[string][]byte) {
+	index := make([]MediaRecord, 0)
+	files := make(map[string][]byte)
+	for _, record := range records {
+		for _, row := range record.Media {
+			if ctx.Err() != nil {
+				return index, files
+			}
+			item := MediaRecord{
+				OwnerType: row.OwnerType, OwnerID: row.OwnerID, RemoteID: row.RemoteID,
+				RemoteURL: row.RemoteURL, Variant: row.Variant, MIMEType: row.MIMEType,
+				Size: row.Size, SHA256: row.ContentHash, Width: row.Width, Height: row.Height,
+				Status: "missing",
+			}
+			if item.Variant == "" {
+				item.Variant = "original"
+			}
+			localPath := strings.TrimSpace(row.Path)
+			if localPath != "" && !filepath.IsAbs(localPath) {
+				localPath = filepath.Join(dataDir, filepath.FromSlash(localPath))
+			}
+			content, err := os.ReadFile(localPath)
+			if err == nil && len(content) > 0 {
+				digest := sha256.Sum256(content)
+				item.SHA256 = hex.EncodeToString(digest[:])
+				item.Size = int64(len(content))
+				item.MIMEType = http.DetectContentType(content)
+				if strings.HasPrefix(item.MIMEType, "image/") {
+					item.Status = "available"
+					item.Path = "media/" + item.SHA256 + mediaExtension(item.MIMEType)
+					files[item.Path] = content
+				}
+			}
+			index = append(index, item)
+		}
+	}
+	return index, files
+}
+
+func writeMarkdownBundle(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, dataDir string) error {
 	archiveWriter := zip.NewWriter(output)
+	mediaIndex, mediaFiles := prepareExportMedia(ctx, records, dataDir)
 	index, err := archiveWriter.Create("index.md")
 	if err != nil {
 		return err
@@ -140,15 +220,32 @@ func writeMarkdownBundle(ctx context.Context, output io.Writer, records []Export
 		if err != nil {
 			return err
 		}
-		if err := writePostMarkdown(entry, record); err != nil {
+		if err := writePostMarkdown(entry, record, mediaIndex); err != nil {
+			return err
+		}
+	}
+	paths := make([]string, 0, len(mediaFiles))
+	for name := range mediaFiles {
+		paths = append(paths, name)
+	}
+	sort.Strings(paths)
+	for _, name := range paths {
+		entry, err := archiveWriter.Create(name)
+		if err != nil {
+			return err
+		}
+		if _, err := entry.Write(mediaFiles[name]); err != nil {
 			return err
 		}
 	}
 	return archiveWriter.Close()
 }
 
-func writePostMarkdown(writer io.Writer, record ExportRecord) error {
+func writePostMarkdown(writer io.Writer, record ExportRecord, media []MediaRecord) error {
 	if _, err := fmt.Fprintf(writer, "# #%d\n\n- 时间戳：%d\n- 来源：%s\n\n%s\n", record.Post.Pid, record.Post.Timestamp, preferredExportSource(record.Sources), record.Post.Text); err != nil {
+		return err
+	}
+	if err := writeMarkdownMedia(writer, media, "post", int64(record.Post.Pid)); err != nil {
 		return err
 	}
 	if len(record.Comments) == 0 {
@@ -159,6 +256,25 @@ func writePostMarkdown(writer io.Writer, record ExportRecord) error {
 	}
 	for _, comment := range record.Comments {
 		if _, err := fmt.Fprintf(writer, "\n### C%d · %s\n\n%s\n", comment.Cid, comment.NameTag, comment.Text); err != nil {
+			return err
+		}
+		if err := writeMarkdownMedia(writer, media, "comment", int64(comment.Cid)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeMarkdownMedia(writer io.Writer, media []MediaRecord, ownerType string, ownerID int64) error {
+	for _, item := range media {
+		if item.OwnerType != ownerType || item.OwnerID != ownerID {
+			continue
+		}
+		if item.Status == "available" && item.Path != "" {
+			if _, err := fmt.Fprintf(writer, "\n![图片](../%s)\n", item.Path); err != nil {
+				return err
+			}
+		} else if _, err := io.WriteString(writer, "\n> 图片尚未下载，归档中仅保留了远程元数据。\n"); err != nil {
 			return err
 		}
 	}

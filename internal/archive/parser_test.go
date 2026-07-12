@@ -47,8 +47,23 @@ func TestParseV2ValidAndContextRecords(t *testing.T) {
 	for _, reference := range report.records[0].References {
 		kinds[reference.Kind]++
 	}
-	if kinds["mentions"] != 2 || kinds["quotes"] != 1 {
+	if kinds["explicit"] != 2 || kinds["quoted_comment"] != 1 {
 		t.Fatalf("reference kinds = %#v", kinds)
+	}
+}
+
+func TestParseV2InfersContextualBarePIDOnlyForArchiveTargets(t *testing.T) {
+	data := map[string]any{"items": []any{
+		map[string]any{"pid": "8133824", "source": "followed", "fetchStatus": "ok", "hole": map[string]any{"pid": 8133824, "text": "看到7853541的dz推荐，另有数字7654321"}, "comments": []any{}},
+		map[string]any{"pid": "7853541", "source": "referenced", "fetchStatus": "ok", "hole": map[string]any{"pid": 7853541, "text": "context"}, "comments": []any{}},
+	}}
+	content := makeV2ZIP(t, validManifest(2, 0), data)
+	report, err := Parse(context.Background(), bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.records[0].References) != 1 || report.records[0].References[0].Kind != "inferred" || report.records[0].References[0].TargetPID != 7853541 {
+		t.Fatalf("references = %+v", report.records[0].References)
 	}
 }
 
@@ -57,7 +72,7 @@ func TestParseV2AcceptsToolkitImageSizeArray(t *testing.T) {
 		map[string]any{
 			"pid": "123456", "source": "followed", "fetchStatus": "ok",
 			"hole": map[string]any{
-				"pid": 123456, "text": "toolkit export",
+				"pid": 123456, "text": "toolkit export", "type": "image", "url": "2026/1/example.jpg",
 				"image_size": []any{[]any{1280, 720}, []any{640, 480}},
 			},
 			"comments": []any{map[string]any{"cid": 1001, "pid": 123456, "text": "comment"}},
@@ -74,6 +89,9 @@ func TestParseV2AcceptsToolkitImageSizeArray(t *testing.T) {
 	}
 	if got, want := report.records[0].Post.ImageSize, `[[1280,720],[640,480]]`; got != want {
 		t.Fatalf("image_size = %q, want %q", got, want)
+	}
+	if report.Counts.Media != 1 || report.Counts.MissingMedia != 1 || len(report.media) != 1 || report.media[0].RemoteURL != "2026/1/example.jpg" || report.media[0].Width != 1280 || report.media[0].Height != 720 {
+		t.Fatalf("media inference = %+v, counts=%+v", report.media, report.Counts)
 	}
 }
 

@@ -22,3 +22,14 @@ type Repository interface {
 type ReferenceRepository interface {
 	GetReferencesByPID(pid int32) ([]models.ReferenceEdge, error)
 }
+
+type MediaRepository interface {
+	GetMediaByPID(pid int32) ([]models.Media, error)
+	GetMediaByID(id uint) (*models.Media, error)
+}
+
+type MediaStateRepository interface {
+	ListMissingMedia(limit int) ([]models.MediaRepairCandidate, error)
+	MarkMediaAvailable(id uint, contentHash, path, mimeType string, size int64) error
+	MarkMediaFailed(id uint, message string) error
+}

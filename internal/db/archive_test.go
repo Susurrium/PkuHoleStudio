@@ -133,4 +133,24 @@ func TestReferenceProjectionResolvesCommentOwners(t *testing.T) {
 	if err != nil || len(edges) != 1 || edges[0].SourcePID != 123456 || edges[0].TargetPID != 234567 || edges[0].SourceCID == nil || edges[0].TargetCID == nil {
 		t.Fatalf("edges = %+v, %v", edges, err)
 	}
+	reverse, err := database.GetReferencesByPID(234567)
+	if err != nil || len(reverse) != 1 || reverse[0].SourcePID != 123456 || reverse[0].TargetPID != 234567 {
+		t.Fatalf("reverse edges = %+v, %v", reverse, err)
+	}
+}
+
+func TestRebuildReferencesDetectsContextualBarePID(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{{Pid: 8133824, Text: "看到7853541的dz推荐"}, {Pid: 7853541, Text: "context"}}); err != nil {
+		t.Fatal(err)
+	}
+	count, err := database.RebuildReferences(context.Background())
+	if err != nil || count != 1 {
+		t.Fatalf("RebuildReferences() = %d, %v", count, err)
+	}
+	edges, err := database.GetReferencesByPID(8133824)
+	if err != nil || len(edges) != 1 || edges[0].Kind != "inferred" || edges[0].TargetPID != 7853541 {
+		t.Fatalf("edges = %+v, %v", edges, err)
+	}
 }

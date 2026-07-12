@@ -15,6 +15,16 @@ type fakeRepository struct {
 	postFetchCount map[int32]int
 }
 
+type fakePostMediaRepository struct {
+	*fakeRepository
+	media []models.Media
+}
+
+func (f *fakePostMediaRepository) GetMediaByPID(int32) ([]models.Media, error) {
+	return append([]models.Media(nil), f.media...), nil
+}
+func (f *fakePostMediaRepository) GetMediaByID(uint) (*models.Media, error) { return nil, nil }
+
 func (f *fakeRepository) GetPostsCursor(int, int, bool) ([]models.Post, error) {
 	return append([]models.Post(nil), f.posts...), nil
 }
@@ -147,6 +157,17 @@ func TestPostServiceCommentCursorAndSort(t *testing.T) {
 	}
 	if remote.commentQuery.Page != 2 || remote.commentQuery.Sort != 1 || page.NextCursor != 2 || !page.HasMore {
 		t.Fatalf("query=%+v page=%+v", remote.commentQuery, page)
+	}
+}
+
+func TestPostServiceLocalDetailIncludesMediaCatalog(t *testing.T) {
+	repository := &fakePostMediaRepository{
+		fakeRepository: &fakeRepository{posts: []models.Post{{Pid: 123456}}, comments: []models.Comment{{Cid: 7, Pid: 123456}}},
+		media:          []models.Media{{ID: 1, OwnerType: "post", OwnerID: 123456, Status: "available"}, {ID: 2, OwnerType: "comment", OwnerID: 7, Status: "missing"}},
+	}
+	detail, err := NewPostService(repository, nil).Get(context.Background(), 123456, CommentQuery{Source: SourceLocal})
+	if err != nil || len(detail.Media) != 2 {
+		t.Fatalf("Get() = %+v, %v", detail, err)
 	}
 }
 
