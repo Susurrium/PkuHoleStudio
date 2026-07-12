@@ -337,6 +337,23 @@ func TestAPIV1ExportsTreeholeV2Archive(t *testing.T) {
 	}
 }
 
+func TestAPIV1CreatesAndListsPersistentExportJobs(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	created := performRequest(router, http.MethodPost, "/api/v1/exports/jobs", strings.NewReader(`{"format":"treehole-v2","pids":[8133824],"include_comments":true}`), "application/json")
+	if created.Code != http.StatusAccepted || !strings.Contains(created.Body.String(), `"type":"export_archive"`) {
+		t.Fatalf("create persistent export = %d %s", created.Code, created.Body.String())
+	}
+	history := performRequest(router, http.MethodGet, "/api/v1/exports/jobs", nil, "")
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"type":"export_archive"`) {
+		t.Fatalf("export history = %d %s", history.Code, history.Body.String())
+	}
+	invalid := performRequest(router, http.MethodPost, "/api/v1/exports/jobs", strings.NewReader(`{"format":"bad"}`), "application/json")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid export = %d %s", invalid.Code, invalid.Body.String())
+	}
+}
+
 func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()

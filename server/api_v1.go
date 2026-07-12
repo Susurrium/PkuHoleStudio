@@ -112,6 +112,9 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/imports", apiCreateImport(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
 	group.POST("/exports", apiCreateExport(dependencies))
+	group.GET("/exports/jobs", apiExportJobs(dependencies))
+	group.POST("/exports/jobs", apiCreateExportJob(dependencies))
+	group.GET("/exports/:id/download", apiDownloadExport(dependencies))
 	group.POST("/bridge/pairings", apiCreateBridgePairing(dependencies))
 	group.GET("/bridge/pairings/:token", apiBridgePairing(dependencies))
 	group.POST("/bridge/pairings/:token/archive", apiUploadBridgeArchive(dependencies))
@@ -776,6 +779,115 @@ func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
 			name += ".treehole.zip"
 		}
 		c.FileAttachment(path, name)
+	}
+}
+
+type exportJobCheckpoint struct {
+	Filename  string               `json:"filename"`
+	ExpiresAt time.Time            `json:"expires_at"`
+	Report    archive.ExportReport `json:"report"`
+}
+
+func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Format          archive.ExportFormat `json:"format"`
+		PIDs            []int32              `json:"pids"`
+		IncludeComments bool                 `json:"include_comments"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Jobs == nil || dependencies.Archive == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "persistent archive export is unavailable", nil)
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if body.Format == "" {
+			body.Format = archive.ExportFormatTreeholeV2
+		}
+		if body.Format != archive.ExportFormatTreeholeV2 && body.Format != archive.ExportFormatMarkdown {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "format must be treehole-v2 or markdown", nil)
+			return
+		}
+		if len(body.PIDs) > 2000 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "at most 2000 PIDs may be exported", nil)
+			return
+		}
+		for _, pid := range body.PIDs {
+			if pid <= 0 {
+				apiFailure(c, http.StatusBadRequest, "invalid_input", "PIDs must be positive", nil)
+				return
+			}
+		}
+		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: 1})
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "job_create_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusAccepted, toPublicJob(job))
+	}
+}
+
+func apiExportJobs(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Jobs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
+			return
+		}
+		rows, err := dependencies.Jobs.List(c.Request.Context(), 200)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		result := make([]publicJob, 0)
+		for _, row := range rows {
+			if row.Type == jobs.TypeExportArchive {
+				result = append(result, toPublicJob(row))
+			}
+		}
+		apiRespond(c, http.StatusOK, result)
+	}
+}
+
+func apiDownloadExport(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Jobs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
+			return
+		}
+		job, err := dependencies.Jobs.Get(c.Request.Context(), c.Param("id"))
+		if err != nil || job.Type != jobs.TypeExportArchive {
+			apiFailure(c, http.StatusNotFound, "export_not_found", "export job was not found", nil)
+			return
+		}
+		if job.Status != jobs.StatusCompleted {
+			apiFailure(c, http.StatusConflict, "export_not_ready", "export job is not completed", gin.H{"status": job.Status})
+			return
+		}
+		var checkpoint exportJobCheckpoint
+		if json.Unmarshal(job.Checkpoint, &checkpoint) != nil || filepath.Base(checkpoint.Filename) != checkpoint.Filename || checkpoint.Filename == "" {
+			apiFailure(c, http.StatusInternalServerError, "export_invalid", "export checkpoint is invalid", nil)
+			return
+		}
+		if !checkpoint.ExpiresAt.IsZero() && time.Now().UTC().After(checkpoint.ExpiresAt) {
+			_ = os.Remove(filepath.Join(dependencies.DataDir, "exports", checkpoint.Filename))
+			apiFailure(c, http.StatusGone, "export_expired", "export file has expired; retry the job to regenerate it", nil)
+			return
+		}
+		path := filepath.Join(dependencies.DataDir, "exports", checkpoint.Filename)
+		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+			apiFailure(c, http.StatusGone, "export_missing", "export file is no longer available; retry the job", nil)
+			return
+		}
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, checkpoint.Filename))
+		c.File(path)
 	}
 }
 

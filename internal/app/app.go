@@ -224,6 +224,10 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	if err := cleanupExpiredImportStaging(ctx, application.DataDir, application.Jobs, 7*24*time.Hour); err != nil {
 		return nil, fmt.Errorf("clean import staging: %w", err)
 	}
+	if err := cleanupExpiredExports(ctx, application.DataDir, 30*24*time.Hour); err != nil {
+		application.Close()
+		return nil, fmt.Errorf("cleanup expired exports: %w", err)
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, err

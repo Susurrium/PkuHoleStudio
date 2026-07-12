@@ -95,6 +95,17 @@ export const api = {
 		const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? (format === 'markdown' ? 'pkuhole-studio-markdown.zip' : 'pkuhole-studio.treehole.zip')
 		return { blob: await response.blob(), filename }
 	},
+	createExportJob: (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean) => request<Job>('/exports/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments }) }),
+	exportJobs: () => request<Job[]>('/exports/jobs'),
+	downloadExportJob: async (id: string): Promise<ExportDownload> => {
+		const response = await fetch(`/api/v1/exports/${id}/download`)
+		if (!response.ok) {
+			const failure = await response.json().catch(() => null) as ErrorEnvelope | null
+			throw new APIError(response.status, failure?.error?.code ?? 'export_download_failed', failure?.error?.message ?? `下载失败 (${response.status})`, failure?.error?.details)
+		}
+		const disposition = response.headers.get('content-disposition') ?? ''
+		return { blob: await response.blob(), filename: disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `${id}.zip` }
+	},
 	aiProviders: () => request<AIProvider[]>('/ai/providers'),
 	aiSessions: () => request<AISession[]>('/ai/sessions?limit=50'),
 	createAISession: (mode: AISession['mode'], title: string) => request<AISession>('/ai/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, title }) }),
