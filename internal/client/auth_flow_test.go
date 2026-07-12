@@ -152,6 +152,16 @@ func TestBootstrapSessionWithPasswordRequestsPasswordChallengeWhenOAuthReturnsNo
 	}
 }
 
+func TestOAuthFailureMessageUsesNestedIAAAReason(t *testing.T) {
+	message := oauthFailureMessage(map[string]interface{}{
+		"success": false,
+		"errors":  map[string]interface{}{"msg": "用户名或密码错误"},
+	})
+	if message != "用户名或密码错误" {
+		t.Fatalf("message = %q", message)
+	}
+}
+
 func TestBootstrapSessionWithPasswordRequestsUsernameChallengeWhenUsernameMissing(t *testing.T) {
 	c := newBootstrapTestClient(t)
 

@@ -75,9 +75,20 @@ func (s *TreeholeAuthService) Login(ctx context.Context, username, password stri
 	if s.config != nil {
 		cfg = *s.config
 	}
-	cfg.Username = strings.TrimSpace(username)
+	cfg.Username = normalizePKUUsername(username)
 	result := s.client.BootstrapSessionWithPassword(&cfg, password)
 	return authStatusFromBootstrap(result)
+}
+
+func normalizePKUUsername(username string) string {
+	value := strings.TrimSpace(username)
+	lower := strings.ToLower(value)
+	for _, suffix := range []string{"@stu.pku.edu.cn", "@pku.edu.cn"} {
+		if strings.HasSuffix(lower, suffix) {
+			return strings.TrimSpace(value[:len(value)-len(suffix)])
+		}
+	}
+	return value
 }
 
 func (s *TreeholeAuthService) Continue(ctx context.Context, challenge, code string) AuthStatus {
