@@ -13,18 +13,22 @@ import (
 )
 
 type AuthChallengeKind string
+type AuthChallengeStage string
 
 const (
-	AuthChallengeNone     AuthChallengeKind = ""
-	AuthChallengeUsername AuthChallengeKind = "username"
-	AuthChallengePassword AuthChallengeKind = "password"
-	AuthChallengeSMS      AuthChallengeKind = "sms"
-	AuthChallengeOTP      AuthChallengeKind = "otp"
+	AuthChallengeNone          AuthChallengeKind  = ""
+	AuthChallengeUsername      AuthChallengeKind  = "username"
+	AuthChallengePassword      AuthChallengeKind  = "password"
+	AuthChallengeSMS           AuthChallengeKind  = "sms"
+	AuthChallengeOTP           AuthChallengeKind  = "otp"
+	AuthChallengeStageIAAA     AuthChallengeStage = "iaaa"
+	AuthChallengeStageTreehole AuthChallengeStage = "treehole"
 )
 
 type AuthBootstrapResult struct {
 	Status          SessionStatus
 	Challenge       AuthChallengeKind
+	ChallengeStage  AuthChallengeStage
 	ChallengeReason string
 	LoginAttempted  bool
 }
@@ -33,7 +37,7 @@ func DetectAuthChallenge(message string) AuthChallengeKind {
 	switch {
 	case strings.Contains(message, "短信验证"):
 		return AuthChallengeSMS
-	case strings.Contains(message, "令牌验证"):
+	case strings.Contains(message, "令牌验证"), strings.Contains(message, "手机令牌"), strings.Contains(message, "动态口令"):
 		return AuthChallengeOTP
 	default:
 		return AuthChallengeNone
@@ -81,9 +85,26 @@ func (c *Client) BootstrapSessionWithPassword(cfg *config.Config, password strin
 }
 
 func (c *Client) bootstrapSessionWithPassword(cfg *config.Config, password string) AuthBootstrapResult {
+	return c.bootstrapSessionWithIAAAVerification(cfg, password, "", "")
+}
+
+func (c *Client) BootstrapSessionWithIAAAVerification(cfg *config.Config, password string, kind AuthChallengeKind, code string) AuthBootstrapResult {
+	if cfg == nil || strings.TrimSpace(cfg.Username) == "" || strings.TrimSpace(password) == "" {
+		return c.BootstrapSessionWithPassword(cfg, password)
+	}
+	smsCode, otpCode := "", ""
+	if kind == AuthChallengeSMS {
+		smsCode = strings.TrimSpace(code)
+	} else if kind == AuthChallengeOTP {
+		otpCode = strings.TrimSpace(code)
+	}
+	return c.bootstrapSessionWithIAAAVerification(cfg, password, smsCode, otpCode)
+}
+
+func (c *Client) bootstrapSessionWithIAAAVerification(cfg *config.Config, password, smsCode, otpCode string) AuthBootstrapResult {
 	result := c.finalizeAuthStatus()
 	result.LoginAttempted = true
-	oauthResult, err := c.OAuthLogin(cfg.Username, password)
+	oauthResult, err := c.OAuthLoginWithVerification(cfg.Username, password, smsCode, otpCode)
 	if err != nil {
 		result.Status.FailureKind = ClassifySessionError(err)
 		result.Status.Message = err.Error()
@@ -96,7 +117,22 @@ func (c *Client) bootstrapSessionWithPassword(cfg *config.Config, password strin
 	if !ok || token == "" {
 		result.Status.FailureKind = SessionFailureLogin
 		result.Status.Message = oauthFailureMessage(oauthResult)
-		result.Challenge = AuthChallengePassword
+		result.Challenge = DetectAuthChallenge(result.Status.Message)
+		if result.Challenge == AuthChallengeNone {
+			result.Challenge = AuthChallengePassword
+		} else {
+			result.ChallengeStage = AuthChallengeStageIAAA
+		}
+		if result.Challenge == AuthChallengeSMS && smsCode == "" {
+			mask, sendErr := c.SendIAAASMSCode(cfg.Username)
+			if sendErr != nil {
+				result.Status.Message = "需要短信验证，但验证码发送失败: " + sendErr.Error()
+			} else if mask != "" {
+				result.Status.Message = "短信验证码已发送至 " + mask
+			} else {
+				result.Status.Message = "短信验证码已发送，请检查 IAAA 绑定手机号"
+			}
+		}
 		result.ChallengeReason = result.Status.Message
 		return result
 	}
@@ -214,12 +250,17 @@ func (c *Client) SubmitOTPCode(code string) error {
 func (c *Client) finalizeAuthStatus() AuthBootstrapResult {
 	status := c.ProbeSession()
 	challenge := DetectAuthChallenge(status.Message)
+	stage := AuthChallengeStage("")
+	if challenge != AuthChallengeNone {
+		stage = AuthChallengeStageTreehole
+	}
 	if status.CanReadOnline {
 		_ = c.SaveCookies()
 	}
 	return AuthBootstrapResult{
 		Status:          status,
 		Challenge:       challenge,
+		ChallengeStage:  stage,
 		ChallengeReason: status.Message,
 	}
 }

@@ -67,6 +67,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/session", apiSession(dependencies))
 	group.POST("/session/probe", apiProbeSession(dependencies))
 	group.POST("/session/login", apiLoginSession(dependencies))
+	group.POST("/session/sms", apiSendSessionSMS(dependencies))
 	group.POST("/session/challenge", apiContinueSession(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
@@ -89,6 +90,30 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/ai/sessions/:id/messages", apiCreateAIMessage(dependencies))
 	group.GET("/ai/sessions/:id/events", apiAIEvents(dependencies))
 	group.POST("/ai/sessions/:id/cancel", apiAICancel(dependencies))
+}
+
+func apiSendSessionSMS(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Username string `json:"username"`
+	}
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		if !requireLoopback(c) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if strings.TrimSpace(body.Username) == "" || len(body.Username) > 128 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "username is required", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.SendSMS(c.Request.Context(), body.Username))
+	}
 }
 
 func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
@@ -212,7 +237,10 @@ func apiLoginSession(dependencies Dependencies) gin.HandlerFunc {
 
 func apiContinueSession(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
+		Stage     string `json:"stage,omitempty"`
 		Challenge string `json:"challenge"`
+		Username  string `json:"username,omitempty"`
+		Password  string `json:"password,omitempty"`
 		Code      string `json:"code"`
 	}
 	return func(c *gin.Context) {
@@ -228,12 +256,21 @@ func apiContinueSession(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		body.Challenge = strings.TrimSpace(body.Challenge)
+		body.Stage = strings.TrimSpace(body.Stage)
 		body.Code = strings.TrimSpace(body.Code)
 		if (body.Challenge != "sms" && body.Challenge != "otp") || body.Code == "" || len(body.Code) > 32 {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", "a supported challenge and verification code are required", nil)
 			return
 		}
-		apiRespond(c, http.StatusOK, dependencies.Auth.Continue(c.Request.Context(), body.Challenge, body.Code))
+		if body.Stage == "iaaa" && (strings.TrimSpace(body.Username) == "" || body.Password == "") {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "username and password are required for IAAA verification", nil)
+			return
+		}
+		if body.Stage != "" && body.Stage != "iaaa" && body.Stage != "treehole" {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "unsupported challenge stage", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.Continue(c.Request.Context(), body.Stage, body.Challenge, body.Username, body.Password, body.Code))
 	}
 }
 

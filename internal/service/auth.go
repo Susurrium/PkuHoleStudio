@@ -17,6 +17,7 @@ type AuthStatus struct {
 	FailureKind     string `json:"failure_kind,omitempty"`
 	Message         string `json:"message,omitempty"`
 	Challenge       string `json:"challenge,omitempty"`
+	ChallengeStage  string `json:"challenge_stage,omitempty"`
 	ChallengeReason string `json:"challenge_reason,omitempty"`
 }
 
@@ -24,7 +25,8 @@ type AuthService interface {
 	CachedStatus(ctx context.Context) AuthStatus
 	Probe(ctx context.Context) AuthStatus
 	Login(ctx context.Context, username, password string) AuthStatus
-	Continue(ctx context.Context, challenge, code string) AuthStatus
+	SendSMS(ctx context.Context, username string) AuthStatus
+	Continue(ctx context.Context, stage, challenge, username, password, code string) AuthStatus
 }
 
 type TreeholeAuthService struct {
@@ -91,7 +93,25 @@ func normalizePKUUsername(username string) string {
 	return value
 }
 
-func (s *TreeholeAuthService) Continue(ctx context.Context, challenge, code string) AuthStatus {
+func (s *TreeholeAuthService) SendSMS(ctx context.Context, username string) AuthStatus {
+	if err := authContextError(ctx); err != nil {
+		return AuthStatus{Checked: true, FailureKind: "network", Message: err.Error()}
+	}
+	if s == nil || s.client == nil {
+		return AuthStatus{Checked: true, FailureKind: "login", Message: "树洞客户端未初始化"}
+	}
+	mask, err := s.client.SendIAAASMSCode(normalizePKUUsername(username))
+	if err != nil {
+		return AuthStatus{Checked: true, FailureKind: "login", Message: err.Error(), Challenge: "sms", ChallengeStage: "iaaa", ChallengeReason: err.Error()}
+	}
+	message := "短信验证码已发送，请检查 IAAA 绑定手机号"
+	if mask != "" {
+		message = "短信验证码已发送至 " + mask
+	}
+	return AuthStatus{Checked: true, FailureKind: "login", Message: message, Challenge: "sms", ChallengeStage: "iaaa", ChallengeReason: message}
+}
+
+func (s *TreeholeAuthService) Continue(ctx context.Context, stage, challenge, username, password, code string) AuthStatus {
 	if err := authContextError(ctx); err != nil {
 		return AuthStatus{Checked: true, FailureKind: "network", Message: err.Error()}
 	}
@@ -102,12 +122,21 @@ func (s *TreeholeAuthService) Continue(ctx context.Context, challenge, code stri
 	if kind != client.AuthChallengeSMS && kind != client.AuthChallengeOTP {
 		return AuthStatus{Checked: true, FailureKind: "login", Message: "不支持的验证类型"}
 	}
+	if strings.TrimSpace(stage) == string(client.AuthChallengeStageIAAA) {
+		cfg := config.Config{}
+		if s.config != nil {
+			cfg = *s.config
+		}
+		cfg.Username = normalizePKUUsername(username)
+		return authStatusFromBootstrap(s.client.BootstrapSessionWithIAAAVerification(&cfg, password, kind, strings.TrimSpace(code)))
+	}
 	return authStatusFromBootstrap(s.client.ContinueAuthChallenge(kind, strings.TrimSpace(code)))
 }
 
 func authStatusFromBootstrap(result client.AuthBootstrapResult) AuthStatus {
 	status := authStatusFromSession(result.Status)
 	status.Challenge = string(result.Challenge)
+	status.ChallengeStage = string(result.ChallengeStage)
 	status.ChallengeReason = result.ChallengeReason
 	return status
 }

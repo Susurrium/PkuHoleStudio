@@ -47,7 +47,8 @@ export const api = {
 	session: () => request<AuthStatus>('/session'),
 	probeSession: () => request<AuthStatus>('/session/probe', { method: 'POST' }),
 	loginSession: (username: string, password: string) => request<AuthStatus>('/session/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }),
-	continueSession: (challenge: 'sms' | 'otp', code: string) => request<AuthStatus>('/session/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge, code }) }),
+	sendSessionSMS: (username: string) => request<AuthStatus>('/session/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) }),
+	continueSession: (stage: 'iaaa' | 'treehole' | '', challenge: 'sms' | 'otp', username: string, password: string, code: string) => request<AuthStatus>('/session/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, challenge, username: stage === 'iaaa' ? username : undefined, password: stage === 'iaaa' ? password : undefined, code }) }),
 	importArchive: (file: File) => {
     const body = new FormData()
     body.append('file', file)
