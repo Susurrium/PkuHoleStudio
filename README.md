@@ -29,6 +29,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - Web 导出使用持久任务：刷新页面后可恢复进度和历史，完成后下载，失败可重试；导出文件默认保留 30 天并由清理任务回收。
 - 设置页可安全编辑 OpenAI-compatible Provider、模型和检索限制；API key 采用只写、不回显设计，保存后明确提示重启应用。
 - AI 设置支持最多 20 个 OpenAI-compatible Provider，能够新增、删除和切换活动模型；旧版单 Provider 配置会自动迁移，切换后重启才会影响新会话。
+- 本地检索严格限制最多 5 轮；课程分析会去重并覆盖最多 10 名教师，保存每轮关键词、命中数、最终 PID/CID 来源和统一维度比较提示。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。

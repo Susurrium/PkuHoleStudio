@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
@@ -94,7 +95,11 @@ func TestSelectedModeRequiresPIDs(t *testing.T) {
 func TestCourseModeBuildsAnalysisFromLocalEvidence(t *testing.T) {
 	database, cleanup := aiTestDatabase(t)
 	defer cleanup()
-	if err := database.UpsertPosts([]models.Post{{Pid: 34567, Text: "alpha course with Professor Chen", Timestamp: 1}}); err != nil {
+	if err := database.UpsertPosts([]models.Post{
+		{Pid: 34567, Text: "alpha course with Professor Chen", Timestamp: 1},
+		{Pid: 34568, Text: "alpha course with Professor Wang", Timestamp: 2},
+		{Pid: 34569, Text: "alpha course with Professor Li", Timestamp: 3},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	posts := service.NewPostService(database, nil)
@@ -103,7 +108,7 @@ func TestCourseModeBuildsAnalysisFromLocalEvidence(t *testing.T) {
 	provider := &fakeProvider{deltas: []string{"course comparison [#34567]"}}
 	aiService := NewService(context.Background(), database, posts, service.NewSearchService(posts, database), provider, cfg, ProviderInfo{Name: "fake", Model: "fake", Configured: true})
 	session, _ := aiService.CreateSession(context.Background(), ModeCourse, "")
-	events, err := aiService.Run(context.Background(), service.AIRequest{SessionID: session.ID, Mode: ModeCourse, Prompt: "compare teaching", Course: "alpha", Teachers: []string{"Professor Chen"}})
+	events, err := aiService.Run(context.Background(), service.AIRequest{SessionID: session.ID, Mode: ModeCourse, Prompt: "compare teaching", Course: "alpha", Teachers: []string{"Professor Chen", "Professor Wang", "Professor Li", "Professor Chen"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +120,21 @@ func TestCourseModeBuildsAnalysisFromLocalEvidence(t *testing.T) {
 	if !completed || !searched || provider.streamCalls != 1 {
 		t.Fatalf("completed=%v searched=%v streamCalls=%d", completed, searched, provider.streamCalls)
 	}
+	if len(provider.streamRequest.Messages) < 2 || !strings.Contains(provider.streamRequest.Messages[1].Content, "Professor Chen、Professor Wang、Professor Li") {
+		t.Fatalf("course prompt omitted a teacher: %+v", provider.streamRequest.Messages)
+	}
+	detail, err := aiService.GetSession(context.Background(), session.ID)
+	if err != nil || len(detail.Messages) != 2 || !strings.Contains(detail.Messages[1].TraceJSON, "Professor Li") || len(detail.Messages[1].Sources) < 3 {
+		t.Fatalf("course detail = %+v, %v", detail, err)
+	}
 }
 
 type fakeProvider struct {
-	chat        ChatResponse
-	deltas      []string
-	chatCalls   int
-	streamCalls int
+	chat          ChatResponse
+	deltas        []string
+	chatCalls     int
+	streamCalls   int
+	streamRequest ChatRequest
 }
 
 func (p *fakeProvider) Chat(context.Context, ChatRequest) (ChatResponse, error) {
@@ -129,8 +142,9 @@ func (p *fakeProvider) Chat(context.Context, ChatRequest) (ChatResponse, error) 
 	return p.chat, nil
 }
 
-func (p *fakeProvider) ChatStream(ctx context.Context, _ ChatRequest) (<-chan StreamEvent, error) {
+func (p *fakeProvider) ChatStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error) {
 	p.streamCalls++
+	p.streamRequest = request
 	result := make(chan StreamEvent, len(p.deltas)+1)
 	for _, delta := range p.deltas {
 		result <- StreamEvent{Delta: delta}
