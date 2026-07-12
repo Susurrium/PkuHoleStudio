@@ -14,6 +14,51 @@ import (
 )
 
 var _ archivepkg.Store = (*Database)(nil)
+var _ archivepkg.ExportStore = (*Database)(nil)
+
+func (d *Database) ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]archivepkg.ExportRecord, error) {
+	if d == nil || d.db == nil {
+		return nil, errors.New("database is not initialized")
+	}
+	postQuery := d.db.WithContext(ctx).Order("pid ASC")
+	if len(pids) > 0 {
+		postQuery = postQuery.Where("pid IN ?", pids)
+	}
+	var posts []models.Post
+	if err := postQuery.Find(&posts).Error; err != nil {
+		return nil, err
+	}
+	if len(posts) == 0 {
+		return []archivepkg.ExportRecord{}, nil
+	}
+	matchedPIDs := make([]int32, len(posts))
+	records := make([]archivepkg.ExportRecord, len(posts))
+	indexByPID := make(map[int32]int, len(posts))
+	for index, post := range posts {
+		matchedPIDs[index] = post.Pid
+		indexByPID[post.Pid] = index
+		records[index].Post = post
+	}
+	var comments []models.Comment
+	if err := d.db.WithContext(ctx).Where("pid IN ?", matchedPIDs).Order("pid ASC, cid ASC").Find(&comments).Error; err != nil {
+		return nil, err
+	}
+	for _, comment := range comments {
+		if index, ok := indexByPID[comment.Pid]; ok {
+			records[index].Comments = append(records[index].Comments, comment)
+		}
+	}
+	var sources []models.PostSource
+	if err := d.db.WithContext(ctx).Where("pid IN ?", matchedPIDs).Order("pid ASC, source ASC").Find(&sources).Error; err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
+		if index, ok := indexByPID[source.PID]; ok {
+			records[index].Sources = append(records[index].Sources, source)
+		}
+	}
+	return records, nil
+}
 
 func (d *Database) FindImport(ctx context.Context, archiveHash, runID string) (archivepkg.ImportRun, bool, error) {
 	var row models.ImportRun
