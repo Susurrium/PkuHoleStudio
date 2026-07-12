@@ -78,12 +78,18 @@ func (d *Database) schemaMigrations() ([]schemaMigration, error) {
 			version: 4,
 			name:    "media archive metadata and local availability",
 			apply: func(tx *gorm.DB) error {
+				if err := tx.AutoMigrate(&models.Media{}); err != nil {
+					return err
+				}
 				if tx.Migrator().HasIndex(&models.Media{}, "idx_media_owner_remote") {
 					if err := tx.Migrator().DropIndex(&models.Media{}, "idx_media_owner_remote"); err != nil {
 						return err
 					}
 				}
-				if err := tx.AutoMigrate(&models.Media{}); err != nil {
+				if err := tx.Exec("CREATE UNIQUE INDEX idx_media_owner_remote ON media(owner_type, owner_id, variant, remote_id)").Error; err != nil {
+					return err
+				}
+				if err := tx.Exec("CREATE INDEX IF NOT EXISTS idx_media_remote_id ON media(remote_id)").Error; err != nil {
 					return err
 				}
 				if err := tx.Model(&models.Media{}).Where("path <> ''").Update("status", "available").Error; err != nil {

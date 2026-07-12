@@ -111,7 +111,7 @@ func (Reference) TableName() string { return "references" }
 
 type Media struct {
 	ID          uint      `gorm:"primaryKey;column:id" json:"id"`
-	RemoteID    string    `gorm:"column:remote_id;size:128;index;uniqueIndex:idx_media_owner_remote" json:"remote_id,omitempty"`
+	RemoteID    string    `gorm:"column:remote_id;size:128;uniqueIndex:idx_media_owner_remote" json:"remote_id,omitempty"`
 	RemoteURL   string    `gorm:"column:remote_url;type:text" json:"remote_url,omitempty"`
 	ContentHash string    `gorm:"column:content_hash;size:64;index" json:"content_hash,omitempty"`
 	OwnerType   string    `gorm:"column:owner_type;size:16;not null;uniqueIndex:idx_media_owner_remote" json:"owner_type"`

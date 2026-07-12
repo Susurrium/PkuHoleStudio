@@ -37,6 +37,16 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 			t.Errorf("new database is missing table %q", table)
 		}
 	}
+	if !database.db.Migrator().HasIndex(&models.Media{}, "idx_media_owner_remote") {
+		t.Fatal("media composite unique index is missing")
+	}
+	var mediaIndexColumns []struct{ Name string }
+	if err := database.db.Raw("PRAGMA index_info('idx_media_owner_remote')").Scan(&mediaIndexColumns).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(mediaIndexColumns) != 4 || mediaIndexColumns[3].Name != "remote_id" {
+		t.Fatalf("media composite index columns = %+v", mediaIndexColumns)
+	}
 	if err := database.UpsertPosts([]models.Post{{Pid: 12345, Text: "preserved"}}); err != nil {
 		t.Fatalf("UpsertPosts() error = %v", err)
 	}
