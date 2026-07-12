@@ -13,11 +13,11 @@ import (
 // Keeping the options here prevents UI and command packages from importing the
 // crawler implementation directly.
 type CrawlOptions struct {
-	SaveJSON     bool
-	PostLimit    int
-	CommentLimit int
-	FetchImages  bool
-	ConvertWebP  bool
+	SaveJSON     bool `json:"save_json"`
+	PostLimit    int  `json:"post_limit"`
+	CommentLimit int  `json:"comment_limit"`
+	FetchImages  bool `json:"fetch_images"`
+	ConvertWebP  bool `json:"convert_webp"`
 }
 
 type SyncResult struct {

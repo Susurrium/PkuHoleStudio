@@ -22,6 +22,7 @@
 - archive v2 与 Markdown 导出迁入 `export_archive` 持久任务，增加任务历史、完成后下载、失败重试和 30 天过期文件清理；旧同步导出 API 继续兼容。
 - AI 配置增加向后兼容的 Provider 列表和活动 Provider，可在 Web 新增、删除、切换 OpenAI-compatible 模型；各 Provider API key 独立保存且不通过读取接口回显。
 - 修正 AI 检索轮数设置与运行时不一致，并让课程分析覆盖全部去重教师（最多 10 名）；增加多教师提示词、检索轨迹和来源持久化验收。
+- Web 高级采集增加原始 API JSON 缓存/保存、旧版图片补全及媒体/缩略图 WebP 选项，并修复 snake_case Web 参数未映射到 `CrawlOptions` 的问题。
 - 增加 Toolkit → Studio 一次性本地配对导入：配对码 5 分钟过期，归档先预检并等待用户确认，不传输登录凭据。
 - 同步中心改为优先自动验证已有本机会话，并把 Studio 账号密码登录折叠为备用方式。
 - TUI 认证状态现在区分 IAAA 与树洞会话验证阶段，短信/动态口令会提交到正确端点。
