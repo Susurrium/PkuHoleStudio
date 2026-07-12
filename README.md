@@ -188,6 +188,8 @@ npm run e2e
 
 Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
 
+发布前真实数据与真实模型验收见 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
+
 ## 安全与隐私
 
 - Web 默认仅绑定本机回环地址。

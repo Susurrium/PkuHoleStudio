@@ -1,0 +1,134 @@
+# PkuHoleStudio v0.1.0-alpha.3 真实数据验收
+
+本文面向第一次使用命令行的测试者。所有操作都在本机完成；不要截图或分享密码、验证码、Cookie、API key、原始树洞归档和数据库。
+
+## 1. 准备独立验收目录
+
+打开 PowerShell，逐行执行：
+
+```powershell
+New-Item -ItemType Directory -Force E:\code\PkuHoleStudio-alpha3-test
+Set-Location E:\code\PkuHoleStudio
+$env:Path='C:\Program Files\Go\bin;C:\msys64\ucrt64\bin;'+$env:Path
+$env:CGO_ENABLED='1'
+go build -tags sqlite_fts5 -ldflags='-s -w -X main.version=v0.1.0-alpha.3' -o E:\code\PkuHoleStudio-alpha3-test\treehole.exe .\cmd
+Set-Location E:\code\PkuHoleStudio-alpha3-test
+.\treehole.exe --version
+```
+
+最后一行应显示 `treehole version v0.1.0-alpha.3`。
+
+## 2. 启动全新资料库
+
+```powershell
+.\treehole.exe web --open=false
+```
+
+保持窗口开启，在浏览器访问 `http://127.0.0.1:8080`。首次启动后，验收目录中应出现 `data` 文件夹和 `treehole.db`。
+
+验收：
+
+- 总览显示空资料库引导，而不是白屏。
+- 左侧可以进入资料库、全文搜索、同步中心、通知、日志、课表与成绩、归档导入、AI 和设置。
+- 浏览器刷新任意页面不会返回 404。
+
+## 3. 导入真实 archive v2
+
+1. 打开“归档导入”。
+2. 把真实 `.treehole.zip` 拖到上传区域。
+3. 点击“预检并开始导入”。
+4. 先核对 `valid_items`、`comments`、`sources`、`references` 和 `media`。
+5. 等待任务从 `queued` 变成 `completed` 或有说明的 `partial`。
+6. 刷新页面，确认任务状态仍存在。
+
+验收：
+
+- 重复导入同一文件不会产生重复帖子和评论。
+- 如果归档中包含 `8133824 → 7853541`，打开 `#8133824` 后引用区应出现 `#7853541`。
+- 有本地图片的帖子直接显示图片；只有远程元数据的图片显示“尚未下载”，不能悄悄消失。
+- 一层和两层引用图都能打开，点击节点可以跳转。
+
+## 4. 验证本地标签、笔记与导出往返
+
+1. 在一个帖子详情创建标签、帖子笔记和一条评论笔记。
+2. 刷新页面，确认三者仍存在。
+3. 打开“设置”，修改标签名称和颜色。
+4. 回到“归档导入”页面底部，创建 archive v2 导出任务。
+5. 刷新页面，等待任务完成后点击“下载”。
+6. 关闭程序，把验收目录改名为 `PkuHoleStudio-alpha3-source`。
+7. 新建空的 `E:\code\PkuHoleStudio-alpha3-roundtrip`，只复制 `treehole.exe`，从该目录重新启动。
+8. 导入刚导出的 archive v2。
+
+验收：
+
+- 标签、颜色、帖子笔记和评论笔记随归档恢复。
+- 如果目标库预先存在同一洞的笔记，导入不会覆盖目标笔记。
+- 导出历史在重启后仍存在；导出失败项可以重试。
+- Markdown 导出任务完成后，ZIP 内逐洞文件包含本地标签和笔记。
+
+## 5. 验证原生同步与 TUI 对等工具
+
+1. 打开“同步中心”，先点击“检测登录状态”。
+2. 有现成会话时应直接显示在线就绪；没有时再使用 Studio 原生登录。
+3. 先同步一个指定 PID，确认任务完成并进入本地资料库。
+4. 在“高级采集”勾选“缓存原始 API JSON”，只采集一页。
+5. 采集完成后点击“保存已缓存原始 JSON”。
+6. 分别测试缺失媒体补全、旧版图片补全、缩略图范围和 WebP 选项。
+
+验收：
+
+- 任务刷新页面后不会丢失。
+- 暂停、恢复、取消和失败重试可用。
+- `post_limit`、`comment_limit`、原始 JSON 和 WebP 选项实际进入任务，而不是只有界面状态。
+- 密码不会出现在配置、日志或 API 响应中。
+
+## 6. 验证多 AI Provider
+
+1. 打开“设置”，新增一个 OpenAI-compatible Provider。
+2. 填写名称、Base URL、模型和 API key；API key 留空表示本地无鉴权服务。
+3. 保存后确认页面只显示“已配置”，不显示 key 内容。
+4. 新增第二个 Provider，切换活动 Provider。
+5. 关闭并重新启动 PkuHoleStudio。
+6. 打开“AI 研究”，确认会话使用活动 Provider 和模型。
+
+验收：
+
+- 旧版 DeepSeek 单 Provider 配置自动出现在列表中。
+- 不同 Provider 的 key 相互独立；编辑时留空不会清除旧 key。
+- 删除最后一个 Provider 会被拒绝。
+- 切换活动 Provider 前的旧会话仍保留原 Provider/模型记录。
+
+## 7. 验证三种 AI 工作流
+
+实时树洞搜索保持关闭，先只使用本地资料。
+
+### 选中内容
+
+- 输入一个或多个本地 PID。
+- 回答应提供可点击的 `#PID` 或 `#PID/CID` 来源。
+
+### 本地自动检索
+
+- 提一个需要多关键词检索的问题。
+- 页面应实时显示检索关键词、理由和命中数量。
+- 最多进行 5 轮检索，最终轨迹在刷新后仍可展开。
+
+### 课程分析
+
+- 输入课程名以及至少三名教师。
+- 回答必须逐一包含所有教师，并按课程难度、教学、作业、考试、给分和建议比较。
+- 没有资料的教师应写“资料不足”，不能挪用其他教师信息。
+
+## 8. 发布通过标准
+
+只有以下项目全部满足，才创建 `v0.1.0-alpha.3` 标签：
+
+- `go test -tags sqlite_fts5 ./...` 通过。
+- `npm test`、`npm run build`、`npm run e2e` 通过。
+- 单文件 Windows 构建和版本信息正确。
+- 真实归档导入、图片、引用、本地元数据和再次导出往返通过。
+- 原生同步至少完成一次指定 PID 任务。
+- 三种 AI 工作流至少各完成一次，来源和轨迹可在刷新后恢复。
+- 没有发现密码、Cookie、API key 或本地绝对路径泄漏。
+
+验收失败时，请记录：操作步骤、页面、任务 ID、错误文字和是否可稳定复现。不要附带敏感原始数据。
