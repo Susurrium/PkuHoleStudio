@@ -85,6 +85,8 @@ func registerJobHandlers(application *App) error {
 		{jobs.TypeRepairThumbnails, application.handleRepairThumbnails},
 		{jobs.TypeCleanupStaging, application.handleCleanupStaging},
 		{jobs.TypeExportArchive, application.handleExportArchive},
+		{jobs.TypeSaveRawJSON, application.handleSaveRawJSON},
+		{jobs.TypeFetchImages, application.handleFetchImages},
 	}
 	for _, registration := range registrations {
 		if err := application.Jobs.Register(registration.typeName, registration.handler); err != nil {
@@ -92,6 +94,36 @@ func registerJobHandlers(application *App) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) handleSaveRawJSON(ctx context.Context, execution *jobs.Execution, _ jobs.Job) error {
+	if a.Sync == nil {
+		return fmt.Errorf("sync service is not configured")
+	}
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	if err := a.Sync.SaveRawResponses(ctx); err != nil {
+		_ = execution.ItemFailed(ctx, "raw_json", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "raw_json", map[string]any{"saved": true})
+}
+
+func (a *App) handleFetchImages(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
+	if a.Sync == nil {
+		return fmt.Errorf("sync service is not configured")
+	}
+	var payload mediaJobPayload
+	_ = json.Unmarshal(job.Payload, &payload)
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	if err := a.Sync.FetchImages(ctx, payload.ConvertWebP); err != nil {
+		_ = execution.ItemFailed(ctx, "images", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "images", map[string]any{"convert_webp": payload.ConvertWebP})
 }
 
 func (a *App) handleExportArchive(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {

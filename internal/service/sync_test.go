@@ -2,9 +2,20 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 )
+
+func TestCrawlOptionsDecodeWebSnakeCasePayload(t *testing.T) {
+	var options CrawlOptions
+	if err := json.Unmarshal([]byte(`{"save_json":true,"post_limit":123,"comment_limit":456,"fetch_images":true,"convert_webp":true}`), &options); err != nil {
+		t.Fatal(err)
+	}
+	if !options.SaveJSON || options.PostLimit != 123 || options.CommentLimit != 456 || !options.FetchImages || !options.ConvertWebP {
+		t.Fatalf("decoded options = %+v", options)
+	}
+}
 
 type fakeSyncRunner struct {
 	fetchedPage int
