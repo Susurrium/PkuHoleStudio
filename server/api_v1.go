@@ -84,6 +84,8 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/notifications/read-all", apiNotificationsReadAll(dependencies))
 	group.GET("/logs", apiLogs(dependencies))
 	group.POST("/logs/clear", apiClearLogs(dependencies))
+	group.GET("/campus/schedule", apiCampusSchedule(dependencies))
+	group.GET("/campus/scores", apiCampusScores(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -269,6 +271,36 @@ func apiClearLogs(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, gin.H{"cleared": true})
+	}
+}
+
+func apiCampusSchedule(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Posts == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "post service is unavailable", nil)
+			return
+		}
+		rows, err := dependencies.Posts.GetCourseTable(c.Request.Context(), service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "campus_unavailable", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiCampusScores(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Posts == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "post service is unavailable", nil)
+			return
+		}
+		summary, err := dependencies.Posts.GetCourseScores(c.Request.Context(), service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "campus_unavailable", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, summary)
 	}
 }
 

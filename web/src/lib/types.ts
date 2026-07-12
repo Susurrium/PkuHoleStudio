@@ -54,6 +54,10 @@ export interface UploadedMedia { id: string; filename: string; size: number }
 export interface Notification { id: number; pid?: number; title?: string; content: string; read: boolean; created_at?: string; timestamp?: number; type: 'int_msg' | 'sys_msg' }
 export interface NotificationPage { items: Notification[]; total: number; page: number }
 export interface LogLine { module: 'crawler' | 'tui'; line: string }
+export interface CourseDay { courseName?: string; parity?: string; sty?: string }
+export interface CourseScheduleRow { time_num: string; mon: CourseDay; tue: CourseDay; wed: CourseDay; thu: CourseDay; fri: CourseDay; sat: CourseDay; sun: CourseDay }
+export interface CourseScore { year_term: string; name: string; credit: string; score: string; category: string }
+export interface ScoreSummary { gpa: string; total_credit: string; passed_credit: string; course_count: string; scores: CourseScore[]; gpa_terms: { year_term: string; gpa: string }[] }
 export interface Capabilities {
   api_version: string
   schema_version: number
