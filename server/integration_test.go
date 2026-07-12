@@ -119,6 +119,7 @@ func TestRouterRegistration(t *testing.T) {
 		"/api/v1/search":            false,
 		"/api/v1/jobs":              false,
 		"/api/v1/imports":           false,
+		"/api/v1/exports":           false,
 		"/api/v1/ai/sessions":       false,
 	}
 

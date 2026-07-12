@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, Capabilities, CommentPage, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, Capabilities, CommentPage, ExportDownload, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -52,6 +52,16 @@ export const api = {
     const body = new FormData()
     body.append('file', file)
     return request<ImportCreated>('/imports', { method: 'POST', body })
+	},
+	exportArchive: async (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean): Promise<ExportDownload> => {
+		const response = await fetch('/api/v1/exports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments }) })
+		if (!response.ok) {
+			const failure = await response.json().catch(() => null) as ErrorEnvelope | null
+			throw new APIError(response.status, failure?.error?.code ?? 'export_failed', failure?.error?.message ?? `导出失败 (${response.status})`, failure?.error?.details)
+		}
+		const disposition = response.headers.get('content-disposition') ?? ''
+		const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? (format === 'markdown' ? 'pkuhole-studio-markdown.zip' : 'pkuhole-studio.treehole.zip')
+		return { blob: await response.blob(), filename }
 	},
 	aiProviders: () => request<AIProvider[]>('/ai/providers'),
 	aiSessions: () => request<AISession[]>('/ai/sessions?limit=50'),

@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, FileArchive, UploadCloud, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, FileArchive, FileText, UploadCloud, XCircle } from 'lucide-react'
 import { APIError, api } from '../lib/api'
 import type { ArchivePreflight, ImportCreated } from '../lib/types'
 import { PageHeader } from '../components/PageHeader'
@@ -44,7 +44,34 @@ export function ImportsPage() {
         </div>}
       </section>
     </div>
+    <ExportPanel />
   </>
+}
+
+function ExportPanel() {
+  const [pidsValue, setPidsValue] = useState('')
+  const [includeComments, setIncludeComments] = useState(true)
+  const selectedPIDs = [...new Set(pidsValue.split(/[\s,，]+/).map(Number).filter((value) => Number.isInteger(value) && value > 0))]
+  const download = useMutation({
+    mutationFn: (format: 'treehole-v2' | 'markdown') => api.exportArchive(format, selectedPIDs, includeComments),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+    },
+  })
+  return <section className="panel mt-7 p-5 md:p-7">
+    <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-coral-soft text-coral"><Download size={20} /></div><div><p className="eyebrow">STUDIO EXPORT</p><h2 className="mt-1 text-xl font-semibold">从本机资料库导出</h2><p className="mt-2 text-sm leading-6 text-ink-soft">留空 PID 会导出全部本地帖子；也可以只导出指定 PID。archive v2 可重新导入 Studio 或 Toolkit，Markdown 包适合阅读和整理。</p></div></div>
+    <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
+      <label className="text-xs font-medium text-ink-soft">指定 PID（可选，最多 2000 个）<textarea className="field mt-1.5 min-h-20 resize-y" value={pidsValue} onChange={(event) => setPidsValue(event.target.value)} placeholder="留空导出全部；或输入 1234567, 2345678" /></label>
+      <div className="flex min-w-64 flex-col justify-end gap-2"><label className="mb-1 inline-flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" checked={includeComments} onChange={(event) => setIncludeComments(event.target.checked)} />包含评论</label><button className="button-primary" disabled={download.isPending || selectedPIDs.length > 2000} onClick={() => download.mutate('treehole-v2')}><FileArchive size={16} />导出 archive v2</button><button className="button-secondary" disabled={download.isPending || selectedPIDs.length > 2000} onClick={() => download.mutate('markdown')}><FileText size={16} />导出 Markdown 包</button></div>
+    </div>
+    {download.isPending && <p className="mt-4 text-sm text-ink-soft">正在生成导出文件，请保持页面打开…</p>}
+    {download.error && <div className="mt-4"><ErrorState error={download.error} /></div>}
+  </section>
 }
 
 function preflightFromError(error: unknown): ArchivePreflight | undefined {

@@ -3,9 +3,44 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"io"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
+
+type ExportFormat string
+
+const (
+	ExportFormatTreeholeV2 ExportFormat = "treehole-v2"
+	ExportFormatMarkdown   ExportFormat = "markdown"
+)
+
+type ExportRequest struct {
+	Format          ExportFormat
+	PIDs            []int32
+	IncludeComments bool
+}
+
+type ExportReport struct {
+	Format   ExportFormat `json:"format"`
+	Posts    int          `json:"posts"`
+	Comments int          `json:"comments"`
+	RunID    string       `json:"run_id"`
+}
+
+type ExportRecord struct {
+	Post     models.Post
+	Comments []models.Comment
+	Sources  []models.PostSource
+}
+
+type ExportStore interface {
+	ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]ExportRecord, error)
+}
+
+type Exporter interface {
+	Export(ctx context.Context, writer io.Writer, request ExportRequest) (ExportReport, error)
+}
 
 const (
 	MaxArchiveBytes      int64 = 200 << 20

@@ -80,6 +80,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 
 	group.POST("/imports", apiCreateImport(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
+	group.POST("/exports", apiCreateExport(dependencies))
 
 	group.GET("/ai/providers", apiAIProviders(dependencies))
 	group.GET("/ai/sessions", apiAISessions(dependencies))
@@ -88,6 +89,79 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/ai/sessions/:id/messages", apiCreateAIMessage(dependencies))
 	group.GET("/ai/sessions/:id/events", apiAIEvents(dependencies))
 	group.POST("/ai/sessions/:id/cancel", apiAICancel(dependencies))
+}
+
+func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Format          string  `json:"format"`
+		PIDs            []int32 `json:"pids,omitempty"`
+		IncludeComments *bool   `json:"include_comments,omitempty"`
+	}
+	return func(c *gin.Context) {
+		if dependencies.Archive == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "archive export is unavailable", nil)
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		format := archive.ExportFormat(body.Format)
+		if format == "" {
+			format = archive.ExportFormatTreeholeV2
+		}
+		if format != archive.ExportFormatTreeholeV2 && format != archive.ExportFormatMarkdown {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "format must be treehole-v2 or markdown", gin.H{"field": "format"})
+			return
+		}
+		if len(body.PIDs) > 2000 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "no more than 2000 PIDs may be selected", gin.H{"field": "pids"})
+			return
+		}
+		seen := make(map[int32]bool, len(body.PIDs))
+		selected := make([]int32, 0, len(body.PIDs))
+		for _, pid := range body.PIDs {
+			if pid <= 0 {
+				apiFailure(c, http.StatusBadRequest, "invalid_input", "pids must contain positive integers", gin.H{"field": "pids"})
+				return
+			}
+			if !seen[pid] {
+				seen[pid] = true
+				selected = append(selected, pid)
+			}
+		}
+		includeComments := true
+		if body.IncludeComments != nil {
+			includeComments = *body.IncludeComments
+		}
+		exportDir := filepath.Join(dependencies.DataDir, "exports")
+		if err := os.MkdirAll(exportDir, 0o700); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
+			return
+		}
+		temporary, err := os.CreateTemp(exportDir, "export-*.zip")
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
+			return
+		}
+		path := temporary.Name()
+		defer os.Remove(path)
+		report, exportErr := dependencies.Archive.Export(c.Request.Context(), temporary, archive.ExportRequest{Format: format, PIDs: selected, IncludeComments: includeComments})
+		closeErr := temporary.Close()
+		if exportErr != nil || closeErr != nil {
+			apiFailure(c, http.StatusBadRequest, "export_failed", errors.Join(exportErr, closeErr).Error(), nil)
+			return
+		}
+		c.Header("X-Export-Posts", strconv.Itoa(report.Posts))
+		c.Header("X-Export-Comments", strconv.Itoa(report.Comments))
+		name := "pkuhole-studio-" + time.Now().Format("20060102-150405")
+		if format == archive.ExportFormatMarkdown {
+			name += "-markdown.zip"
+		} else {
+			name += ".treehole.zip"
+		}
+		c.FileAttachment(path, name)
+	}
 }
 
 func apiSession(dependencies Dependencies) gin.HandlerFunc {
@@ -216,7 +290,7 @@ func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 		}
 		apiRespond(c, http.StatusOK, gin.H{
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
-			"archive_import": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
+			"archive_import": dependencies.Archive != nil, "archive_export": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
 			"ai": aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
 		})
 	}

@@ -9,10 +9,14 @@ import (
 )
 
 type Importer struct {
-	store Store
+	store       Store
+	exportStore ExportStore
 }
 
-func NewImporter(store Store) *Importer { return &Importer{store: store} }
+func NewImporter(store Store) *Importer {
+	exporter, _ := store.(ExportStore)
+	return &Importer{store: store, exportStore: exporter}
+}
 
 func (i *Importer) Preflight(ctx context.Context, reader io.ReaderAt, size int64) (PreflightReport, error) {
 	return Parse(ctx, reader, size)

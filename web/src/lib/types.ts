@@ -50,6 +50,7 @@ export interface Capabilities {
   schema_version: number
   fts5: boolean
   archive_import: boolean
+  archive_export?: boolean
   jobs: boolean
   ai: boolean
   live_search: boolean
@@ -78,6 +79,7 @@ export interface ArchivePreflight {
 }
 
 export interface ImportCreated { job?: Job; preflight: ArchivePreflight }
+export interface ExportDownload { blob: Blob; filename: string }
 export interface SearchHistory { id: number; query: string; filters?: string; created_at: string }
 
 export interface AIProvider { name: string; base_url: string; model: string; configured: boolean }

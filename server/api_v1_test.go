@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
@@ -117,6 +119,22 @@ func TestAPIV1ArchiveWithNoValidItemsReturnsPreflightWithoutQueue(t *testing.T) 
 	response = performRequest(router, http.MethodGet, "/api/v1/jobs?limit=50", nil, "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"data":[]`) {
 		t.Fatalf("jobs after rejected import = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAPIV1ExportsTreeholeV2Archive(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	if err := database.SaveCrawlResult([]models.Post{{Pid: 123456, Text: "exported post"}}, []models.Comment{{Cid: 1001, Pid: 123456, Text: "exported comment"}}); err != nil {
+		t.Fatal(err)
+	}
+	response := performRequest(router, http.MethodPost, "/api/v1/exports", strings.NewReader(`{"format":"treehole-v2","pids":[123456],"include_comments":true}`), "application/json")
+	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Disposition"), ".treehole.zip") || !bytes.HasPrefix(response.Body.Bytes(), []byte{'P', 'K'}) {
+		t.Fatalf("export response = %d %v %q", response.Code, response.Header(), response.Body.Bytes())
+	}
+	parsed, err := archive.Parse(context.Background(), bytes.NewReader(response.Body.Bytes()), int64(response.Body.Len()))
+	if err != nil || parsed.Counts.ValidItems != 1 || parsed.Counts.Comments != 1 {
+		t.Fatalf("parse exported archive = %+v, %v", parsed, err)
 	}
 }
 

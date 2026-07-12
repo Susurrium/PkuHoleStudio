@@ -25,6 +25,10 @@ func (*archiveStub) Import(context.Context, io.ReaderAt, int64) (service.Archive
 	return service.ArchiveImportReport{}, nil
 }
 
+func (*archiveStub) Export(context.Context, io.Writer, service.ArchiveExportRequest) (service.ArchiveExportReport, error) {
+	return service.ArchiveExportReport{}, nil
+}
+
 type aiStub struct{}
 
 func (*aiStub) Run(context.Context, service.AIRequest) (<-chan service.AIEvent, error) {
