@@ -58,6 +58,8 @@ export interface CourseDay { courseName?: string; parity?: string; sty?: string 
 export interface CourseScheduleRow { time_num: string; mon: CourseDay; tue: CourseDay; wed: CourseDay; thu: CourseDay; fri: CourseDay; sat: CourseDay; sun: CourseDay }
 export interface CourseScore { year_term: string; name: string; credit: string; score: string; category: string }
 export interface ScoreSummary { gpa: string; total_credit: string; passed_credit: string; course_count: string; scores: CourseScore[]; gpa_terms: { year_term: string; gpa: string }[] }
+export interface LocalTag { id: number; name: string; color?: string }
+export interface Note { owner_type: string; owner_id: number; content: string; updated_at?: string }
 export interface Capabilities {
   api_version: string
   schema_version: number

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -90,6 +91,38 @@ func TestAPIV1PostsSearchAndErrorShape(t *testing.T) {
 	var failure apiErrorEnvelope
 	if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil || failure.Error.Code != "invalid_input" || failure.Error.Details == nil {
 		t.Fatalf("error body = %+v, %v", failure, err)
+	}
+}
+
+func TestAPIV1LocalTagsAndNotes(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{{Pid: 8133824, Text: "local post"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	created := performRequest(router, http.MethodPost, "/api/v1/local-tags", strings.NewReader(`{"name":"重点","color":"#ef6548"}`), "application/json")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create tag = %d %s", created.Code, created.Body.String())
+	}
+	var tagResponse struct {
+		Data models.LocalTag `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &tagResponse); err != nil {
+		t.Fatal(err)
+	}
+
+	assigned := performRequest(router, http.MethodPut, "/api/v1/posts/8133824/tags", strings.NewReader(`{"tag_ids":[`+strconv.FormatUint(uint64(tagResponse.Data.ID), 10)+`]}`), "application/json")
+	if assigned.Code != http.StatusOK || !strings.Contains(assigned.Body.String(), `"name":"重点"`) {
+		t.Fatalf("assign tags = %d %s", assigned.Code, assigned.Body.String())
+	}
+	note := performRequest(router, http.MethodPut, "/api/v1/posts/8133824/note", strings.NewReader(`{"content":"验收笔记"}`), "application/json")
+	if note.Code != http.StatusOK || !strings.Contains(note.Body.String(), `"content":"验收笔记"`) {
+		t.Fatalf("save note = %d %s", note.Code, note.Body.String())
+	}
+	read := performRequest(router, http.MethodGet, "/api/v1/posts/8133824/note", nil, "")
+	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"content":"验收笔记"`) {
+		t.Fatalf("read note = %d %s", read.Code, read.Body.String())
 	}
 }
 
@@ -406,6 +439,7 @@ func performRequest(router http.Handler, method, target string, body io.Reader, 
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}
+	request.RemoteAddr = "127.0.0.1:54321"
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response

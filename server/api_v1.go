@@ -86,6 +86,14 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/logs/clear", apiClearLogs(dependencies))
 	group.GET("/campus/schedule", apiCampusSchedule(dependencies))
 	group.GET("/campus/scores", apiCampusScores(dependencies))
+	group.GET("/local-tags", apiLocalTags(dependencies))
+	group.POST("/local-tags", apiCreateLocalTag(dependencies))
+	group.PATCH("/local-tags/:id", apiUpdateLocalTag(dependencies))
+	group.DELETE("/local-tags/:id", apiDeleteLocalTag(dependencies))
+	group.GET("/posts/:pid/tags", apiPostTags(dependencies))
+	group.PUT("/posts/:pid/tags", apiSetPostTags(dependencies))
+	group.GET("/posts/:pid/note", apiPostNote(dependencies))
+	group.PUT("/posts/:pid/note", apiSavePostNote(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -301,6 +309,189 @@ func apiCampusScores(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, summary)
+	}
+}
+
+func requireLibrary(c *gin.Context, dependencies Dependencies) bool {
+	if dependencies.Library != nil {
+		return true
+	}
+	apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "local library service is unavailable", nil)
+	return false
+}
+
+func apiLocalTags(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		rows, err := dependencies.Library.Tags(c.Request.Context())
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiCreateLocalTag(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.CreateTag(c.Request.Context(), body.Name, body.Color)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, row)
+	}
+}
+
+func apiUpdateLocalTag(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "tag id must be positive", nil)
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.UpdateTag(c.Request.Context(), uint(id), body.Name, body.Color)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiDeleteLocalTag(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "tag id must be positive", nil)
+			return
+		}
+		if err := dependencies.Library.DeleteTag(c.Request.Context(), uint(id)); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "delete_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func apiPostTags(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		rows, err := dependencies.Library.PostTags(c.Request.Context(), pid)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiSetPostTags(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		TagIDs []uint `json:"tag_ids"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if err := dependencies.Library.SetPostTags(c.Request.Context(), pid, body.TagIDs); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		rows, err := dependencies.Library.PostTags(c.Request.Context(), pid)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiPostNote(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		row, err := dependencies.Library.Note(c.Request.Context(), "post", int64(pid))
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		if row == nil {
+			apiRespond(c, http.StatusOK, gin.H{"owner_type": "post", "owner_id": pid, "content": ""})
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiSavePostNote(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Content string `json:"content"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.SaveNote(c.Request.Context(), "post", int64(pid), body.Content)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
 	}
 }
 

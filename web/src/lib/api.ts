@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LogLine, NotificationPage, Post, PostDetail, PostPage, ScoreSummary, SearchHistory, Tag, UploadedMedia } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ScoreSummary, SearchHistory, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -51,6 +51,14 @@ export const api = {
 	clearLogs: (module: string) => request<{ cleared: boolean }>(`/logs/clear${queryString({ module })}`, { method: 'POST' }),
 	campusSchedule: () => request<CourseScheduleRow[]>('/campus/schedule'),
 	campusScores: () => request<ScoreSummary>('/campus/scores'),
+	localTags: () => request<LocalTag[]>('/local-tags'),
+	createLocalTag: (name: string, color: string) => request<LocalTag>('/local-tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) }),
+	updateLocalTag: (id: number, name: string, color: string) => request<LocalTag>(`/local-tags/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) }),
+	deleteLocalTag: (id: number) => request<{ deleted: boolean }>(`/local-tags/${id}`, { method: 'DELETE' }),
+	postTags: (pid: number) => request<LocalTag[]>(`/posts/${pid}/tags`),
+	setPostTags: (pid: number, tagIDs: number[]) => request<LocalTag[]>(`/posts/${pid}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_ids: tagIDs }) }),
+	postNote: (pid: number) => request<Note>(`/posts/${pid}/note`),
+	savePostNote: (pid: number, content: string) => request<Note>(`/posts/${pid}/note`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {
