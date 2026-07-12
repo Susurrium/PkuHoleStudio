@@ -4,7 +4,7 @@
 
 PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
 
-当前预发布版本：`v0.1.0-alpha.2`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前已发布预览版：`v0.1.0-alpha.2`；`main` 正在准备 `v0.1.0-alpha.3`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 上游锚点为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`，本仓库标签为 `upstream-pkuholetui-f9d6221`。
 
@@ -14,8 +14,10 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - SQLite 本地资料库；保留 PostgreSQL 基础兼容。
 - SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
 - 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
-- PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入。
-- React Web：总览、帖子、详情、搜索、导入、设置，以及 AI 功能入口。
+- PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
+- 原生 Web 同步中心：登录状态检测、账号登录、短信/动态口令挑战、关注/指定 PID/公共时间线同步。
+- 本地资料库可导出 archive v2 或逐洞 Markdown ZIP；Toolkit 保持为可选的浏览器迁移桥梁。
+- React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。
 
@@ -58,6 +60,8 @@ go build -tags sqlite_fts5 -o treehole ./cmd
 ```
 
 Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。
+
+日常同步可直接进入 Web 的“同步中心”。网页登录密码仅用于当前登录请求，不持久化、不写入配置且不会由 API 回显；成功后的会话 Cookie 保存在本机 `data/cookies.json`。登录与验证码接口只接受本机回环访问。
 
 启用 DeepSeek 或其他 OpenAI-compatible Provider：
 
@@ -106,6 +110,11 @@ GET  /posts/:pid/comments
 GET  /search
 GET  /media/:id
 
+GET  /session
+POST /session/probe
+POST /session/login
+POST /session/challenge
+
 GET  /jobs
 POST /jobs
 GET  /jobs/:id
@@ -114,6 +123,7 @@ POST /jobs/:id/pause|resume|cancel|retry
 
 POST /imports
 GET  /imports/:id
+POST /exports
 
 GET  /ai/providers
 GET  /ai/sessions
@@ -146,7 +156,7 @@ internal/app/        应用组合根
 internal/service/    TUI、Web 和任务共享的 Service 层
 internal/db/         Repository、迁移、FTS 与持久任务存储
 internal/jobs/       单写任务调度器和事件流
-internal/archive/    Toolkit v1/v2 解析、预检和导入
+internal/archive/    Toolkit v1/v2 解析、预检、导入与 Studio 导出
 server/              Gin 旧路由、API v1 与 SPA 托管
 web/                 React + TypeScript + Vite 客户端和测试
 ```
@@ -167,6 +177,7 @@ Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口
 ## 安全与隐私
 
 - Web 默认仅绑定本机回环地址。
+- 密码与验证码接口拒绝非回环来源；密码不会持久化或出现在 API 响应中。
 - 归档上传采用随机暂存文件、大小限制、ZIP 路径/CRC/展开体积校验。
 - `referenced` 归档内容作为上下文保存，但默认不出现在普通资料库列表和搜索中。
 - API 不回显任务中的本地暂存路径。

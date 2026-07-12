@@ -13,7 +13,7 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
 		else if (path === '/api/v1/ai/sessions') data = []
     else if (path === '/api/v1/imports' && route.request().method() === 'POST') data = {
       job: { id: 'import-1', type: 'import_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
-      preflight: { format: 'v2', status: 'completed', hash: 'abc', run_id: 'run-1', counts: { items: 1, comments: 1 }, issues: [] },
+      preflight: { format: 'v2', status: 'completed', hash: 'abc', run_id: 'run-1', counts: { items: 1, valid_items: 1, comments: 1 }, issues: [] },
     }
     else if (path === '/api/v1/search') data = { items: [{ pid: 123456, text: '数据结构课程体验', reply: 1, timestamp: 1767225600 }], has_more: false }
     else if (path === '/api/v1/posts/123456') data = {

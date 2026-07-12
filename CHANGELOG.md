@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (v0.1.0-alpha.3)
+
+- 修复 Toolkit v1.3 真实归档中数组型 `image_size` 无法导入的问题。
+- 零有效记录的预检返回明确失败，不再创建无意义的导入任务。
+- 增加原生 Web 同步中心、会话检测、本机登录及短信/动态口令挑战。
+- 关注、指定 PID 和公共时间线同步会在同一事务内记录帖子来源。
+- 增加本地 archive v2 与逐洞 Markdown ZIP 导出，并验证 archive v2 导入闭环。
+
 ## v0.1.0-alpha.2
 
 - 增加 OpenAI-compatible Provider 与 DeepSeek 配置模板。
