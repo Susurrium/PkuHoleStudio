@@ -124,6 +124,32 @@ func TestAPIV1LocalTagsAndNotes(t *testing.T) {
 	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"content":"验收笔记"`) {
 		t.Fatalf("read note = %d %s", read.Code, read.Body.String())
 	}
+	commentNote := performRequest(router, http.MethodPut, "/api/v1/comments/9001/note", strings.NewReader(`{"content":"评论线索"}`), "application/json")
+	if commentNote.Code != http.StatusOK || !strings.Contains(commentNote.Body.String(), `"owner_type":"comment"`) {
+		t.Fatalf("save comment note = %d %s", commentNote.Code, commentNote.Body.String())
+	}
+}
+
+func TestAPIV1ReferenceGraphExpandsLocalNeighbors(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{
+		{Pid: 8133824, Text: "参见 #7853541"},
+		{Pid: 7853541, Text: "目标洞"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.RebuildReferences(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response := performRequest(router, http.MethodGet, "/api/v1/posts/8133824/references?depth=2", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"pid":7853541`) || !strings.Contains(response.Body.String(), `"kind":"explicit"`) {
+		t.Fatalf("reference graph = %d %s", response.Code, response.Body.String())
+	}
+	invalid := performRequest(router, http.MethodGet, "/api/v1/posts/8133824/references?depth=9", nil, "")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid depth = %d %s", invalid.Code, invalid.Body.String())
+	}
 }
 
 func TestAPIV1OnlineWriteEndpointsUsePostService(t *testing.T) {

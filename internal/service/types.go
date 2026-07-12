@@ -82,3 +82,15 @@ type Reference struct {
 	TargetPID int32  `json:"target_pid"`
 	TargetCID *int32 `json:"target_cid,omitempty"`
 }
+
+type ReferenceNode struct {
+	PID       int32  `json:"pid"`
+	Text      string `json:"text,omitempty"`
+	Timestamp int32  `json:"timestamp,omitempty"`
+}
+
+type ReferenceGraph struct {
+	Root  int32           `json:"root"`
+	Nodes []ReferenceNode `json:"nodes"`
+	Edges []Reference     `json:"edges"`
+}
