@@ -78,6 +78,10 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/session/login", apiLoginSession(dependencies))
 	group.POST("/session/sms", apiSendSessionSMS(dependencies))
 	group.POST("/session/challenge", apiContinueSession(dependencies))
+	group.POST("/session/logout", apiLogoutSession(dependencies))
+	group.GET("/notifications", apiNotifications(dependencies))
+	group.POST("/notifications/:id/read", apiNotificationRead(dependencies))
+	group.POST("/notifications/read-all", apiNotificationsReadAll(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -127,6 +131,106 @@ func apiCreateBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusCreated, pairing)
+	}
+}
+
+func notificationType(value string) (models.NotificationType, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "interactive", "int_msg":
+		return models.NotificationTypeInteractive, true
+	case "system", "sys_msg":
+		return models.NotificationTypeSystem, true
+	default:
+		return "", false
+	}
+}
+
+func apiLogoutSession(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "authentication is unavailable", nil)
+			return
+		}
+		if err := dependencies.Auth.Logout(c.Request.Context()); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "logout_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, service.AuthStatus{Checked: true, Message: "已退出本机会话"})
+	}
+}
+
+func apiNotifications(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Notifications == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "notification service is unavailable", nil)
+			return
+		}
+		kind, ok := notificationType(c.Query("type"))
+		if !ok {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "notification type must be interactive or system", gin.H{"field": "type"})
+			return
+		}
+		page, ok := boundedIntQuery(c, "page", 1, 1, 10_000)
+		if !ok {
+			return
+		}
+		limit, ok := boundedIntQuery(c, "limit", 50, 1, 100)
+		if !ok {
+			return
+		}
+		items, total, err := dependencies.Notifications.List(c.Request.Context(), kind, page, limit)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "notifications_unavailable", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"items": items, "total": total, "page": page})
+	}
+}
+
+func apiNotificationRead(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Notifications == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "notification service is unavailable", nil)
+			return
+		}
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil || id <= 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "notification id must be positive", gin.H{"field": "id"})
+			return
+		}
+		if err := dependencies.Notifications.MarkRead(c.Request.Context(), id); err != nil {
+			apiFailure(c, http.StatusBadGateway, "notification_update_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"id": id, "read": true})
+	}
+}
+
+func apiNotificationsReadAll(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Notifications == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "notification service is unavailable", nil)
+			return
+		}
+		kind, ok := notificationType(c.Query("type"))
+		if !ok {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "notification type must be interactive or system", gin.H{"field": "type"})
+			return
+		}
+		if err := dependencies.Notifications.MarkAllRead(c.Request.Context(), kind); err != nil {
+			apiFailure(c, http.StatusBadGateway, "notification_update_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"type": kind, "read": true})
 	}
 }
 

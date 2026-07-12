@@ -697,7 +697,7 @@ func (m Model) openNotificationsDialog(messageType models.NotificationType) (Mod
 	m.ToolsDialog.Notifications = NewNotificationDialog()
 	m.ToolsDialog.Notifications.SetMessageType(messageType)
 	m.ToolsDialog.Notifications.SetLoading(true)
-	return m, loadNotificationsCmd(m.Client, messageType)
+	return m, loadNotificationsCmd(m.Notifications, messageType)
 }
 
 func (m Model) switchPage(page Page) (Model, tea.Cmd) {

@@ -131,6 +131,16 @@ func (c *Client) SetPkuToken(token string) {
 	c.httpClient.Jar.SetCookies(&url.URL{Scheme: "https", Host: "treehole.pku.edu.cn"}, []*http.Cookie{cookie})
 }
 
+func (c *Client) ClearSession() error {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return err
+	}
+	c.httpClient.Jar = jar
+	c.authorization = ""
+	return c.SaveCookies()
+}
+
 func (c *Client) applyTreeholeHeaders(req *http.Request) {
 	if req == nil {
 		return

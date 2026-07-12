@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Archive, Bot, FolderSearch, Gauge, Import, Menu, RefreshCw, Settings, X } from 'lucide-react'
+import { Archive, Bell, Bot, FolderSearch, Gauge, Import, Menu, RefreshCw, Settings, X } from 'lucide-react'
 import { useUIStore } from '../store/ui'
 
 const navigation = [
@@ -7,6 +7,7 @@ const navigation = [
   { to: '/posts', label: '资料库', icon: Archive },
   { to: '/search', label: '全文搜索', icon: FolderSearch },
   { to: '/sync', label: '同步中心', icon: RefreshCw },
+	{ to: '/notifications', label: '通知', icon: Bell },
   { to: '/imports', label: '归档导入', icon: Import },
   { to: '/ai', label: 'AI 研究', icon: Bot },
   { to: '/settings', label: '设置', icon: Settings },

@@ -126,7 +126,7 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '其他方式：在 Studio 中登录' }))
+  await user.click(await screen.findByRole('button', { name: '在 Studio 中登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))

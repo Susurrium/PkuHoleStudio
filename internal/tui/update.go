@@ -882,12 +882,12 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.ToolsDialog.Switch(ToolsSectionInteractive)
 		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeInteractive)
 		m.ToolsDialog.Notifications.SetLoading(true)
-		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
+		return m, loadNotificationsCmd(m.Notifications, m.ToolsDialog.Notifications.MessageType())
 	case key.Matches(msg, shortcut.ToolSystem):
 		m.ToolsDialog.Switch(ToolsSectionSystem)
 		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeSystem)
 		m.ToolsDialog.Notifications.SetLoading(true)
-		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
+		return m, loadNotificationsCmd(m.Notifications, m.ToolsDialog.Notifications.MessageType())
 	case key.Matches(msg, shortcut.ToolHelp):
 		m.ToolsDialog.Switch(ToolsSectionHelp)
 		return m, nil
@@ -906,20 +906,20 @@ func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keymap.Direct.Refresh):
 		notifications.SetLoading(true)
-		return m, loadNotificationsCmd(m.Client, notifications.MessageType())
+		return m, loadNotificationsCmd(m.Notifications, notifications.MessageType())
 	case key.Matches(msg, shortcut.Enter):
 		if !notifications.CanMarkSelectedRead() {
 			return m, nil
 		}
 		selected := notifications.Selected()
 		notifications.SetAction(true)
-		return m, setNotificationReadCmd(m.Client, selected.ID, notifications.MessageType())
+		return m, setNotificationReadCmd(m.Notifications, selected.ID, notifications.MessageType())
 	case key.Matches(msg, shortcut.MarkAllRead):
 		notifications.SetAction(true)
-		return m, setAllNotificationsReadCmd(m.Client, notifications.MessageType())
+		return m, setAllNotificationsReadCmd(m.Notifications, notifications.MessageType())
 	}
 	if notifications.Update(msg) {
-		return m, loadNotificationsCmd(m.Client, notifications.MessageType())
+		return m, loadNotificationsCmd(m.Notifications, notifications.MessageType())
 	}
 	return m, nil
 }
@@ -1447,23 +1447,23 @@ func loadLogsCmd() tea.Cmd {
 	}
 }
 
-func loadNotificationsCmd(c *client.Client, messageType models.NotificationType) tea.Cmd {
+func loadNotificationsCmd(notifications *service.NotificationService, messageType models.NotificationType) tea.Cmd {
 	return func() tea.Msg {
-		if c == nil {
+		if notifications == nil {
 			return LoadNotificationsMsg{MessageType: messageType, Error: errors.New("客户端未初始化")}
 		}
-		items, total, err := c.ListNotificationsV3(messageType, 1, 50)
+		items, total, err := notifications.List(context.Background(), messageType, 1, 50)
 		return LoadNotificationsMsg{MessageType: messageType, Items: items, Total: total, Error: err}
 	}
 }
 
-func loadDashboardNotificationsCmd(c *client.Client) tea.Cmd {
+func loadDashboardNotificationsCmd(notifications *service.NotificationService) tea.Cmd {
 	return func() tea.Msg {
-		if c == nil {
+		if notifications == nil {
 			return LoadDashboardNotificationsMsg{Error: errors.New("客户端未初始化")}
 		}
-		interactive, _, intErr := c.ListNotificationsV3(models.NotificationTypeInteractive, 1, 20)
-		system, _, sysErr := c.ListNotificationsV3(models.NotificationTypeSystem, 1, 20)
+		interactive, _, intErr := notifications.List(context.Background(), models.NotificationTypeInteractive, 1, 20)
+		system, _, sysErr := notifications.List(context.Background(), models.NotificationTypeSystem, 1, 20)
 		if intErr != nil && sysErr != nil {
 			return LoadDashboardNotificationsMsg{Error: intErr}
 		}
@@ -1531,22 +1531,22 @@ func loadDashboardHotPostsCmd() tea.Cmd {
 	}
 }
 
-func setNotificationReadCmd(c *client.Client, id int, messageType models.NotificationType) tea.Cmd {
+func setNotificationReadCmd(notifications *service.NotificationService, id int, messageType models.NotificationType) tea.Cmd {
 	return func() tea.Msg {
-		if c == nil {
+		if notifications == nil {
 			return NotificationActionMsg{MessageType: messageType, ID: id, Error: errors.New("客户端未初始化")}
 		}
-		err := c.SetNotificationReadV3(id)
+		err := notifications.MarkRead(context.Background(), id)
 		return NotificationActionMsg{MessageType: messageType, ID: id, Error: err}
 	}
 }
 
-func setAllNotificationsReadCmd(c *client.Client, messageType models.NotificationType) tea.Cmd {
+func setAllNotificationsReadCmd(notifications *service.NotificationService, messageType models.NotificationType) tea.Cmd {
 	return func() tea.Msg {
-		if c == nil {
+		if notifications == nil {
 			return NotificationActionMsg{MessageType: messageType, All: true, Error: errors.New("客户端未初始化")}
 		}
-		err := c.SetAllNotificationsReadV3(messageType)
+		err := notifications.MarkAllRead(context.Background(), messageType)
 		return NotificationActionMsg{MessageType: messageType, All: true, Error: err}
 	}
 }

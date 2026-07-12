@@ -12,17 +12,18 @@ import (
 )
 
 type Dependencies struct {
-	Posts      *service.PostService
-	Search     *service.SearchService
-	Media      *service.MediaService
-	Dashboard  *service.DashboardService
-	Archive    service.ArchiveService
-	AI         service.AIService
-	Auth       service.AuthService
-	Jobs       *jobs.Manager
-	Repository *db.Database
-	DataDir    string
-	Bridge     *BridgeManager
+	Posts         *service.PostService
+	Search        *service.SearchService
+	Media         *service.MediaService
+	Dashboard     *service.DashboardService
+	Notifications *service.NotificationService
+	Archive       service.ArchiveService
+	AI            service.AIService
+	Auth          service.AuthService
+	Jobs          *jobs.Manager
+	Repository    *db.Database
+	DataDir       string
+	Bridge        *BridgeManager
 }
 
 func Init(e *gin.Engine, dependencies Dependencies) {
