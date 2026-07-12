@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, NotificationPage, Post, PostDetail, PostPage, SearchHistory, Tag, UploadedMedia } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, LogLine, NotificationPage, Post, PostDetail, PostPage, SearchHistory, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -47,6 +47,8 @@ export const api = {
 	notifications: (type: 'interactive' | 'system') => request<NotificationPage>(`/notifications?type=${type}&limit=50`),
 	markNotificationRead: (id: number) => request<{ id: number; read: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
 	markAllNotificationsRead: (type: 'interactive' | 'system') => request<{ type: string; read: boolean }>(`/notifications/read-all?type=${type}`, { method: 'POST' }),
+	logs: (module: string, q: string) => request<LogLine[]>(`/logs${queryString({ module, q, limit: 1000 })}`),
+	clearLogs: (module: string) => request<{ cleared: boolean }>(`/logs/clear${queryString({ module })}`, { method: 'POST' }),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {

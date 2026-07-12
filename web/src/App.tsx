@@ -8,6 +8,7 @@ import { ImportsPage } from './pages/ImportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AIPage } from './pages/AIPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { LogsPage } from './pages/LogsPage'
 import { SyncPage } from './pages/SyncPage'
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="ai" element={<AIPage />} />
 				<Route path="notifications" element={<NotificationsPage />} />
+				<Route path="logs" element={<LogsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

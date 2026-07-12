@@ -59,6 +59,7 @@ type App struct {
 	Media         *service.MediaService
 	Dashboard     *service.DashboardService
 	Notifications *service.NotificationService
+	Logs          *service.LogService
 	Archive       service.ArchiveService
 	AI            service.AIService
 	Auth          service.AuthService
@@ -161,6 +162,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	)
 	application.Dashboard = service.NewDashboardService()
 	application.Notifications = service.NewNotificationService(application.Client)
+	application.Logs = service.NewLogService(application.DataDir)
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}

@@ -7,7 +7,7 @@ import { JobRow } from '../components/JobRow'
 import { PageHeader } from '../components/PageHeader'
 import { ErrorState, LoadingState } from '../components/States'
 
-const syncTypes = new Set(['sync_followed', 'sync_pids', 'sync_latest', 'repair_comments', 'repair_media'])
+const syncTypes = new Set(['sync_followed', 'sync_pids', 'sync_latest', 'sync_pages', 'monitor_latest', 'repair_comments', 'repair_media', 'repair_thumbnails', 'rebuild_references', 'cleanup_staging'])
 
 export function SyncPage() {
   const client = useQueryClient()
@@ -46,6 +46,7 @@ export function SyncPage() {
       <PIDSyncCard disabled={!online || create.isPending} onSubmit={(pids) => create.mutate({ type: 'sync_pids', payload: { pids } })} />
       <SyncCard icon={Radio} title="同步最新时间线" description="读取公共最新时间线；这是可选资料来源。" disabled={!online || create.isPending} onSubmit={(value) => create.mutate({ type: 'sync_latest', payload: { start_page: 1, pages: value } })} />
     </section>
+		<AdvancedSync disabled={!online || create.isPending} onCreate={(type, payload) => create.mutate({ type, payload })} />
     {create.error && <div className="mt-5"><ErrorState error={create.error} /></div>}
 
     <section className="panel mt-7 p-5 md:p-6">
@@ -53,6 +54,16 @@ export function SyncPage() {
       <div className="mt-5 grid gap-3">{recentJobs.length ? recentJobs.map((job) => <SyncJob key={job.id} job={job} />) : <p className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-ink-soft">还没有同步任务。登录后从上方选择一种同步方式。</p>}</div>
     </section>
   </>
+}
+
+function AdvancedSync({ disabled, onCreate }: { disabled: boolean; onCreate: (type: string, payload: unknown) => void }) {
+	const [startPage, setStartPage] = useState(1)
+	const [pages, setPages] = useState(10)
+	const [monitorPages, setMonitorPages] = useState(3)
+	const [interval, setInterval] = useState(60)
+	const [thumbStart, setThumbStart] = useState(1)
+	const [thumbEnd, setThumbEnd] = useState(100)
+	return <section className="mt-6"><div className="mb-4"><p className="eyebrow">ADVANCED CRAWLER</p><h2 className="mt-1 text-xl font-semibold">高级采集与修复</h2></div><div className="grid gap-5 xl:grid-cols-3"><form className="panel p-5" onSubmit={(event) => { event.preventDefault(); onCreate('sync_pages', { start_page: startPage, pages, options: { post_limit: 200, comment_limit: 200 } }) }}><h3 className="font-semibold">顺序采集页面</h3><p className="mt-2 text-sm text-ink-soft">从指定页开始逐页采集，每页完成后保存 checkpoint。</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs text-ink-soft">起始页<input className="field mt-1" type="number" min={1} value={startPage} onChange={(event) => setStartPage(Math.max(1, Number(event.target.value) || 1))} /></label><label className="text-xs text-ink-soft">页数<input className="field mt-1" type="number" min={1} max={50} value={pages} onChange={(event) => setPages(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} /></label></div><button className="button-primary mt-4 w-full" disabled={disabled}>创建顺序采集任务</button></form><form className="panel p-5" onSubmit={(event) => { event.preventDefault(); onCreate('monitor_latest', { pages: monitorPages, interval_seconds: interval, options: { post_limit: 200, comment_limit: 200 } }) }}><h3 className="font-semibold">持续监控最新页</h3><p className="mt-2 text-sm text-ink-soft">循环检查前 N 页。暂停或退出程序后不会自动恢复运行。</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs text-ink-soft">监控页数<input className="field mt-1" type="number" min={1} max={50} value={monitorPages} onChange={(event) => setMonitorPages(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} /></label><label className="text-xs text-ink-soft">间隔秒<input className="field mt-1" type="number" min={15} value={interval} onChange={(event) => setInterval(Math.max(15, Number(event.target.value) || 60))} /></label></div><button className="button-primary mt-4 w-full" disabled={disabled}>启动持续监控</button></form><div className="panel p-5"><h3 className="font-semibold">资料修复</h3><p className="mt-2 text-sm text-ink-soft">按本地缺失状态补全媒体、引用或指定缩略图范围。</p><div className="mt-4 grid grid-cols-2 gap-3"><input className="field" type="number" min={1} value={thumbStart} aria-label="缩略图起始 ID" onChange={(event) => setThumbStart(Math.max(1, Number(event.target.value) || 1))} /><input className="field" type="number" min={thumbStart} value={thumbEnd} aria-label="缩略图结束 ID" onChange={(event) => setThumbEnd(Math.max(thumbStart, Number(event.target.value) || thumbStart))} /></div><div className="mt-3 grid gap-2"><button className="button-secondary" disabled={disabled} onClick={() => onCreate('repair_media', {})}>补全缺失媒体</button><button className="button-secondary" disabled={disabled || thumbEnd < thumbStart} onClick={() => onCreate('repair_thumbnails', { start_id: thumbStart, end_id: thumbEnd })}>补全缩略图范围</button><button className="button-secondary" disabled={disabled} onClick={() => onCreate('rebuild_references', {})}>重建引用关系</button><button className="button-secondary" disabled={disabled} onClick={() => onCreate('cleanup_staging', { retention_days: 7 })}>清理过期暂存文件</button></div></div></div></section>
 }
 
 function LoginPanel({ status, onStatus }: { status?: AuthStatus; onStatus: (value: AuthStatus) => void }) {

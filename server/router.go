@@ -17,6 +17,7 @@ type Dependencies struct {
 	Media         *service.MediaService
 	Dashboard     *service.DashboardService
 	Notifications *service.NotificationService
+	Logs          *service.LogService
 	Archive       service.ArchiveService
 	AI            service.AIService
 	Auth          service.AuthService
