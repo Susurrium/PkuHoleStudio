@@ -18,6 +18,7 @@ type Dependencies struct {
 	Dashboard     *service.DashboardService
 	Notifications *service.NotificationService
 	Logs          *service.LogService
+	Library       *service.LocalLibraryService
 	Archive       service.ArchiveService
 	AI            service.AIService
 	Auth          service.AuthService

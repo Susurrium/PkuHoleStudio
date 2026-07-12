@@ -24,6 +24,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - Web 支持互动/系统通知、单条/全部已读和 PID 跳转；退出登录会清除本机保存的树洞会话。
 - Web 同步中心支持顺序采集、持续监控、媒体/缩略图/引用修复和暂存清理，并提供经过敏感信息遮蔽的运行日志页面。
 - Web 支持实时课表与成绩查看，敏感校园数据仅保留在当前页面内存。
+- Web 详情支持只保存在本机的帖子标签和笔记；设置页可创建、改名、着色和删除标签，远端同步不会覆盖这些元数据。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。

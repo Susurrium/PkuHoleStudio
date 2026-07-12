@@ -70,6 +70,7 @@ func newServerEngine(application *app.App) *gin.Engine {
 		Dashboard:     application.Dashboard,
 		Notifications: application.Notifications,
 		Logs:          application.Logs,
+		Library:       application.Library,
 		Archive:       application.Archive,
 		AI:            application.AI,
 		Auth:          application.Auth,
