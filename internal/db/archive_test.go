@@ -154,3 +154,56 @@ func TestRebuildReferencesDetectsContextualBarePID(t *testing.T) {
 		t.Fatalf("edges = %+v, %v", edges, err)
 	}
 }
+
+func TestStudioArchiveRoundTripsLocalMetadataWithoutOverwritingExistingNotes(t *testing.T) {
+	source, cleanupSource := setupTestDB(t)
+	defer cleanupSource()
+	if err := source.SaveCrawlResult(
+		[]models.Post{{Pid: 8133824, Text: "source"}},
+		[]models.Comment{{Cid: 9001, Pid: 8133824, Text: "comment"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := source.CreateLocalTag("课程", "#0f766e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetPostTags(8133824, []uint{tag.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.UpsertNote("post", 8133824, "source post note"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.UpsertNote("comment", 9001, "source comment note"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := source.ArchiveExportSnapshot(context.Background(), nil)
+	if err != nil || len(snapshot) != 1 || len(snapshot[0].Studio.Tags) != 1 || snapshot[0].Studio.Note == "" || len(snapshot[0].Studio.CommentNotes) != 1 {
+		t.Fatalf("source metadata snapshot = %+v, error = %v", snapshot, err)
+	}
+	var output bytes.Buffer
+	if _, err := archivepkg.NewImporterWithDataDir(source, t.TempDir()).Export(context.Background(), &output, archivepkg.ExportRequest{Format: archivepkg.ExportFormatTreeholeV2, IncludeComments: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	destination, cleanupDestination := setupTestDB(t)
+	defer cleanupDestination()
+	if _, err := destination.UpsertNote("post", 8133824, "destination wins"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := archivepkg.NewImporterWithDataDir(destination, t.TempDir()).Import(context.Background(), bytes.NewReader(output.Bytes()), int64(output.Len())); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := destination.GetPostTags(8133824)
+	if err != nil || len(tags) != 1 || tags[0].Name != "课程" || tags[0].Color != "#0f766e" {
+		t.Fatalf("imported tags = %+v, error = %v", tags, err)
+	}
+	postNote, err := destination.GetNote("post", 8133824)
+	if err != nil || postNote == nil || postNote.Content != "destination wins" {
+		t.Fatalf("existing post note was overwritten: %+v, %v", postNote, err)
+	}
+	commentNote, err := destination.GetNote("comment", 9001)
+	if err != nil || commentNote == nil || commentNote.Content != "source comment note" {
+		t.Fatalf("comment note was not imported: %+v, %v", commentNote, err)
+	}
+}

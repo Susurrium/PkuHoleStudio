@@ -25,6 +25,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - Web 同步中心支持顺序采集、持续监控、媒体/缩略图/引用修复和暂存清理，并提供经过敏感信息遮蔽的运行日志页面。
 - Web 支持实时课表与成绩查看，敏感校园数据仅保留在当前页面内存。
 - Web 详情支持只保存在本机的帖子标签、整洞笔记和评论笔记；设置页可创建、改名、着色和删除标签，远端同步不会覆盖这些元数据。
+- Studio 原生 archive v2 会携带标签与笔记扩展；旧版归档仍可导入，导入扩展时只补充缺失元数据，不覆盖目标资料库已有笔记。Markdown 包也包含这些本地整理信息。
 - 设置页可安全编辑 OpenAI-compatible Provider、模型和检索限制；API key 采用只写、不回显设计，保存后明确提示重启应用。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。

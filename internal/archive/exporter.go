@@ -95,7 +95,8 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		"schemaVersion": 2, "toolVersion": "PkuHoleStudio", "runId": report.RunID,
 		"exportedAt": time.Now().UTC().Format(time.RFC3339), "scope": map[string]any{"type": scopeType},
 		"complete": true, "counts": map[string]any{
-			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia, "failed": 0,
+			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia,
+			"localTags": countExportTags(records), "localNotes": countExportNotes(records), "failed": 0,
 		}, "errors": []any{},
 	}
 	if err := json.NewEncoder(manifestEntry).Encode(manifest); err != nil {
@@ -117,6 +118,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		items = append(items, map[string]any{
 			"pid": strconv.FormatInt(int64(record.Post.Pid), 10), "source": preferredExportSource(record.Sources),
 			"hole": record.Post, "comments": comments, "fetchStatus": "ok", "studioSources": record.Sources,
+			"studioMetadata": record.Studio,
 		})
 	}
 	if err := json.NewEncoder(dataEntry).Encode(map[string]any{"items": items}); err != nil {
@@ -245,6 +247,20 @@ func writePostMarkdown(writer io.Writer, record ExportRecord, media []MediaRecor
 	if _, err := fmt.Fprintf(writer, "# #%d\n\n- 时间戳：%d\n- 来源：%s\n\n%s\n", record.Post.Pid, record.Post.Timestamp, preferredExportSource(record.Sources), record.Post.Text); err != nil {
 		return err
 	}
+	if len(record.Studio.Tags) > 0 {
+		names := make([]string, 0, len(record.Studio.Tags))
+		for _, tag := range record.Studio.Tags {
+			names = append(names, tag.Name)
+		}
+		if _, err := fmt.Fprintf(writer, "\n- 本地标签：%s\n", strings.Join(names, "、")); err != nil {
+			return err
+		}
+	}
+	if record.Studio.Note != "" {
+		if _, err := fmt.Fprintf(writer, "\n## 本地笔记\n\n%s\n", record.Studio.Note); err != nil {
+			return err
+		}
+	}
 	if err := writeMarkdownMedia(writer, media, "post", int64(record.Post.Pid)); err != nil {
 		return err
 	}
@@ -258,11 +274,35 @@ func writePostMarkdown(writer io.Writer, record ExportRecord, media []MediaRecor
 		if _, err := fmt.Fprintf(writer, "\n### C%d · %s\n\n%s\n", comment.Cid, comment.NameTag, comment.Text); err != nil {
 			return err
 		}
+		if note := record.Studio.CommentNotes[strconv.FormatInt(int64(comment.Cid), 10)]; note != "" {
+			if _, err := fmt.Fprintf(writer, "\n> 本地笔记：%s\n", note); err != nil {
+				return err
+			}
+		}
 		if err := writeMarkdownMedia(writer, media, "comment", int64(comment.Cid)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func countExportTags(records []ExportRecord) int {
+	total := 0
+	for _, record := range records {
+		total += len(record.Studio.Tags)
+	}
+	return total
+}
+
+func countExportNotes(records []ExportRecord) int {
+	total := 0
+	for _, record := range records {
+		if record.Studio.Note != "" {
+			total++
+		}
+		total += len(record.Studio.CommentNotes)
+	}
+	return total
 }
 
 func writeMarkdownMedia(writer io.Writer, media []MediaRecord, ownerType string, ownerID int64) error {

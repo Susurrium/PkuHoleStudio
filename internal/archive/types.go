@@ -35,6 +35,20 @@ type ExportRecord struct {
 	Comments []models.Comment
 	Sources  []models.PostSource
 	Media    []models.Media
+	Studio   StudioMetadata
+}
+
+type PortableLocalTag struct {
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
+}
+
+// StudioMetadata is an optional, backwards-compatible data.json extension.
+// Toolkit and older Studio builds ignore this unknown field.
+type StudioMetadata struct {
+	Tags         []PortableLocalTag `json:"tags,omitempty"`
+	Note         string             `json:"note,omitempty"`
+	CommentNotes map[string]string  `json:"commentNotes,omitempty"`
 }
 
 type ExportStore interface {
@@ -150,6 +164,7 @@ type Record struct {
 	Comments    []models.Comment
 	ContextOnly bool
 	References  []Reference
+	Studio      StudioMetadata
 }
 
 // MediaRecord is the portable representation used by Studio's backward-
@@ -213,4 +228,8 @@ type Transaction interface {
 	UpsertReferences(ctx context.Context, references []Reference) error
 	UpsertMedia(ctx context.Context, media []MediaRecord) error
 	SaveImportRun(ctx context.Context, run ImportRun) error
+}
+
+type LocalMetadataTransaction interface {
+	MergeLocalMetadata(ctx context.Context, records []Record) error
 }
