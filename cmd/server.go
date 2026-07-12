@@ -1,5 +1,3 @@
-//go:build withserver
-
 package main
 
 import (
@@ -48,9 +46,13 @@ func runServer() error {
 	r.Use(gin.Recovery())
 
 	server.Init(r, server.Dependencies{
-		Posts:  application.Posts,
-		Search: application.Search,
-		Media:  application.Media,
+		Posts:      application.Posts,
+		Search:     application.Search,
+		Media:      application.Media,
+		Archive:    application.Archive,
+		Jobs:       application.Jobs,
+		Repository: application.Repository,
+		DataDir:    application.DataDir,
 	})
 
 	addr := fmt.Sprintf("%s:%s", serverHost, serverPort)

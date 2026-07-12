@@ -18,3 +18,7 @@ type Repository interface {
 	GetPostCount() (int, error)
 	GetCommentCount() (int, error)
 }
+
+type ReferenceRepository interface {
+	GetReferencesByPID(pid int32) ([]models.ReferenceEdge, error)
+}

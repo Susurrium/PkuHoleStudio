@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
@@ -48,13 +51,25 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	posts := service.NewPostService(database, nil)
+	manager, err := jobs.NewManager(context.Background(), database)
+	if err != nil {
+		database.Close()
+		os.Remove(tmpFile.Name())
+		t.Fatalf("NewManager: %v", err)
+	}
+	dataDir := t.TempDir()
 	Init(r, Dependencies{
-		Posts:  posts,
-		Search: service.NewSearchService(posts),
-		Media:  service.NewMediaService(t.TempDir(), nil),
+		Posts:      posts,
+		Search:     service.NewSearchService(posts, database),
+		Media:      service.NewMediaService(dataDir, nil),
+		Archive:    archive.NewImporter(database),
+		Jobs:       manager,
+		Repository: database,
+		DataDir:    dataDir,
 	})
 
 	cleanup := func() {
+		manager.Close()
 		database.Close()
 		os.Remove(tmpFile.Name())
 	}
@@ -68,13 +83,18 @@ func TestRouterRegistration(t *testing.T) {
 
 	routes := r.Routes()
 	expectedPaths := map[string]bool{
-		"/health":        false,
-		"/help":          false,
-		"/posts":         false,
-		"/post/:pid":     false,
-		"/comment":       false,
-		"/comments/:pid": false,
-		"/media/image":   false,
+		"/health":         false,
+		"/help":           false,
+		"/posts":          false,
+		"/post/:pid":      false,
+		"/comment":        false,
+		"/comments/:pid":  false,
+		"/media/image":    false,
+		"/api/v1/health":  false,
+		"/api/v1/posts":   false,
+		"/api/v1/search":  false,
+		"/api/v1/jobs":    false,
+		"/api/v1/imports": false,
 	}
 
 	for _, route := range routes {
