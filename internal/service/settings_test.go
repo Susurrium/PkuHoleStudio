@@ -49,3 +49,41 @@ func TestSettingsUpdateValidatesProviderLimits(t *testing.T) {
 		t.Fatal("unsafe base URL unexpectedly succeeded")
 	}
 }
+
+func TestSettingsManageMultipleAIProvidersAndPreserveKeys(t *testing.T) {
+	current := config.DefaultConfig()
+	current.AI.Provider.APIKey = "deepseek-secret"
+	service := NewSettingsService(&current)
+	service.save = func(*config.Config) error { return nil }
+	view, err := service.CreateAIProvider(context.Background(), AIProviderSettingsUpdate{
+		Name: "Local Ollama", BaseURL: "http://127.0.0.1:11434/v1", Model: "qwen3",
+		Temperature: 0.3, MaxOutputTokens: 8192, RequestTimeout: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.AIProviders) != 2 || view.AIProviders[1].ID != "local-ollama" || view.AIActiveProvider != "deepseek" {
+		t.Fatalf("providers after create = %+v", view)
+	}
+	view, err = service.ActivateAIProvider(context.Background(), "local-ollama")
+	if err != nil || view.AIActiveProvider != "local-ollama" || view.AIProviderName != "Local Ollama" {
+		t.Fatalf("activate provider = %+v, %v", view, err)
+	}
+	_, err = service.UpdateAIProvider(context.Background(), "deepseek", AIProviderSettingsUpdate{
+		Name: "DeepSeek Updated", BaseURL: "https://api.deepseek.com", Model: "deepseek-reasoner",
+		Temperature: 0.1, MaxOutputTokens: 4096, RequestTimeout: 120,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.AI.Providers[0].APIKey != "deepseek-secret" {
+		t.Fatal("updating a provider without an API key erased its existing key")
+	}
+	view, err = service.DeleteAIProvider(context.Background(), "deepseek")
+	if err != nil || len(view.AIProviders) != 1 || view.AIProviders[0].ID != "local-ollama" {
+		t.Fatalf("delete provider = %+v, %v", view, err)
+	}
+	if _, err := service.DeleteAIProvider(context.Background(), "local-ollama"); err == nil {
+		t.Fatal("deleting the final provider unexpectedly succeeded")
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -54,6 +55,7 @@ type CorsConfig struct {
 }
 
 type AIProviderConfig struct {
+	ID              string  `json:"id,omitempty"`
 	Name            string  `json:"name"`
 	BaseURL         string  `json:"base_url"`
 	APIKey          string  `json:"api_key"`
@@ -64,10 +66,12 @@ type AIProviderConfig struct {
 }
 
 type AIConfig struct {
-	Enabled         bool             `json:"enabled"`
-	AllowLiveSearch bool             `json:"allow_live_search"`
-	MaxSearchRounds int              `json:"max_search_rounds"`
-	Provider        AIProviderConfig `json:"provider"`
+	Enabled         bool               `json:"enabled"`
+	AllowLiveSearch bool               `json:"allow_live_search"`
+	MaxSearchRounds int                `json:"max_search_rounds"`
+	ActiveProvider  string             `json:"active_provider,omitempty"`
+	Providers       []AIProviderConfig `json:"providers,omitempty"`
+	Provider        AIProviderConfig   `json:"provider"`
 }
 
 type Config struct {
@@ -236,6 +240,7 @@ func LoadConfig() (*Config, error) {
 	if config.AI.Provider.RequestTimeout <= 0 {
 		config.AI.Provider.RequestTimeout = aiDefaults.Provider.RequestTimeout
 	}
+	NormalizeAIProviders(&config.AI)
 
 	if config.DeviceUUID == "" {
 		config.DeviceUUID = generateDeviceUUID()
@@ -363,10 +368,61 @@ func DefaultConfig() Config {
 			AllowLiveSearch: false,
 			MaxSearchRounds: 5,
 			Provider: AIProviderConfig{
-				Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat",
+				ID: "deepseek", Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat",
 				Temperature: 0.2, MaxOutputTokens: 4096, RequestTimeout: 120,
 			},
 		},
+	}
+}
+
+func NormalizeAIProviders(ai *AIConfig) {
+	if ai == nil {
+		return
+	}
+	defaults := DefaultConfig().AI.Provider
+	if ai.Provider.ID == "" {
+		ai.Provider.ID = "deepseek"
+	}
+	if len(ai.Providers) == 0 {
+		ai.Providers = []AIProviderConfig{ai.Provider}
+	}
+	seen := make(map[string]bool)
+	result := make([]AIProviderConfig, 0, len(ai.Providers))
+	for index, provider := range ai.Providers {
+		provider.ID = strings.TrimSpace(provider.ID)
+		if provider.ID == "" {
+			provider.ID = fmt.Sprintf("provider-%d", index+1)
+		}
+		if seen[provider.ID] {
+			continue
+		}
+		seen[provider.ID] = true
+		if provider.Name == "" {
+			provider.Name = provider.ID
+		}
+		if provider.BaseURL == "" {
+			provider.BaseURL = defaults.BaseURL
+		}
+		if provider.Model == "" {
+			provider.Model = defaults.Model
+		}
+		if provider.MaxOutputTokens <= 0 {
+			provider.MaxOutputTokens = defaults.MaxOutputTokens
+		}
+		if provider.RequestTimeout <= 0 {
+			provider.RequestTimeout = defaults.RequestTimeout
+		}
+		result = append(result, provider)
+	}
+	ai.Providers = result
+	if ai.ActiveProvider == "" || !seen[ai.ActiveProvider] {
+		ai.ActiveProvider = result[0].ID
+	}
+	for _, provider := range result {
+		if provider.ID == ai.ActiveProvider {
+			ai.Provider = provider
+			break
+		}
 	}
 }
 

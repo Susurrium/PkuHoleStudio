@@ -76,8 +76,25 @@ export interface Settings {
   ai_max_search_rounds: number
   ai_api_key_configured: boolean
   restart_required: boolean
+  ai_active_provider: string
+  ai_providers: AIProviderSetting[]
 }
-export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required'> {
+export interface AIProviderSetting {
+  id: string
+  name: string
+  base_url: string
+  model: string
+  temperature: number
+  max_output_tokens: number
+  request_timeout_seconds: number
+  api_key_configured: boolean
+  active: boolean
+}
+export interface AIProviderSettingUpdate extends Omit<AIProviderSetting, 'id' | 'api_key_configured' | 'active'> {
+  api_key?: string
+  clear_api_key?: boolean
+}
+export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required' | 'ai_active_provider' | 'ai_providers'> {
   ai_api_key?: string
   clear_ai_api_key?: boolean
 }

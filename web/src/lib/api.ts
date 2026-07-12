@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ReferenceGraph, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
+import type { AIProvider, AIProviderSettingUpdate, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ReferenceGraph, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -57,6 +57,10 @@ export const api = {
 	deleteLocalTag: (id: number) => request<{ deleted: boolean }>(`/local-tags/${id}`, { method: 'DELETE' }),
 	settings: () => request<Settings>('/settings'),
 	updateSettings: (update: SettingsUpdate) => request<Settings>('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
+	createAIProviderSetting: (update: AIProviderSettingUpdate) => request<Settings>('/settings/ai/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
+	updateAIProviderSetting: (id: string, update: AIProviderSettingUpdate) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
+	deleteAIProviderSetting: (id: string) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'DELETE' }),
+	activateAIProviderSetting: (id: string) => request<Settings>(`/settings/ai/providers/${id}/activate`, { method: 'POST' }),
 	postTags: (pid: number) => request<LocalTag[]>(`/posts/${pid}/tags`),
 	setPostTags: (pid: number, tagIDs: number[]) => request<LocalTag[]>(`/posts/${pid}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_ids: tagIDs }) }),
 	postNote: (pid: number) => request<Note>(`/posts/${pid}/note`),

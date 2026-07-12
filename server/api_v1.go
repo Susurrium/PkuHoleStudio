@@ -99,6 +99,10 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.PUT("/comments/:cid/note", apiSaveCommentNote(dependencies))
 	group.GET("/settings", apiSettings(dependencies))
 	group.PUT("/settings", apiUpdateSettings(dependencies))
+	group.POST("/settings/ai/providers", apiCreateAIProviderSetting(dependencies))
+	group.PATCH("/settings/ai/providers/:id", apiUpdateAIProviderSetting(dependencies))
+	group.DELETE("/settings/ai/providers/:id", apiDeleteAIProviderSetting(dependencies))
+	group.POST("/settings/ai/providers/:id/activate", apiActivateAIProviderSetting(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -580,8 +584,7 @@ func apiSaveCommentNote(dependencies Dependencies) gin.HandlerFunc {
 
 func apiSettings(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if dependencies.Settings == nil {
-			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "settings service is unavailable", nil)
+		if !requireSettings(c, dependencies) {
 			return
 		}
 		view, err := dependencies.Settings.Get(c.Request.Context())
@@ -593,13 +596,20 @@ func apiSettings(dependencies Dependencies) gin.HandlerFunc {
 	}
 }
 
+func requireSettings(c *gin.Context, dependencies Dependencies) bool {
+	if dependencies.Settings != nil {
+		return true
+	}
+	apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "settings service is unavailable", nil)
+	return false
+}
+
 func apiUpdateSettings(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requireStudioBrowser(c) {
 			return
 		}
-		if dependencies.Settings == nil {
-			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "settings service is unavailable", nil)
+		if !requireSettings(c, dependencies) {
 			return
 		}
 		var update service.SettingsUpdate
@@ -607,6 +617,70 @@ func apiUpdateSettings(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		view, err := dependencies.Settings.Update(c.Request.Context(), update)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, view)
+	}
+}
+
+func apiCreateAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireSettings(c, dependencies) {
+			return
+		}
+		var update service.AIProviderSettingsUpdate
+		if !decodeAPIJSON(c, &update) {
+			return
+		}
+		view, err := dependencies.Settings.CreateAIProvider(c.Request.Context(), update)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, view)
+	}
+}
+
+func apiUpdateAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireSettings(c, dependencies) {
+			return
+		}
+		var update service.AIProviderSettingsUpdate
+		if !decodeAPIJSON(c, &update) {
+			return
+		}
+		view, err := dependencies.Settings.UpdateAIProvider(c.Request.Context(), c.Param("id"), update)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, view)
+	}
+}
+
+func apiDeleteAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireSettings(c, dependencies) {
+			return
+		}
+		view, err := dependencies.Settings.DeleteAIProvider(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, view)
+	}
+}
+
+func apiActivateAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireSettings(c, dependencies) {
+			return
+		}
+		view, err := dependencies.Settings.ActivateAIProvider(c.Request.Context(), c.Param("id"))
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
 			return

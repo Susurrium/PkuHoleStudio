@@ -362,3 +362,17 @@ func TestSaveConfigAtReplacesCompleteJSON(t *testing.T) {
 		t.Fatalf("backup was not cleaned up: %v", err)
 	}
 }
+
+func TestNormalizeAIProvidersMigratesLegacyProviderAndSelectsActive(t *testing.T) {
+	ai := AIConfig{Provider: AIProviderConfig{Name: "Legacy", BaseURL: "https://example.test/v1", APIKey: "secret", Model: "legacy-model", MaxOutputTokens: 100, RequestTimeout: 5}}
+	NormalizeAIProviders(&ai)
+	if len(ai.Providers) != 1 || ai.ActiveProvider == "" || ai.Providers[0].APIKey != "secret" || ai.Provider.Model != "legacy-model" {
+		t.Fatalf("legacy AI config migration = %+v", ai)
+	}
+	ai.Providers = append(ai.Providers, AIProviderConfig{ID: "local", Name: "Local", BaseURL: "http://127.0.0.1:11434/v1", Model: "qwen", MaxOutputTokens: 10, RequestTimeout: 5})
+	ai.ActiveProvider = "local"
+	NormalizeAIProviders(&ai)
+	if ai.Provider.ID != "local" || ai.Provider.Model != "qwen" {
+		t.Fatalf("active provider mirror = %+v", ai.Provider)
+	}
+}
