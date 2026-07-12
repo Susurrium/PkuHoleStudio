@@ -86,7 +86,9 @@ func (m *BridgeManager) Upload(ctx context.Context, token, filename string, sour
 	pairing.Status = "uploading"
 	m.mu.Unlock()
 
-	dir := filepath.Join(m.dataDir, "imports", "bridge")
+	// Bridge uploads enter the same guarded staging directory as regular Web
+	// uploads. The import job handler intentionally refuses paths elsewhere.
+	dir := filepath.Join(m.dataDir, "imports", "staging")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		m.restoreWaiting(token)
 		return BridgePairing{}, err
