@@ -61,6 +61,7 @@ type App struct {
 	Notifications *service.NotificationService
 	Logs          *service.LogService
 	Library       *service.LocalLibraryService
+	Settings      *service.SettingsService
 	Archive       service.ArchiveService
 	AI            service.AIService
 	Auth          service.AuthService
@@ -165,6 +166,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	application.Notifications = service.NewNotificationService(application.Client)
 	application.Logs = service.NewLogService(application.DataDir)
 	application.Library = service.NewLocalLibraryService(application.Repository)
+	application.Settings = service.NewSettingsService(application.Config)
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}

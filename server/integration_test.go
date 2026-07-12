@@ -65,6 +65,7 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 		Posts:      posts,
 		Search:     search,
 		Library:    service.NewLocalLibraryService(database),
+		Settings:   service.NewSettingsService(cfg),
 		Media:      service.NewMediaServiceWithRepository(dataDir, nil, database),
 		Archive:    archive.NewImporterWithDataDir(database, dataDir),
 		AI:         aiService,

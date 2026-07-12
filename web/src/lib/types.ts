@@ -60,6 +60,25 @@ export interface CourseScore { year_term: string; name: string; credit: string; 
 export interface ScoreSummary { gpa: string; total_credit: string; passed_credit: string; course_count: string; scores: CourseScore[]; gpa_terms: { year_term: string; gpa: string }[] }
 export interface LocalTag { id: number; name: string; color?: string }
 export interface Note { owner_type: string; owner_id: number; content: string; updated_at?: string }
+export interface Settings {
+  database_type: string
+  database_file?: string
+  ai_enabled: boolean
+  ai_live_search: boolean
+  ai_provider_name: string
+  ai_base_url: string
+  ai_model: string
+  ai_temperature: number
+  ai_max_output_tokens: number
+  ai_request_timeout_seconds: number
+  ai_max_search_rounds: number
+  ai_api_key_configured: boolean
+  restart_required: boolean
+}
+export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required'> {
+  ai_api_key?: string
+  clear_ai_api_key?: boolean
+}
 export interface Capabilities {
   api_version: string
   schema_version: number

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -329,5 +330,35 @@ func TestGetDatabaseDSNSQLiteMissingFile(t *testing.T) {
 	_, err := cfg.GetDatabaseDSN()
 	if err == nil {
 		t.Fatal("GetDatabaseDSN() expected error for empty DBFile")
+	}
+}
+
+func TestSaveConfigAtReplacesCompleteJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"stale":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value := DefaultConfig()
+	value.AI.Enabled = true
+	value.AI.Provider.APIKey = "secret"
+	if err := saveConfigAt(path, &value); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored Config
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if !stored.AI.Enabled || stored.AI.Provider.APIKey != "secret" {
+		t.Fatalf("stored config = %+v", stored)
+	}
+	if _, err := os.Stat(path + ".bak"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup was not cleaned up: %v", err)
 	}
 }

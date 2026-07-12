@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ScoreSummary, SearchHistory, Tag, UploadedMedia } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -55,6 +55,8 @@ export const api = {
 	createLocalTag: (name: string, color: string) => request<LocalTag>('/local-tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) }),
 	updateLocalTag: (id: number, name: string, color: string) => request<LocalTag>(`/local-tags/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) }),
 	deleteLocalTag: (id: number) => request<{ deleted: boolean }>(`/local-tags/${id}`, { method: 'DELETE' }),
+	settings: () => request<Settings>('/settings'),
+	updateSettings: (update: SettingsUpdate) => request<Settings>('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
 	postTags: (pid: number) => request<LocalTag[]>(`/posts/${pid}/tags`),
 	setPostTags: (pid: number, tagIDs: number[]) => request<LocalTag[]>(`/posts/${pid}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_ids: tagIDs }) }),
 	postNote: (pid: number) => request<Note>(`/posts/${pid}/note`),

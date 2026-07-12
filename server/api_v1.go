@@ -94,6 +94,8 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.PUT("/posts/:pid/tags", apiSetPostTags(dependencies))
 	group.GET("/posts/:pid/note", apiPostNote(dependencies))
 	group.PUT("/posts/:pid/note", apiSavePostNote(dependencies))
+	group.GET("/settings", apiSettings(dependencies))
+	group.PUT("/settings", apiUpdateSettings(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -492,6 +494,43 @@ func apiSavePostNote(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiSettings(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Settings == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "settings service is unavailable", nil)
+			return
+		}
+		view, err := dependencies.Settings.Get(c.Request.Context())
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "settings_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, view)
+	}
+}
+
+func apiUpdateSettings(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Settings == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "settings service is unavailable", nil)
+			return
+		}
+		var update service.SettingsUpdate
+		if !decodeAPIJSON(c, &update) {
+			return
+		}
+		view, err := dependencies.Settings.Update(c.Request.Context(), update)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_settings", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, view)
 	}
 }
 

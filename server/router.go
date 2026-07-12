@@ -19,6 +19,7 @@ type Dependencies struct {
 	Notifications *service.NotificationService
 	Logs          *service.LogService
 	Library       *service.LocalLibraryService
+	Settings      *service.SettingsService
 	Archive       service.ArchiveService
 	AI            service.AIService
 	Auth          service.AuthService
