@@ -96,6 +96,17 @@ type Reference struct {
 	CreatedAt  time.Time `gorm:"column:created_at;not null" json:"created_at"`
 }
 
+// ReferenceEdge is the PID/CID projection returned to application services.
+// Reference stores polymorphic database IDs, while consumers need the owning
+// post for comment endpoints as well.
+type ReferenceEdge struct {
+	Kind      string `json:"kind" gorm:"column:kind"`
+	SourcePID int32  `json:"source_pid" gorm:"column:source_pid"`
+	SourceCID *int32 `json:"source_cid,omitempty" gorm:"column:source_cid"`
+	TargetPID int32  `json:"target_pid" gorm:"column:target_pid"`
+	TargetCID *int32 `json:"target_cid,omitempty" gorm:"column:target_cid"`
+}
+
 func (Reference) TableName() string { return "references" }
 
 type Media struct {

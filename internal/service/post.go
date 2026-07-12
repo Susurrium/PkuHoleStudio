@@ -130,10 +130,25 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 	if post == nil {
 		return PostDetail{}, errors.New("post was not found")
 	}
+	references := []Reference{}
+	if query.Source == SourceLocal {
+		if repository, ok := s.repository.(ReferenceRepository); ok {
+			edges, referenceErr := repository.GetReferencesByPID(pid)
+			if referenceErr != nil {
+				return PostDetail{}, referenceErr
+			}
+			for _, edge := range edges {
+				references = append(references, Reference{
+					Kind: edge.Kind, SourcePID: edge.SourcePID, SourceCID: edge.SourceCID,
+					TargetPID: edge.TargetPID, TargetCID: edge.TargetCID,
+				})
+			}
+		}
+	}
 	return PostDetail{
 		Post:              *post,
 		Comments:          comments.Items,
-		References:        []Reference{},
+		References:        references,
 		NextCommentCursor: comments.NextCursor,
 		HasMoreComments:   comments.HasMore,
 	}, nil

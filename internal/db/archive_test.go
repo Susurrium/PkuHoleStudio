@@ -109,3 +109,28 @@ func TestContextOnlyArchivePostsStayOutOfDefaultLibraryQueries(t *testing.T) {
 		t.Fatalf("promoted posts = %+v, %v", posts, err)
 	}
 }
+
+func TestReferenceProjectionResolvesCommentOwners(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	sourceCID, targetCID := int32(1001), int32(2001)
+	if err := database.Transaction(ctx, func(tx archivepkg.Transaction) error {
+		if err := tx.UpsertPosts(ctx, []models.Post{{Pid: 123456}, {Pid: 234567}}); err != nil {
+			return err
+		}
+		if err := tx.UpsertComments(ctx, []models.Comment{{Cid: sourceCID, Pid: 123456}, {Cid: targetCID, Pid: 234567}}); err != nil {
+			return err
+		}
+		return tx.UpsertReferences(ctx, []archivepkg.Reference{{
+			Kind: "quotes", SourcePID: 123456, SourceCID: &sourceCID,
+			TargetPID: 234567, TargetCID: &targetCID,
+		}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	edges, err := database.GetReferencesByPID(123456)
+	if err != nil || len(edges) != 1 || edges[0].SourcePID != 123456 || edges[0].TargetPID != 234567 || edges[0].SourceCID == nil || edges[0].TargetCID == nil {
+		t.Fatalf("edges = %+v, %v", edges, err)
+	}
+}
