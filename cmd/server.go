@@ -67,6 +67,7 @@ func newServerEngine(application *app.App) *gin.Engine {
 		Posts:      application.Posts,
 		Search:     application.Search,
 		Media:      application.Media,
+		Dashboard:  application.Dashboard,
 		Archive:    application.Archive,
 		AI:         application.AI,
 		Auth:       application.Auth,

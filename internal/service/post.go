@@ -151,6 +151,8 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 				return PostDetail{}, err
 			}
 		}
+	} else {
+		media = liveMedia(post, comments.Items)
 	}
 	return PostDetail{
 		Post:              *post,
@@ -160,6 +162,24 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 		NextCommentCursor: comments.NextCursor,
 		HasMoreComments:   comments.HasMore,
 	}, nil
+}
+
+func liveMedia(post *models.Post, comments []models.Comment) []models.Media {
+	result := make([]models.Media, 0)
+	appendOwner := func(ownerType string, ownerID int64, rawIDs string, force bool) {
+		ids := strings.FieldsFunc(rawIDs, func(r rune) bool { return r == ',' || r == ';' || r == ' ' })
+		if len(ids) == 0 && force {
+			ids = []string{""}
+		}
+		for _, id := range ids {
+			result = append(result, models.Media{OwnerType: ownerType, OwnerID: ownerID, RemoteID: strings.TrimSpace(id), Variant: "original", Status: "remote"})
+		}
+	}
+	appendOwner("post", int64(post.Pid), post.MediaIds, post.Type == "image")
+	for _, comment := range comments {
+		appendOwner("comment", int64(comment.Cid), comment.MediaIds, false)
+	}
+	return result
 }
 
 func (s *PostService) Detail(ctx context.Context, pid int32, query CommentQuery) (PostDetail, error) {

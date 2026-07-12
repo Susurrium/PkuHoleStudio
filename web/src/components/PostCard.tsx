@@ -3,18 +3,19 @@ import { Link } from 'react-router-dom'
 import type { PostSummary } from '../lib/types'
 import { compactNumber, formatTime, HighlightedText } from '../lib/format'
 
-export function PostCard({ post }: { post: PostSummary }) {
+export function PostCard({ post, source = 'local' }: { post: PostSummary; source?: 'local' | 'live' }) {
   const text = post.snippet || post.text
+  const target = `/posts/${post.pid}${source === 'live' ? '?source=live' : ''}`
   return (
     <article className="panel group p-5 transition hover:-translate-y-0.5 hover:border-teal/40 hover:shadow-[0_16px_40px_rgba(23,44,51,0.09)]">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/posts/${post.pid}`} className="font-mono text-sm font-bold text-coral hover:underline">#{post.pid}</Link>
+          <Link to={target} className="font-mono text-sm font-bold text-coral hover:underline">#{post.pid}</Link>
           {post.media_ids && <span className="badge gap-1"><Image size={11} /> 图片</span>}
         </div>
         <time className="shrink-0 text-xs text-ink-soft">{formatTime(post.timestamp)}</time>
       </div>
-      <Link to={`/posts/${post.pid}`} className="mt-4 block whitespace-pre-wrap text-[15px] leading-7 text-ink decoration-coral/40 group-hover:underline group-hover:decoration-2 group-hover:underline-offset-4">
+      <Link to={target} className="mt-4 block whitespace-pre-wrap text-[15px] leading-7 text-ink decoration-coral/40 group-hover:underline group-hover:decoration-2 group-hover:underline-offset-4">
         <HighlightedText value={text || '（无正文）'} />
       </Link>
       {post.comment_matches?.slice(0, 2).map((match) => (

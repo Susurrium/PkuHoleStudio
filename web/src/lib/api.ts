@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, CommentPage, ExportDownload, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, PostDetail, PostPage, SearchHistory, Tag } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -32,12 +32,14 @@ function queryString(values: Record<string, string | number | boolean | undefine
 
 export const api = {
   health: () => request<Health>('/health'),
+	hotPosts: () => request<HotPost[]>('/posts/hot'),
   capabilities: () => request<Capabilities>('/capabilities'),
   posts: (params: Record<string, string | number | boolean | undefined | null>) => request<PostPage>(`/posts${queryString(params)}`),
 	search: (params: Record<string, string | number | boolean | undefined | null>) => request<PostPage>(`/search${queryString(params)}`),
 	searchHistory: () => request<SearchHistory[]>('/search/history?limit=12'),
-  post: (pid: string | number) => request<PostDetail>(`/posts/${pid}`),
-  comments: (pid: string | number, cursor = 0) => request<CommentPage>(`/posts/${pid}/comments${queryString({ cursor })}`),
+  post: (pid: string | number, source: 'local' | 'live' = 'local') => request<PostDetail>(`/posts/${pid}${queryString({ source })}`),
+  comments: (pid: string | number, cursor = 0, source: 'local' | 'live' = 'local') => request<CommentPage>(`/posts/${pid}/comments${queryString({ cursor, source })}`),
+	tags: () => request<Tag[]>('/tags?source=live'),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {
