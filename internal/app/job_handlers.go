@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
@@ -27,6 +28,22 @@ type pidJobPayload struct {
 
 type mediaJobPayload struct {
 	ConvertWebP bool `json:"convert_webp"`
+}
+
+type thumbnailJobPayload struct {
+	StartID     int  `json:"start_id"`
+	EndID       int  `json:"end_id"`
+	ConvertWebP bool `json:"convert_webp"`
+}
+
+type monitorJobPayload struct {
+	Pages           int                  `json:"pages"`
+	IntervalSeconds int                  `json:"interval_seconds"`
+	Options         service.CrawlOptions `json:"options"`
+}
+
+type cleanupJobPayload struct {
+	RetentionDays int `json:"retention_days"`
 }
 
 type importArchivePayload struct {
@@ -50,6 +67,10 @@ func registerJobHandlers(application *App) error {
 		{jobs.TypeImportArchive, application.handleImportArchive},
 		{jobs.TypeRebuildSearchIndex, application.handleRebuildSearchIndex},
 		{jobs.TypeRebuildReferences, application.handleRebuildReferences},
+		{jobs.TypeSyncPages, application.handleSyncLatest},
+		{jobs.TypeMonitorLatest, application.handleMonitorLatest},
+		{jobs.TypeRepairThumbnails, application.handleRepairThumbnails},
+		{jobs.TypeCleanupStaging, application.handleCleanupStaging},
 	}
 	for _, registration := range registrations {
 		if err := application.Jobs.Register(registration.typeName, registration.handler); err != nil {
@@ -325,6 +346,94 @@ func (a *App) handleRebuildReferences(ctx context.Context, execution *jobs.Execu
 		return err
 	}
 	return execution.ItemSucceeded(ctx, "references", map[string]any{"references": count})
+}
+
+func (a *App) handleMonitorLatest(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
+	var payload monitorJobPayload
+	if len(job.Payload) > 0 {
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return err
+		}
+	}
+	if payload.Pages <= 0 || payload.Pages > 50 {
+		payload.Pages = 3
+	}
+	if payload.IntervalSeconds < 15 {
+		payload.IntervalSeconds = 60
+	}
+	if payload.Options.PostLimit <= 0 {
+		payload.Options.PostLimit = 200
+	}
+	if payload.Options.CommentLimit <= 0 {
+		payload.Options.CommentLimit = 200
+	}
+	if err := execution.SetTotal(ctx, payload.Pages); err != nil {
+		return err
+	}
+	cycle := 0
+	for {
+		cycle++
+		for page := 1; page <= payload.Pages; page++ {
+			result, err := a.Sync.FetchPage(ctx, page, payload.Options)
+			key := "page:" + strconv.Itoa(page)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				_ = execution.ItemFailed(ctx, key, err)
+				continue
+			}
+			checkpoint := map[string]any{"cycle": cycle, "page": page, "posts": result.PostCount, "comments": result.CommentCount}
+			if err := execution.ItemSucceeded(ctx, key, checkpoint); err != nil {
+				return err
+			}
+			if err := execution.Checkpoint(ctx, checkpoint); err != nil {
+				return err
+			}
+		}
+		timer := time.NewTimer(time.Duration(payload.IntervalSeconds) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (a *App) handleRepairThumbnails(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
+	var payload thumbnailJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return err
+	}
+	if payload.StartID <= 0 || payload.EndID < payload.StartID || payload.EndID-payload.StartID > 100_000 {
+		return fmt.Errorf("thumbnail id range is invalid or too large")
+	}
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	result, err := a.Sync.FetchThumbnails(ctx, payload.StartID, payload.EndID, payload.ConvertWebP)
+	if err != nil {
+		_ = execution.ItemFailed(ctx, "thumbnails", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "thumbnails", result)
+}
+
+func (a *App) handleCleanupStaging(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
+	var payload cleanupJobPayload
+	_ = json.Unmarshal(job.Payload, &payload)
+	if payload.RetentionDays <= 0 || payload.RetentionDays > 365 {
+		payload.RetentionDays = 7
+	}
+	if err := execution.SetTotal(ctx, 1); err != nil {
+		return err
+	}
+	if err := cleanupExpiredImportStaging(ctx, a.DataDir, a.Jobs, time.Duration(payload.RetentionDays)*24*time.Hour); err != nil {
+		_ = execution.ItemFailed(ctx, "staging", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "staging", map[string]any{"retention_days": payload.RetentionDays})
 }
 
 func decodePIDPayload(raw json.RawMessage) (pidJobPayload, error) {

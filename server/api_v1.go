@@ -82,6 +82,8 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/notifications", apiNotifications(dependencies))
 	group.POST("/notifications/:id/read", apiNotificationRead(dependencies))
 	group.POST("/notifications/read-all", apiNotificationsReadAll(dependencies))
+	group.GET("/logs", apiLogs(dependencies))
+	group.POST("/logs/clear", apiClearLogs(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -231,6 +233,42 @@ func apiNotificationsReadAll(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, gin.H{"type": kind, "read": true})
+	}
+}
+
+func apiLogs(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Logs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "log service is unavailable", nil)
+			return
+		}
+		limit, ok := boundedIntQuery(c, "limit", 500, 1, 5_000)
+		if !ok {
+			return
+		}
+		items, err := dependencies.Logs.List(c.Request.Context(), c.Query("module"), c.Query("q"), limit)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, items)
+	}
+}
+
+func apiClearLogs(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Logs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "log service is unavailable", nil)
+			return
+		}
+		if err := dependencies.Logs.Clear(c.Request.Context(), c.Query("module")); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"cleared": true})
 	}
 }
 
