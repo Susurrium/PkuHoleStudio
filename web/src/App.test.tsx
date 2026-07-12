@@ -51,7 +51,7 @@ describe('PkuHoleStudio Web', () => {
 	it('uploads an archive and displays its preflight report', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json({
       job: { id: 'job-1', type: 'import_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
-      preflight: { format: 'legacy-v1', status: 'completed', hash: 'abc', run_id: 'legacy-abc', counts: { items: 1, comments: 0 }, issues: [] },
+      preflight: { format: 'legacy-v1', status: 'completed', hash: 'abc', run_id: 'legacy-abc', counts: { items: 1, valid_items: 1, comments: 0 }, issues: [] },
     })))
     const user = userEvent.setup()
     const { container } = renderApp('/imports')
@@ -60,6 +60,23 @@ describe('PkuHoleStudio Web', () => {
     await user.click(screen.getByRole('button', { name: '预检并开始导入' }))
     await waitFor(() => expect(screen.getByText('预检完成 · legacy-v1')).toBeInTheDocument())
     expect(screen.getByText('job-1')).toBeInTheDocument()
+	})
+
+	it('shows a failed preflight and does not render a queued import job', async () => {
+		const failure = { error: {
+			code: 'archive_no_valid_items', message: 'archive contains no valid items', details: {
+				preflight: { format: 'v2', status: 'failed', hash: 'bad', run_id: 'run-bad', counts: { items: 3, valid_items: 0, skipped_items: 3 }, issues: [{ severity: 'error', code: 'invalid_hole', message: 'bad field' }] },
+			},
+		} }
+		vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(failure), { status: 422, headers: { 'Content-Type': 'application/json' } }))))
+		const user = userEvent.setup()
+		const { container } = renderApp('/imports')
+		const input = container.querySelector('input[type=file]') as HTMLInputElement
+		await user.upload(input, new File(['zip'], 'archive.treehole.zip', { type: 'application/zip' }))
+		await user.click(screen.getByRole('button', { name: '预检并开始导入' }))
+		expect(await screen.findByText('预检未通过 · v2')).toBeInTheDocument()
+		expect(screen.getByText('没有可导入的有效帖子，未创建导入任务。请查看下方错误详情。')).toBeInTheDocument()
+		expect(screen.queryByText('queued')).not.toBeInTheDocument()
 	})
 
 	it('shows provider guidance when AI is not configured', async () => {

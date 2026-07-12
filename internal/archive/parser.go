@@ -405,7 +405,7 @@ func decodeV2Data(data []byte) ([]rawItem, error) {
 }
 
 func decodePost(raw json.RawMessage, expectedPID int32) (models.Post, error) {
-	normalized, err := normalizeModelJSON(raw, postBoolFields, []string{"identity_info", "exclusive_id_info"})
+	normalized, err := normalizeModelJSON(raw, postBoolFields, []string{"identity_info", "exclusive_id_info", "image_size"})
 	if err != nil {
 		return models.Post{}, err
 	}
@@ -598,6 +598,10 @@ func validSource(source string) bool {
 }
 
 func finalizeReport(report *PreflightReport) {
+	if report.Counts.ValidItems == 0 {
+		report.Status = StatusFailed
+		return
+	}
 	report.Status = StatusCompleted
 	if report.Counts.SkippedItems > 0 || report.Counts.SkippedComments > 0 {
 		report.Status = StatusPartial

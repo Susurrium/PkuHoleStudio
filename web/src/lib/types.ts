@@ -65,7 +65,7 @@ export interface ArchivePreflight {
   issues: ArchiveIssue[]
 }
 
-export interface ImportCreated { job: Job; preflight: ArchivePreflight }
+export interface ImportCreated { job?: Job; preflight: ArchivePreflight }
 export interface SearchHistory { id: number; query: string; filters?: string; created_at: string }
 
 export interface AIProvider { name: string; base_url: string; model: string; configured: boolean }

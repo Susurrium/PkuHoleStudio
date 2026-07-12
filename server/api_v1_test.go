@@ -94,6 +94,32 @@ func TestAPIV1ArchiveUploadPreflightAndQueue(t *testing.T) {
 	}
 }
 
+func TestAPIV1ArchiveWithNoValidItemsReturnsPreflightWithoutQueue(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	legacy := `{"holes":[{"pid":123456,"text":"archive","timestamp":{"invalid":true}}],"comments":[[]]}`
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "invalid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	response := performRequest(router, http.MethodPost, "/api/v1/imports", &body, writer.FormDataContentType())
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"code":"archive_no_valid_items"`) || !strings.Contains(response.Body.String(), `"valid_items":0`) {
+		t.Fatalf("invalid import response = %d %s", response.Code, response.Body.String())
+	}
+	response = performRequest(router, http.MethodGet, "/api/v1/jobs?limit=50", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"data":[]`) {
+		t.Fatalf("jobs after rejected import = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()

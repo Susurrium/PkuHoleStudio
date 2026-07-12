@@ -641,6 +641,13 @@ func apiCreateImport(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusBadRequest, "invalid_archive", err.Error(), gin.H{"filename": header.Filename})
 			return
 		}
+		if preflight.Counts.ValidItems == 0 {
+			apiFailure(c, http.StatusUnprocessableEntity, "archive_no_valid_items", "archive contains no valid items", gin.H{
+				"filename":  header.Filename,
+				"preflight": preflight,
+			})
+			return
+		}
 		absolutePath, _ := filepath.Abs(stagedPath)
 		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeImportArchive, Payload: gin.H{"path": absolutePath, "size": written}, TotalItems: 1})
 		if err != nil {

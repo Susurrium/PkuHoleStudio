@@ -26,6 +26,9 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 	if err != nil {
 		return ImportReport{}, err
 	}
+	if preflight.Counts.ValidItems == 0 {
+		return importReportFromPreflight(preflight), errors.New("archive contains no valid items")
+	}
 	if previous, found, err := i.store.FindImport(ctx, preflight.ArchiveHash, preflight.RunID); err != nil {
 		return ImportReport{}, err
 	} else if found {
@@ -74,4 +77,11 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 		Format: preflight.Format, Status: preflight.Status, ArchiveHash: preflight.ArchiveHash,
 		RunID: preflight.RunID, Counts: preflight.Counts, Issues: preflight.Issues,
 	}, nil
+}
+
+func importReportFromPreflight(preflight PreflightReport) ImportReport {
+	return ImportReport{
+		Format: preflight.Format, Status: preflight.Status, ArchiveHash: preflight.ArchiveHash,
+		RunID: preflight.RunID, Counts: preflight.Counts, Issues: preflight.Issues,
+	}
 }

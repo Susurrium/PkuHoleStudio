@@ -1,8 +1,8 @@
 import { ChangeEvent, DragEvent, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, FileArchive, UploadCloud } from 'lucide-react'
-import { api } from '../lib/api'
-import type { ImportCreated } from '../lib/types'
+import { CheckCircle2, FileArchive, UploadCloud, XCircle } from 'lucide-react'
+import { APIError, api } from '../lib/api'
+import type { ArchivePreflight, ImportCreated } from '../lib/types'
 import { PageHeader } from '../components/PageHeader'
 import { ErrorState } from '../components/States'
 import { JobRow } from '../components/JobRow'
@@ -11,7 +11,14 @@ export function ImportsPage() {
   const client = useQueryClient()
   const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<ImportCreated | null>(null)
-  const upload = useMutation({ mutationFn: api.importArchive, onSuccess: (value) => { setResult(value); client.invalidateQueries({ queryKey: ['jobs'] }) } })
+  const upload = useMutation({
+    mutationFn: api.importArchive,
+    onSuccess: (value) => { setResult(value); client.invalidateQueries({ queryKey: ['jobs'] }) },
+    onError: (error) => {
+      const preflight = preflightFromError(error)
+      if (preflight) setResult({ preflight })
+    },
+  })
   function pick(files?: FileList | null) { const next = files?.[0] ?? null; setFile(next); setResult(null); upload.reset() }
   function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
   return <>
@@ -30,12 +37,26 @@ export function ImportsPage() {
       <section className="panel p-5 md:p-7">
         <p className="eyebrow">IMPORT REPORT</p><h2 className="mt-1 text-xl font-semibold">预检与任务报告</h2>
         {!result ? <div className="mt-6 grid min-h-64 place-items-center rounded-2xl border border-dashed border-line text-center"><div><FileArchive className="mx-auto text-ink-soft/50" /><p className="mt-3 text-sm text-ink-soft">选择文件后，这里会显示格式、记录数量和异常项。</p></div></div> : <div className="mt-5">
-          <div className="flex items-start gap-3 rounded-xl bg-teal-soft/55 p-4"><CheckCircle2 className="mt-0.5 shrink-0 text-teal" size={19} /><div><p className="text-sm font-semibold">预检完成 · {result.preflight.format}</p><p className="mt-1 font-mono text-[10px] break-all text-ink-soft">SHA-256 {result.preflight.hash}</p></div></div>
+          <PreflightBanner preflight={result.preflight} />
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{Object.entries(result.preflight.counts).filter(([, value]) => typeof value === 'number').map(([key, value]) => <div key={key} className="rounded-xl border border-line bg-white/50 p-3"><p className="text-xl font-semibold">{value}</p><p className="mt-1 font-mono text-[10px] text-ink-soft">{key}</p></div>)}</div>
           {result.preflight.issues.length > 0 && <div className="mt-4 max-h-56 space-y-2 overflow-auto">{result.preflight.issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="rounded-lg border border-coral/20 bg-coral-soft/30 p-3 text-xs"><p className="font-semibold text-coral">{issue.code}</p><p className="mt-1 leading-5 text-ink-soft">{issue.message}</p></div>)}</div>}
-          <div className="mt-5"><JobRow job={result.job} /></div>
+          {result.job && <div className="mt-5"><JobRow job={result.job} /></div>}
         </div>}
       </section>
     </div>
   </>
+}
+
+function preflightFromError(error: unknown): ArchivePreflight | undefined {
+  if (!(error instanceof APIError) || error.code !== 'archive_no_valid_items' || !error.details || typeof error.details !== 'object') return undefined
+  const preflight = (error.details as { preflight?: ArchivePreflight }).preflight
+  return preflight && typeof preflight === 'object' ? preflight : undefined
+}
+
+function PreflightBanner({ preflight }: { preflight: ArchivePreflight }) {
+  const accepted = preflight.status === 'completed' && (preflight.counts.valid_items ?? 0) > 0
+  return <div className={`flex items-start gap-3 rounded-xl p-4 ${accepted ? 'bg-teal-soft/55' : 'border border-coral/20 bg-coral-soft/35'}`}>
+    {accepted ? <CheckCircle2 className="mt-0.5 shrink-0 text-teal" size={19} /> : <XCircle className="mt-0.5 shrink-0 text-coral" size={19} />}
+    <div><p className={`text-sm font-semibold ${accepted ? '' : 'text-coral'}`}>{accepted ? '预检完成' : '预检未通过'} · {preflight.format}</p><p className="mt-1 font-mono text-[10px] break-all text-ink-soft">SHA-256 {preflight.hash}</p>{!accepted && <p className="mt-2 text-xs text-ink-soft">没有可导入的有效帖子，未创建导入任务。请查看下方错误详情。</p>}</div>
+  </div>
 }

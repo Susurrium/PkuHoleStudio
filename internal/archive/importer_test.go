@@ -47,6 +47,18 @@ func TestImporterRollsBackWhenTransactionStepFails(t *testing.T) {
 	}
 }
 
+func TestImporterRejectsArchiveWithoutValidItemsBeforeTransaction(t *testing.T) {
+	data := map[string]any{"items": []any{
+		map[string]any{"pid": "123456", "source": "followed", "fetchStatus": "ok", "hole": map[string]any{"pid": 123456, "timestamp": map[string]any{"invalid": true}}, "comments": []any{}},
+	}}
+	content := makeV2ZIP(t, validManifest(1, 0), data)
+	store := &fakeArchiveStore{}
+	report, err := NewImporter(store).Import(context.Background(), bytes.NewReader(content), int64(len(content)))
+	if err == nil || report.Status != StatusFailed || report.Counts.ValidItems != 0 || store.transactions != 0 || store.saved != nil {
+		t.Fatalf("Import() report/error/store = %+v / %v / %+v", report, err, store)
+	}
+}
+
 type fakeArchiveStore struct {
 	posts        []models.Post
 	comments     []models.Comment
