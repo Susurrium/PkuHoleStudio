@@ -122,6 +122,25 @@ func TestSaveCrawlResultRollsBackPostsWhenCommentsFail(t *testing.T) {
 	}
 }
 
+func TestSaveCrawlResultWithSourceWritesContentAndSourceAtomically(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	if err := database.SaveCrawlResultWithSource(
+		[]models.Post{{Pid: 123456, Text: "followed"}},
+		[]models.Comment{{Cid: 1001, Pid: 123456, Text: "comment"}},
+		"followed", "treehole-live",
+	); err != nil {
+		t.Fatal(err)
+	}
+	var source models.PostSource
+	if err := database.db.Where("pid = ? AND source = ?", 123456, "followed").First(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	if source.ContextOnly || source.SourceRef != "treehole-live" {
+		t.Fatalf("source = %+v", source)
+	}
+}
+
 func seedPosts(t *testing.T, db *Database, posts []models.Post) {
 	t.Helper()
 	if err := db.UpsertPosts(posts); err != nil {

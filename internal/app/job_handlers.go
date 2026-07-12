@@ -190,7 +190,7 @@ func (a *App) handleSyncFollowed(ctx context.Context, execution *jobs.Execution,
 			return err
 		}
 		posts, comments := flattenPostSummaries(page.Items)
-		if err := a.Repository.SaveCrawlResult(posts, comments); err != nil {
+		if err := a.Repository.SaveCrawlResultWithSource(posts, comments, "followed", "treehole-live"); err != nil {
 			_ = execution.ItemFailed(ctx, key, err)
 			return err
 		}
@@ -224,7 +224,7 @@ func (a *App) handleSyncPIDs(ctx context.Context, execution *jobs.Execution, job
 			_ = execution.ItemFailed(ctx, key, err)
 			return err
 		}
-		if err := a.Repository.UpsertPosts([]models.Post{*post}); err != nil {
+		if err := a.Repository.SaveCrawlResultWithSource([]models.Post{*post}, nil, "explicit", "treehole-live"); err != nil {
 			_ = execution.ItemFailed(ctx, key, err)
 			return err
 		}

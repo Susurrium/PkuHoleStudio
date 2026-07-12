@@ -58,7 +58,7 @@ func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bo
 	result.PostCount = len(posts)
 	result.CommentCount = len(comments)
 
-	if err := database.SaveCrawlResult(posts, comments); err != nil {
+	if err := database.SaveCrawlResultWithSource(posts, comments, "public", "treehole-live"); err != nil {
 		return result, fmt.Errorf("写入抓取结果失败: %w", err)
 	}
 

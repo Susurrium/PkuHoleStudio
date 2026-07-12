@@ -214,13 +214,31 @@ func upsertPosts(tx *gorm.DB, posts []models.Post) error {
 }
 
 func (d *Database) SaveCrawlResult(posts []models.Post, comments []models.Comment) error {
+	return d.SaveCrawlResultWithSource(posts, comments, "", "")
+}
+
+func (d *Database) SaveCrawlResultWithSource(posts []models.Post, comments []models.Comment, source, sourceRef string) error {
 	sanitizePosts(posts)
 	sanitizeComments(comments)
 	return d.db.Transaction(func(tx *gorm.DB) error {
 		if err := upsertPosts(tx, posts); err != nil {
 			return err
 		}
-		return upsertComments(tx, comments)
+		if err := upsertComments(tx, comments); err != nil {
+			return err
+		}
+		if source == "" || len(posts) == 0 {
+			return nil
+		}
+		now := time.Now().UTC()
+		rows := make([]models.PostSource, 0, len(posts))
+		for _, post := range posts {
+			rows = append(rows, models.PostSource{PID: post.Pid, Source: source, SourceRef: sourceRef, FirstSeenAt: now, LastSeenAt: now})
+		}
+		return tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "pid"}, {Name: "source"}, {Name: "source_ref"}},
+			DoUpdates: clause.Assignments(map[string]any{"context_only": false, "last_seen_at": now}),
+		}).CreateInBatches(rows, 100).Error
 	})
 }
 
