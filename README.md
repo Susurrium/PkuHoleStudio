@@ -15,7 +15,8 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
 - 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
 - PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
-- 原生 Web 同步中心：登录状态检测、账号登录、短信/动态口令挑战、关注/指定 PID/公共时间线同步。
+- 原生 Web 同步中心：自动检测已有本机会话、关注/指定 PID/公共时间线同步；账号密码登录仅作为备用方式。
+- Toolkit 可用 5 分钟有效的一次性配对码把刚导出的归档直接发到 Studio；Studio 预检后仍需本机确认，桥接不传账号、Cookie 或 token。
 - 本地资料库可导出 archive v2 或逐洞 Markdown ZIP；Toolkit 保持为可选的浏览器迁移桥梁。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
@@ -61,7 +62,7 @@ go build -tags sqlite_fts5 -o treehole ./cmd
 
 Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。
 
-日常同步可直接进入 Web 的“同步中心”。网页登录密码仅用于当前登录请求，不持久化、不写入配置且不会由 API 回显；成功后的会话 Cookie 保存在本机 `data/cookies.json`。登录与验证码接口只接受本机回环访问。
+推荐先在浏览器正常登录树洞，由 Toolkit 导出并在 Studio“归档导入”页使用一次性配对码发送；这条链路不需要 Studio 读取浏览器 Cookie。若本机已有 `data/cookies.json`，同步中心会优先自动验证并复用。Studio 内账号密码登录保留为备用方式：密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。
 
 启用 DeepSeek 或其他 OpenAI-compatible Provider：
 

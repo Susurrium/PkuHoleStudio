@@ -81,6 +81,15 @@ export interface ArchivePreflight {
 
 export interface ImportCreated { job?: Job; preflight: ArchivePreflight }
 export interface ExportDownload { blob: Blob; filename: string }
+export interface BridgePairing {
+  token: string
+  code?: string
+  status: 'waiting_upload' | 'uploading' | 'awaiting_confirmation' | 'queued'
+  expires_at: string
+  filename?: string
+  preflight?: ArchivePreflight
+  job?: Job
+}
 export interface SearchHistory { id: number; query: string; filters?: string; created_at: string }
 
 export interface AIProvider { name: string; base_url: string; model: string; configured: boolean }

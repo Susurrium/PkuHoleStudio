@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Download, FileArchive, FileText, UploadCloud, XCircle } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, Copy, Download, FileArchive, FileText, Link2, UploadCloud, XCircle } from 'lucide-react'
 import { APIError, api } from '../lib/api'
 import type { ArchivePreflight, ImportCreated } from '../lib/types'
 import { PageHeader } from '../components/PageHeader'
@@ -23,6 +23,7 @@ export function ImportsPage() {
   function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
   return <>
     <PageHeader eyebrow="TOOLKIT BRIDGE" title="归档导入" description="导入旧版 {holes, comments} JSON 或 archive v2 .treehole.zip。预检会先验证结构、PID、数量和完整性，再创建可恢复的持久任务。" />
+    <ToolkitBridgePanel />
     <div className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
       <section className="panel p-5 md:p-7">
         <label onDrop={drop} onDragOver={(event) => event.preventDefault()} className="flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line bg-paper/50 p-7 text-center transition hover:border-teal hover:bg-teal-soft/20">
@@ -46,6 +47,37 @@ export function ImportsPage() {
     </div>
     <ExportPanel />
   </>
+}
+
+function ToolkitBridgePanel() {
+  const client = useQueryClient()
+  const [token, setToken] = useState('')
+  const pairing = useMutation({ mutationFn: api.createBridgePairing, onSuccess: (value) => setToken(value.token) })
+  const status = useQuery({
+    queryKey: ['bridge-pairing', token],
+    queryFn: () => api.bridgePairing(token),
+    enabled: Boolean(token),
+    refetchInterval: (query) => query.state.data?.status === 'awaiting_confirmation' || query.state.data?.status === 'queued' ? false : 1_500,
+    retry: false,
+  })
+  const confirm = useMutation({ mutationFn: () => api.confirmBridgePairing(token), onSuccess: (value) => { client.setQueryData(['bridge-pairing', token], value); client.invalidateQueries({ queryKey: ['jobs'] }) } })
+  const cancel = useMutation({ mutationFn: () => api.cancelBridgePairing(token), onSuccess: () => { setToken(''); pairing.reset(); client.removeQueries({ queryKey: ['bridge-pairing', token] }) } })
+  const current = status.data ?? pairing.data
+  const waiting = current?.status === 'waiting_upload' || current?.status === 'uploading'
+  return <section className="panel mb-6 p-5 md:p-7">
+    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-soft text-teal"><Link2 size={20} /></div><div><p className="eyebrow">DIRECT BRIDGE</p><h2 className="mt-1 text-xl font-semibold">从已登录的 Toolkit 直接发送</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">Studio 生成一个 5 分钟有效的一次性配对码。把它粘贴到树洞网页里的 Toolkit；Toolkit 只发送刚生成的 archive v2，不发送账号、密码、Cookie 或 token。发送后仍需在这里确认导入。</p></div></div>
+      {!current && <button className="button-primary shrink-0" disabled={pairing.isPending} onClick={() => pairing.mutate()}>{pairing.isPending ? '正在生成…' : '生成一次性配对码'}</button>}
+    </div>
+    {current && <div className="mt-5 rounded-2xl border border-line bg-white/55 p-4">
+      <p className="text-xs font-medium text-ink-soft">配对码（仅可使用一次）</p>
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row"><code className="min-w-0 flex-1 break-all rounded-xl bg-ink px-4 py-3 text-sm text-white">{current.code ?? `${location.port}:${current.token}`}</code><button className="button-secondary shrink-0" onClick={() => navigator.clipboard.writeText(current.code ?? `${location.port}:${current.token}`)}><Copy size={15} />复制</button></div>
+      {waiting && <p className="mt-3 text-sm text-ink-soft">现在打开树洞网页 → Toolkit“归档/迁移” → 完成一次导出 → 粘贴配对码 → “发送到 Studio”。本页会自动显示预检结果。</p>}
+      {current.status === 'awaiting_confirmation' && current.preflight && <div className="mt-4"><PreflightBanner preflight={current.preflight} /><p className="mt-3 text-sm text-ink-soft">已收到 <strong>{current.filename}</strong>。核对后确认，才会创建本地导入任务。</p><div className="mt-3 flex gap-2"><button className="button-primary" disabled={confirm.isPending} onClick={() => confirm.mutate()}>{confirm.isPending ? '正在创建任务…' : '确认导入'}</button><button className="button-secondary" disabled={cancel.isPending} onClick={() => cancel.mutate()}>取消并删除暂存文件</button></div></div>}
+      {current.status === 'queued' && <div className="mt-4"><p className="text-sm font-semibold text-teal">归档已进入本地导入队列。</p>{current.job && <div className="mt-3"><JobRow job={current.job} /></div>}</div>}
+      {(pairing.error || status.error || confirm.error || cancel.error) && <div className="mt-4"><ErrorState error={pairing.error || status.error || confirm.error || cancel.error} /></div>}
+    </div>}
+  </section>
 }
 
 function ExportPanel() {

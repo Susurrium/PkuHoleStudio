@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, Capabilities, CommentPage, ExportDownload, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, CommentPage, ExportDownload, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -54,6 +54,10 @@ export const api = {
     body.append('file', file)
     return request<ImportCreated>('/imports', { method: 'POST', body })
 	},
+	createBridgePairing: () => request<BridgePairing>('/bridge/pairings', { method: 'POST' }),
+	bridgePairing: (token: string) => request<BridgePairing>(`/bridge/pairings/${token}`),
+	confirmBridgePairing: (token: string) => request<BridgePairing>(`/bridge/pairings/${token}/confirm`, { method: 'POST' }),
+	cancelBridgePairing: (token: string) => request<{ status: string }>(`/bridge/pairings/${token}/cancel`, { method: 'POST' }),
 	exportArchive: async (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean): Promise<ExportDownload> => {
 		const response = await fetch('/api/v1/exports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments }) })
 		if (!response.ok) {

@@ -96,6 +96,64 @@ func TestAPIV1ArchiveUploadPreflightAndQueue(t *testing.T) {
 	}
 }
 
+func TestAPIV1ToolkitBridgeRequiresPairingAndLocalConfirmation(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings", nil)
+	create.Host = "127.0.0.1:8080"
+	create.RemoteAddr = "127.0.0.1:54321"
+	create.Header.Set("Origin", "http://127.0.0.1:8080")
+	created := httptest.NewRecorder()
+	router.ServeHTTP(created, create)
+	var pairing struct {
+		Data BridgePairing `json:"data"`
+	}
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &pairing) != nil || pairing.Data.Token == "" || !strings.HasPrefix(pairing.Data.Code, "8080:") {
+		t.Fatalf("create pairing = %d %s", created.Code, created.Body.String())
+	}
+
+	legacy := `{"holes":[{"pid":123456,"text":"bridge archive"}],"comments":[[]]}`
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "bridge.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte(legacy))
+	_ = writer.Close()
+	upload := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings/"+pairing.Data.Token+"/archive", &body)
+	upload.RemoteAddr = "127.0.0.1:54321"
+	upload.Header.Set("Content-Type", writer.FormDataContentType())
+	uploaded := httptest.NewRecorder()
+	router.ServeHTTP(uploaded, upload)
+	if uploaded.Code != http.StatusAccepted || !strings.Contains(uploaded.Body.String(), `"status":"awaiting_confirmation"`) || !strings.Contains(uploaded.Body.String(), `"valid_items":1`) {
+		t.Fatalf("upload bridge archive = %d %s", uploaded.Code, uploaded.Body.String())
+	}
+
+	confirm := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings/"+pairing.Data.Token+"/confirm", nil)
+	confirm.RemoteAddr = "127.0.0.1:54321"
+	confirmed := httptest.NewRecorder()
+	router.ServeHTTP(confirmed, confirm)
+	if confirmed.Code != http.StatusAccepted || !strings.Contains(confirmed.Body.String(), `"status":"queued"`) || !strings.Contains(confirmed.Body.String(), `"type":"import_archive"`) {
+		t.Fatalf("confirm bridge import = %d %s", confirmed.Code, confirmed.Body.String())
+	}
+}
+
+func TestAPIV1ToolkitBridgeRejectsForeignBrowserOrigin(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings", nil)
+	request.Host = "127.0.0.1:8080"
+	request.RemoteAddr = "127.0.0.1:54321"
+	request.Header.Set("Origin", "https://example.com")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAPIV1ArchiveWithNoValidItemsReturnsPreflightWithoutQueue(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()

@@ -21,9 +21,13 @@ type Dependencies struct {
 	Jobs       *jobs.Manager
 	Repository *db.Database
 	DataDir    string
+	Bridge     *BridgeManager
 }
 
 func Init(e *gin.Engine, dependencies Dependencies) {
+	if dependencies.Bridge == nil && dependencies.Archive != nil && dependencies.Jobs != nil {
+		dependencies.Bridge = NewBridgeManager(dependencies.DataDir, dependencies.Archive, dependencies.Jobs)
+	}
 	Cors(e)
 	legacy := handles.Dependencies{Posts: dependencies.Posts, Search: dependencies.Search, Media: dependencies.Media}
 	e.GET("/health", handles.Health)

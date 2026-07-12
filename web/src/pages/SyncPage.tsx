@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, ListRestart, Radio, RefreshCw, SearchCheck, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api'
@@ -11,11 +11,16 @@ const syncTypes = new Set(['sync_followed', 'sync_pids', 'sync_latest', 'repair_
 
 export function SyncPage() {
   const client = useQueryClient()
+  const [showLogin, setShowLogin] = useState(false)
   const session = useQuery({ queryKey: ['session'], queryFn: api.session })
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 10_000 })
   const setSession = (value: AuthStatus) => client.setQueryData(['session'], value)
   const probe = useMutation({ mutationFn: api.probeSession, onSuccess: setSession })
   const create = useMutation({ mutationFn: ({ type, payload }: { type: string; payload?: unknown }) => api.createJob(type, payload), onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }) })
+
+  useEffect(() => {
+    if (session.data?.has_session && !session.data.checked && !probe.isPending) probe.mutate()
+  }, [session.data?.has_session, session.data?.checked])
 
   if (session.isLoading || jobs.isLoading) return <LoadingState label="正在打开同步中心…" />
   if (session.error || jobs.error) return <ErrorState error={session.error || jobs.error} />
@@ -28,7 +33,10 @@ export function SyncPage() {
     <section className={`panel p-5 md:p-6 ${online ? 'border-teal/30' : ''}`}>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3"><div className={`grid size-11 shrink-0 place-items-center rounded-xl ${online ? 'bg-teal-soft text-teal' : 'bg-coral-soft text-coral'}`}>{online ? <ShieldCheck size={20} /> : <KeyRound size={20} />}</div><div><p className="font-semibold">{online ? '在线读取已就绪' : status?.has_session ? '发现本机凭据，尚未验证' : '需要登录树洞'}</p><p className="mt-1 text-sm leading-6 text-ink-soft">{status?.message || '点击检测登录状态，或在本页完成登录。'}</p>{status?.challenge_reason && <p className="mt-2 text-xs text-coral">{status.challenge_reason}</p>}</div></div>
-        {!online && <LoginPanel status={status} onStatus={setSession} />}
+        {!online && <div className="w-full max-w-md lg:w-[420px]">
+          {!showLogin && !status?.challenge && <div className="rounded-xl border border-line bg-white/55 p-4"><p className="text-sm font-semibold">推荐：使用浏览器里的 Toolkit</p><p className="mt-1 text-xs leading-5 text-ink-soft">先在树洞网页正常登录，再由 Toolkit 把 archive v2 直接发送到 Studio。Studio 不需要读取浏览器 Cookie，也不会接触你的登录凭据。</p><a className="button-primary mt-3 w-full" href="/imports">前往安全配对导入</a><button className="mt-3 w-full text-xs font-semibold text-ink-soft hover:text-ink" type="button" onClick={() => setShowLogin(true)}>其他方式：在 Studio 中登录</button></div>}
+          {(showLogin || Boolean(status?.challenge)) && <><LoginPanel status={status} onStatus={setSession} /><button className="mt-2 w-full text-xs text-ink-soft hover:text-ink" type="button" onClick={() => setShowLogin(false)}>收起备用登录</button></>}
+        </div>}
       </div>
     </section>
 

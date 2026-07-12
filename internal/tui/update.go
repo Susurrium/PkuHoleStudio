@@ -957,7 +957,7 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 					m.SessionDialog.MarkSMSSent()
 					m.SessionDialog.SetError(nil)
 					m.SessionDialog.SetStatus("")
-					return m, sendSMSChallengeCmd(m.Client)
+					return m, sendSMSChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage)
 				}
 				code := m.SessionDialog.ChallengeValue()
 				if code == "" {
@@ -966,7 +966,7 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				}
 				m.SessionDialog.SetError(nil)
 				m.SessionDialog.SetStatus("")
-				return m, submitAuthChallengeCmd(m.Client, challenge, code)
+				return m, submitAuthChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage, challenge, code)
 			}
 			if challenge != AuthChallengeTypeNone && focusIndex == 2 {
 				code := m.SessionDialog.ChallengeValue()
@@ -980,7 +980,7 @@ func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				}
 				m.SessionDialog.SetError(nil)
 				m.SessionDialog.SetStatus("")
-				return m, submitAuthChallengeCmd(m.Client, challenge, code)
+				return m, submitAuthChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage, challenge, code)
 			}
 			username, password := m.SessionDialog.Credentials()
 			if username == "" {
@@ -1080,7 +1080,7 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.AuthDialog.SetError(nil)
 		m.AuthDialog.SetStatus("")
 		m.AuthDialog.MarkSMSSent()
-		return m, sendSMSChallengeCmd(m.Client)
+		return m, sendSMSChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage)
 	}
 	if key.Matches(msg, shortcut.Enter) {
 		if m.AuthDialog.Kind() == AuthChallengeTypeSMS && m.AuthDialog.IsSendFocused() {
@@ -1088,7 +1088,7 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.AuthDialog.SetError(nil)
 			m.AuthDialog.SetStatus("")
 			m.AuthDialog.MarkSMSSent()
-			return m, sendSMSChallengeCmd(m.Client)
+			return m, sendSMSChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage)
 		}
 		code := m.AuthDialog.Value()
 		if code == "" {
@@ -1115,7 +1115,7 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if m.AuthDialog.Kind() == AuthChallengeTypePassword {
 			return m, submitPasswordLoginCmd(m.Client, m.Config, code)
 		}
-		return m, submitAuthChallengeCmd(m.Client, m.AuthDialog.Kind(), code)
+		return m, submitAuthChallengeCmd(m.Client, m.Config, m.Session.ChallengeStage, m.AuthDialog.Kind(), code)
 	}
 	cmd := m.AuthDialog.Update(msg)
 	return m, cmd
@@ -1622,15 +1622,27 @@ func attemptBootstrapSession(c *client.Client, cfg *config.Config) SessionState 
 	return state
 }
 
-func submitAuthChallengeCmd(c *client.Client, kind AuthChallengeType, code string) tea.Cmd {
+func submitAuthChallengeCmd(c *client.Client, cfg *config.Config, stage client.AuthChallengeStage, kind AuthChallengeType, code string) tea.Cmd {
 	return func() tea.Msg {
-		result := c.ContinueAuthChallenge(toClientAuthChallenge(kind), code)
+		var result client.AuthBootstrapResult
+		if stage == client.AuthChallengeStageIAAA {
+			password := ""
+			if cfg != nil {
+				password = cfg.Password
+			}
+			result = c.BootstrapSessionWithIAAAVerification(cfg, password, toClientAuthChallenge(kind), code)
+		} else {
+			result = c.ContinueAuthChallenge(toClientAuthChallenge(kind), code)
+		}
 		return AuthChallengeResultMsg{State: toTUISessionState(result)}
 	}
 }
 
 func submitPasswordLoginCmd(c *client.Client, cfg *config.Config, password string) tea.Cmd {
 	return func() tea.Msg {
+		if cfg != nil {
+			cfg.Password = password
+		}
 		result := c.BootstrapSessionWithPassword(cfg, password)
 		return AuthChallengeResultMsg{State: toTUISessionState(result)}
 	}
@@ -1665,8 +1677,22 @@ func submitUsernameChallengeCmd(c *client.Client, cfg *config.Config, username s
 	}
 }
 
-func sendSMSChallengeCmd(c *client.Client) tea.Cmd {
+func sendSMSChallengeCmd(c *client.Client, cfg *config.Config, stage client.AuthChallengeStage) tea.Cmd {
 	return func() tea.Msg {
+		if stage == client.AuthChallengeStageIAAA {
+			if cfg == nil || strings.TrimSpace(cfg.Username) == "" {
+				return AuthSMSSentMsg{Error: errors.New("缺少 IAAA 用户名，请重新登录")}
+			}
+			mask, err := c.SendIAAASMSCode(cfg.Username)
+			if err != nil {
+				return AuthSMSSentMsg{Error: err}
+			}
+			message := "验证码已发送，请查收短信"
+			if mask != "" {
+				message = "验证码已发送至 " + mask
+			}
+			return AuthSMSSentMsg{Message: message}
+		}
 		if err := c.SendSMSCode(); err != nil {
 			return AuthSMSSentMsg{Error: err}
 		}
@@ -1682,6 +1708,7 @@ func toTUISessionState(result client.AuthBootstrapResult) SessionState {
 		CanWriteOnline: status.CanWriteOnline,
 		Message:        status.Message,
 		Challenge:      toTUIAuthChallenge(result.Challenge),
+		ChallengeStage: result.ChallengeStage,
 		ChallengeMessage: func() string {
 			if result.ChallengeReason != "" {
 				return result.ChallengeReason
@@ -1693,6 +1720,7 @@ func toTUISessionState(result client.AuthBootstrapResult) SessionState {
 		state.Mode = SessionModeOnline
 		state.LastFallbackReason = ""
 		state.Challenge = AuthChallengeTypeNone
+		state.ChallengeStage = ""
 		state.ChallengeMessage = ""
 		return state
 	}

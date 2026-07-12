@@ -237,6 +237,7 @@ type SessionState struct {
 	LastFallbackReason string
 	NeedsConfig        bool
 	Challenge          AuthChallengeType
+	ChallengeStage     client.AuthChallengeStage
 	ChallengeMessage   string
 }
 

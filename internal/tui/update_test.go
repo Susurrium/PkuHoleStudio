@@ -1974,6 +1974,17 @@ func TestAuthSMSSentMsgUpdatesDialogStatus(t *testing.T) {
 	}
 }
 
+func TestTUISessionStateKeepsIAAAChallengeStage(t *testing.T) {
+	state := toTUISessionState(client.AuthBootstrapResult{
+		Challenge:       client.AuthChallengeSMS,
+		ChallengeStage:  client.AuthChallengeStageIAAA,
+		ChallengeReason: "需要短信验证",
+	})
+	if state.Challenge != AuthChallengeTypeSMS || state.ChallengeStage != client.AuthChallengeStageIAAA {
+		t.Fatalf("challenge/stage = %v/%q", state.Challenge, state.ChallengeStage)
+	}
+}
+
 func TestHandleAuthChallengeEnterOnSMSButtonSendsCode(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogAuthChallenge
