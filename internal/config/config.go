@@ -380,6 +380,9 @@ func NormalizeAIProviders(ai *AIConfig) {
 		return
 	}
 	defaults := DefaultConfig().AI.Provider
+	if ai.MaxSearchRounds <= 0 || ai.MaxSearchRounds > 5 {
+		ai.MaxSearchRounds = 5
+	}
 	if ai.Provider.ID == "" {
 		ai.Provider.ID = "deepseek"
 	}

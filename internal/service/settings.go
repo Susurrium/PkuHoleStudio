@@ -319,8 +319,8 @@ func validateSettingsUpdate(update SettingsUpdate) error {
 	if update.AIRequestTimeout < 1 || update.AIRequestTimeout > 3600 {
 		return errors.New("AI request timeout must be between 1 and 3600 seconds")
 	}
-	if update.AIMaxSearchRounds < 1 || update.AIMaxSearchRounds > 20 {
-		return errors.New("AI max search rounds must be between 1 and 20")
+	if update.AIMaxSearchRounds < 1 || update.AIMaxSearchRounds > 5 {
+		return errors.New("AI max search rounds must be between 1 and 5")
 	}
 	return nil
 }

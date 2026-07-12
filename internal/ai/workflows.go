@@ -103,14 +103,18 @@ func (s *Service) runCourse(ctx context.Context, request service.AIRequest) (str
 	if course == "" {
 		return "", nil, nil, errors.New("course mode requires a course name")
 	}
-	queries := []string{course, course + " 作业", course + " 考试 给分"}
+	teachers := make([]string, 0, len(request.Teachers))
+	seenTeachers := make(map[string]bool)
 	for _, teacher := range request.Teachers {
-		if teacher = strings.TrimSpace(teacher); teacher != "" {
-			queries = append(queries, course+" "+teacher)
-			if len(queries) == 5 {
-				break
-			}
+		teacher = strings.TrimSpace(teacher)
+		if teacher != "" && !seenTeachers[teacher] && len(teachers) < 10 {
+			seenTeachers[teacher] = true
+			teachers = append(teachers, teacher)
 		}
+	}
+	queries := []string{course, course + " 作业", course + " 考试 给分"}
+	for _, teacher := range teachers {
+		queries = append(queries, course+" "+teacher)
 	}
 	trace := make([]searchTrace, 0, len(queries))
 	sources := make([]sourceRef, 0)
@@ -142,10 +146,13 @@ func (s *Service) runCourse(ctx context.Context, request service.AIRequest) (str
 	if len(contextParts) == 0 {
 		return "", trace, nil, errors.New("本地资料库没有找到可用于课程分析的内容")
 	}
-	teachers := strings.Join(request.Teachers, "、")
+	teacherText := strings.Join(teachers, "、")
+	if teacherText == "" {
+		teacherText = "未指定"
+	}
 	messages := []ChatMessage{
 		{Role: "system", Content: baseSystemPrompt() + "\n你是课程评价研究助手。资料可能含偏见或冲突观点，请区分事实、常见观点和个别体验，并引用 [#PID] 或 [#PID/CID]。"},
-		{Role: "user", Content: fmt.Sprintf("课程：%s\n教师：%s\n用户问题：%s\n\n请从课程难度、教学、作业、考试、给分和选课建议六个维度分析。若有多名教师，必须给出统一维度的 Markdown 比较表。\n\n本地资料：\n%s", course, teachers, request.Prompt, truncate(strings.Join(contextParts, "\n\n"), maxContextCharacters))},
+		{Role: "user", Content: fmt.Sprintf("课程：%s\n教师：%s\n用户问题：%s\n\n请从课程难度、教学、作业、考试、给分和选课建议六个维度分析。若有多名教师，比较表必须逐一包含这些教师，不得遗漏：%s。资料不足的单元格请明确写‘资料不足’，不得用其他教师的信息代替。\n\n本地资料：\n%s", course, teacherText, request.Prompt, teacherText, truncate(strings.Join(contextParts, "\n\n"), maxContextCharacters))},
 	}
 	answer, err := s.streamFinal(ctx, request.SessionID, messages)
 	return answer, trace, uniqueSources(sources), err
