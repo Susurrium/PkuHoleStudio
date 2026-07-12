@@ -52,6 +52,31 @@ func TestParseV2ValidAndContextRecords(t *testing.T) {
 	}
 }
 
+func TestParseV2AcceptsToolkitImageSizeArray(t *testing.T) {
+	data := map[string]any{"items": []any{
+		map[string]any{
+			"pid": "123456", "source": "followed", "fetchStatus": "ok",
+			"hole": map[string]any{
+				"pid": 123456, "text": "toolkit export",
+				"image_size": []any{[]any{1280, 720}, []any{640, 480}},
+			},
+			"comments": []any{map[string]any{"cid": 1001, "pid": 123456, "text": "comment"}},
+		},
+	}}
+	archiveBytes := makeV2ZIP(t, validManifest(1, 1), data)
+
+	report, err := Parse(context.Background(), bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if report.Status != StatusCompleted || report.Counts.ValidItems != 1 || report.Counts.Comments != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	if got, want := report.records[0].Post.ImageSize, `[[1280,720],[640,480]]`; got != want {
+		t.Fatalf("image_size = %q, want %q", got, want)
+	}
+}
+
 func TestParseV2PartialRecordsAndManifestMismatch(t *testing.T) {
 	data := map[string]any{"items": []any{
 		map[string]any{
@@ -88,7 +113,7 @@ func TestParseV2AcceptsProtocolMinimalCounts(t *testing.T) {
 	data := map[string]any{"items": []any{}}
 	archiveBytes := makeV2ZIP(t, manifest, data)
 	report, err := Parse(context.Background(), bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
-	if err != nil || report.Status != StatusCompleted {
+	if err != nil || report.Status != StatusFailed || report.Counts.ValidItems != 0 {
 		t.Fatalf("Parse() = %+v, %v", report, err)
 	}
 }
