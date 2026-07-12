@@ -73,6 +73,22 @@ func TestSearchFullTextShortChineseAndLiteralWildcardFallback(t *testing.T) {
 	}
 }
 
+func TestSearchFullTextFiltersWithoutKeywords(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{
+		{Pid: 12345, Text: "plain", Type: "text", Reply: 1},
+		{Pid: 23456, Text: "media", Type: "image", Reply: 9},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hasMedia := true
+	page, err := database.SearchFullText(models.FullTextQuery{HasMedia: &hasMedia, Sort: "reply", Limit: 10})
+	if err != nil || len(page.Hits) != 1 || page.Hits[0].Post.Pid != 23456 {
+		t.Fatalf("filtered page = %+v, %v", page, err)
+	}
+}
+
 func TestFTS5TriggersAndRebuild(t *testing.T) {
 	database, cleanup := setupTestDB(t)
 	defer cleanup()

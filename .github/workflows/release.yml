@@ -23,14 +23,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test Web client
+        working-directory: web
+        run: npm test
+      - name: Build embedded Web client
+        working-directory: web
+        run: npm run build
       - name: Run tests
         run: go test -tags sqlite_fts5 ./...
 
+  web-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run Web end-to-end tests
+        working-directory: web
+        run: npm run e2e
+
   build:
-    needs: test
+    needs: [test, web-e2e]
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -46,9 +79,18 @@ jobs:
             archive_ext: zip
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Build embedded Web client
+        working-directory: web
+        shell: bash
+        run: npm ci && npm run build
       - name: Install Windows CGO toolchain
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -66,7 +108,7 @@ jobs:
           goarch="$(go env GOARCH)"
           name="treehole-${goos}-${goarch}"
           mkdir -p dist
-          go build -tags "withserver,sqlite_fts5" -ldflags="-s -w" -o "dist/${name}" ./cmd
+          go build -tags sqlite_fts5 -ldflags="-s -w" -o "dist/${name}" ./cmd
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
       - name: Build Windows
         if: runner.os == 'Windows'
@@ -77,7 +119,7 @@ jobs:
           goarch="$(go env GOARCH)"
           name="treehole-${goos}-${goarch}"
           mkdir -p dist
-          go build -tags "withserver,sqlite_fts5" -ldflags="-s -w" -o "dist/${name}.exe" ./cmd
+          go build -tags sqlite_fts5 -ldflags="-s -w" -o "dist/${name}.exe" ./cmd
       - name: Archive Windows
         if: runner.os == 'Windows'
         shell: pwsh

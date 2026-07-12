@@ -52,7 +52,8 @@ func (s *SearchService) Search(ctx context.Context, query PostQuery) (PostPage, 
 	if err := contextError(ctx); err != nil {
 		return PostPage{}, err
 	}
-	if normalizeSource(query.Source) == SourceLocal && s.repository != nil && strings.TrimSpace(query.Query) != "" {
+	hasLocalFilters := query.HasMedia != nil || len(query.Origins) > 0 || len(query.TagIDs) > 0 || query.From > 0 || query.To > 0
+	if normalizeSource(query.Source) == SourceLocal && s.repository != nil && (strings.TrimSpace(query.Query) != "" || hasLocalFilters) {
 		page, err := s.repository.SearchFullText(models.FullTextQuery{
 			Query:    query.Query,
 			Offset:   query.Cursor,
@@ -62,6 +63,7 @@ func (s *SearchService) Search(ctx context.Context, query PostQuery) (PostPage, 
 			Sources:  query.Origins,
 			HasMedia: query.HasMedia,
 			TagIDs:   query.TagIDs,
+			Sort:     query.Sort,
 		})
 		if err != nil {
 			return PostPage{}, err

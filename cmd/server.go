@@ -40,20 +40,7 @@ func runServer() error {
 	}
 	defer application.Close()
 
-	gin.SetMode(gin.ReleaseMode)
-
-	r := gin.New()
-	r.Use(gin.Recovery())
-
-	server.Init(r, server.Dependencies{
-		Posts:      application.Posts,
-		Search:     application.Search,
-		Media:      application.Media,
-		Archive:    application.Archive,
-		Jobs:       application.Jobs,
-		Repository: application.Repository,
-		DataDir:    application.DataDir,
-	})
+	r := newServerEngine(application)
 
 	addr := fmt.Sprintf("%s:%s", serverHost, serverPort)
 	log.Printf("Starting PKU Hole API server on %s...", addr)
@@ -70,4 +57,20 @@ func runServer() error {
 	}
 
 	return nil
+}
+
+func newServerEngine(application *app.App) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	server.Init(r, server.Dependencies{
+		Posts:      application.Posts,
+		Search:     application.Search,
+		Media:      application.Media,
+		Archive:    application.Archive,
+		Jobs:       application.Jobs,
+		Repository: application.Repository,
+		DataDir:    application.DataDir,
+	})
+	return r
 }

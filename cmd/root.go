@@ -71,6 +71,7 @@ func NewRootCmd() *cobra.Command {
 	}
 	rootCmd.AddCommand(newCrawlerCmd())
 	rootCmd.AddCommand(newRebuildSearchIndexCmd())
+	rootCmd.AddCommand(newWebCmd())
 
 	return rootCmd
 }

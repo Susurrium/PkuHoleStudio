@@ -1,0 +1,41 @@
+import { ChangeEvent, DragEvent, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, FileArchive, UploadCloud } from 'lucide-react'
+import { api } from '../lib/api'
+import type { ImportCreated } from '../lib/types'
+import { PageHeader } from '../components/PageHeader'
+import { ErrorState } from '../components/States'
+import { JobRow } from '../components/JobRow'
+
+export function ImportsPage() {
+  const client = useQueryClient()
+  const [file, setFile] = useState<File | null>(null)
+  const [result, setResult] = useState<ImportCreated | null>(null)
+  const upload = useMutation({ mutationFn: api.importArchive, onSuccess: (value) => { setResult(value); client.invalidateQueries({ queryKey: ['jobs'] }) } })
+  function pick(files?: FileList | null) { const next = files?.[0] ?? null; setFile(next); setResult(null); upload.reset() }
+  function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
+  return <>
+    <PageHeader eyebrow="TOOLKIT BRIDGE" title="归档导入" description="导入旧版 {holes, comments} JSON 或 archive v2 .treehole.zip。预检会先验证结构、PID、数量和完整性，再创建可恢复的持久任务。" />
+    <div className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
+      <section className="panel p-5 md:p-7">
+        <label onDrop={drop} onDragOver={(event) => event.preventDefault()} className="flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line bg-paper/50 p-7 text-center transition hover:border-teal hover:bg-teal-soft/20">
+          <input className="sr-only" type="file" accept=".json,.zip,.treehole.zip,application/json,application/zip" onChange={(event: ChangeEvent<HTMLInputElement>) => pick(event.target.files)} />
+          <div className="grid size-14 place-items-center rounded-2xl bg-teal-soft text-teal"><UploadCloud size={25} /></div>
+          <p className="mt-5 font-semibold">拖入归档，或点击选择文件</p><p className="mt-2 text-xs leading-5 text-ink-soft">单文件上限 200 MB · 解压内容上限 500 MB</p>
+        </label>
+        {file && <div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-white/55 p-4"><FileArchive className="text-coral" size={20} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{file.name}</p><p className="mt-0.5 text-xs text-ink-soft">{(file.size / 1024 / 1024).toFixed(2)} MB</p></div></div>}
+        <button className="button-primary mt-4 w-full" disabled={!file || upload.isPending} onClick={() => file && upload.mutate(file)}>{upload.isPending ? '正在预检并排队…' : '预检并开始导入'}</button>
+        {upload.error && <div className="mt-4"><ErrorState error={upload.error} /></div>}
+      </section>
+      <section className="panel p-5 md:p-7">
+        <p className="eyebrow">IMPORT REPORT</p><h2 className="mt-1 text-xl font-semibold">预检与任务报告</h2>
+        {!result ? <div className="mt-6 grid min-h-64 place-items-center rounded-2xl border border-dashed border-line text-center"><div><FileArchive className="mx-auto text-ink-soft/50" /><p className="mt-3 text-sm text-ink-soft">选择文件后，这里会显示格式、记录数量和异常项。</p></div></div> : <div className="mt-5">
+          <div className="flex items-start gap-3 rounded-xl bg-teal-soft/55 p-4"><CheckCircle2 className="mt-0.5 shrink-0 text-teal" size={19} /><div><p className="text-sm font-semibold">预检完成 · {result.preflight.format}</p><p className="mt-1 font-mono text-[10px] break-all text-ink-soft">SHA-256 {result.preflight.hash}</p></div></div>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{Object.entries(result.preflight.counts).filter(([, value]) => typeof value === 'number').map(([key, value]) => <div key={key} className="rounded-xl border border-line bg-white/50 p-3"><p className="text-xl font-semibold">{value}</p><p className="mt-1 font-mono text-[10px] text-ink-soft">{key}</p></div>)}</div>
+          {result.preflight.issues.length > 0 && <div className="mt-4 max-h-56 space-y-2 overflow-auto">{result.preflight.issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="rounded-lg border border-coral/20 bg-coral-soft/30 p-3 text-xs"><p className="font-semibold text-coral">{issue.code}</p><p className="mt-1 leading-5 text-ink-soft">{issue.message}</p></div>)}</div>}
+          <div className="mt-5"><JobRow job={result.job} /></div>
+        </div>}
+      </section>
+    </div>
+  </>
+}

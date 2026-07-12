@@ -1,4 +1,7 @@
-web
+/web/node_modules/
+/web/coverage/
+/web/playwright-report/
+/web/test-results/
 build
 data/
 .out
@@ -13,3 +16,6 @@ scripts/
 **/download
 *.db
 .omx
+
+!web/**/*.html
+!web/**/*.json

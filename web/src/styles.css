@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --color-paper: #f4f0e7;
+  --color-paper-deep: #e8e0d2;
+  --color-ink: #172c33;
+  --color-ink-soft: #53656a;
+  --color-coral: #e4654f;
+  --color-coral-soft: #f7d8cf;
+  --color-teal: #287f78;
+  --color-teal-soft: #cfe6e0;
+  --color-line: #d8cfc0;
+}
+
+:root {
+  color: #172c33;
+  background: #f4f0e7;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+::selection { background: #f0b7a9; color: #172c33; }
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-line bg-white/65 shadow-[0_12px_35px_rgba(23,44,51,0.06)];
+  }
+  .button-primary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .button-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-line bg-white/70 px-4 py-2 text-sm font-semibold text-ink transition hover:border-teal hover:text-teal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .field {
+    @apply min-h-11 w-full rounded-xl border border-line bg-white/75 px-3 text-sm text-ink outline-none transition placeholder:text-ink-soft/60 focus:border-teal focus:ring-3 focus:ring-teal/10;
+  }
+  .eyebrow {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-teal;
+  }
+  .page-title {
+    @apply text-3xl font-semibold tracking-[-0.035em] text-ink md:text-4xl;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[11px] text-ink-soft;
+  }
+}
+
+.paper-grid {
+  background-image:
+    linear-gradient(rgba(23, 44, 51, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 44, 51, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+mark { background: #f7d8cf; color: inherit; border-radius: 3px; padding-inline: 2px; }
