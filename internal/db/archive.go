@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	archivepkg "github.com/Susurrium/PkuHoleStudio/internal/archive"
@@ -76,6 +79,50 @@ func (d *Database) ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]a
 				}
 			}
 		}
+	}
+	var tagRows []struct {
+		PID   int32  `gorm:"column:pid"`
+		Name  string `gorm:"column:name"`
+		Color string `gorm:"column:color"`
+	}
+	if err := d.db.WithContext(ctx).Table("post_tags").Select("post_tags.pid, local_tags.name, local_tags.color").Joins("JOIN local_tags ON local_tags.id = post_tags.tag_id").Where("post_tags.pid IN ?", matchedPIDs).Order("post_tags.pid ASC, local_tags.name ASC").Scan(&tagRows).Error; err != nil {
+		return nil, err
+	}
+	for _, tag := range tagRows {
+		if index, ok := indexByPID[tag.PID]; ok {
+			records[index].Studio.Tags = append(records[index].Studio.Tags, archivepkg.PortableLocalTag{Name: tag.Name, Color: tag.Color})
+		}
+	}
+	commentPID := make(map[int32]int32, len(comments))
+	commentIDs := make([]int32, 0, len(comments))
+	for _, comment := range comments {
+		commentPID[comment.Cid] = comment.Pid
+		commentIDs = append(commentIDs, comment.Cid)
+	}
+	var notes []models.Note
+	noteQuery := d.db.WithContext(ctx).Where("owner_type = ? AND owner_id IN ?", "post", matchedPIDs)
+	if len(commentIDs) > 0 {
+		noteQuery = noteQuery.Or("owner_type = ? AND owner_id IN ?", "comment", commentIDs)
+	}
+	if err := noteQuery.Find(&notes).Error; err != nil {
+		return nil, err
+	}
+	for _, note := range notes {
+		if note.OwnerType == "post" {
+			if index, ok := indexByPID[int32(note.OwnerID)]; ok {
+				records[index].Studio.Note = note.Content
+			}
+			continue
+		}
+		pid, ok := commentPID[int32(note.OwnerID)]
+		if !ok {
+			continue
+		}
+		index := indexByPID[pid]
+		if records[index].Studio.CommentNotes == nil {
+			records[index].Studio.CommentNotes = make(map[string]string)
+		}
+		records[index].Studio.CommentNotes[fmt.Sprint(note.OwnerID)] = note.Content
 	}
 	return records, nil
 }
@@ -223,6 +270,49 @@ func (a *archiveTransaction) UpsertMedia(ctx context.Context, media []archivepkg
 			"updated_at":   now,
 		}),
 	}).CreateInBatches(rows, 100).Error
+}
+
+func (a *archiveTransaction) MergeLocalMetadata(ctx context.Context, records []archivepkg.Record) error {
+	now := time.Now().UTC()
+	for _, record := range records {
+		for _, portable := range record.Studio.Tags {
+			name := strings.TrimSpace(portable.Name)
+			if name == "" {
+				continue
+			}
+			tag := models.LocalTag{Name: name, Color: strings.TrimSpace(portable.Color), CreatedAt: now, UpdatedAt: now}
+			if err := a.tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "name"}}, DoNothing: true}).Create(&tag).Error; err != nil {
+				return err
+			}
+			if err := a.tx.WithContext(ctx).Where("name = ?", name).First(&tag).Error; err != nil {
+				return err
+			}
+			if err := a.tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&models.PostTag{PID: record.PID, TagID: tag.ID, CreatedAt: now}).Error; err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(record.Studio.Note) != "" {
+			note := models.Note{OwnerType: "post", OwnerID: int64(record.PID), Content: record.Studio.Note, CreatedAt: now, UpdatedAt: now}
+			if err := a.tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "owner_type"}, {Name: "owner_id"}}, DoNothing: true}).Create(&note).Error; err != nil {
+				return err
+			}
+		}
+		validComments := make(map[int32]bool, len(record.Comments))
+		for _, comment := range record.Comments {
+			validComments[comment.Cid] = true
+		}
+		for rawCID, content := range record.Studio.CommentNotes {
+			cid64, err := strconv.ParseInt(rawCID, 10, 32)
+			if err != nil || !validComments[int32(cid64)] || strings.TrimSpace(content) == "" {
+				continue
+			}
+			note := models.Note{OwnerType: "comment", OwnerID: cid64, Content: content, CreatedAt: now, UpdatedAt: now}
+			if err := a.tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "owner_type"}, {Name: "owner_id"}}, DoNothing: true}).Create(&note).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (a *archiveTransaction) SaveImportRun(ctx context.Context, run archivepkg.ImportRun) error {

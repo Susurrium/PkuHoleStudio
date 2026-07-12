@@ -102,6 +102,11 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 		if err := tx.UpsertMedia(ctx, media); err != nil {
 			return err
 		}
+		if metadata, ok := tx.(LocalMetadataTransaction); ok {
+			if err := metadata.MergeLocalMetadata(ctx, preflight.records); err != nil {
+				return err
+			}
+		}
 		return tx.SaveImportRun(ctx, run)
 	}); err != nil {
 		return ImportReport{}, err

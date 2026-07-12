@@ -36,6 +36,7 @@ type rawItem struct {
 	Hole        json.RawMessage   `json:"hole"`
 	Comments    []json.RawMessage `json:"comments"`
 	FetchStatus string            `json:"fetchStatus"`
+	Studio      StudioMetadata    `json:"studioMetadata,omitempty"`
 	shapeError  string
 }
 
@@ -287,7 +288,7 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 			report.Counts.SkippedItems++
 			continue
 		}
-		record := Record{PID: pid, Source: item.Source, FetchStatus: item.FetchStatus, Post: post, ContextOnly: item.Source == "referenced"}
+		record := Record{PID: pid, Source: item.Source, FetchStatus: item.FetchStatus, Post: post, ContextOnly: item.Source == "referenced", Studio: sanitizeStudioMetadata(item.Studio)}
 		report.media = mergeMediaRecords(report.media, inferredMedia("post", int64(pid), item.Hole, post.Type == "image"))
 		if record.ContextOnly {
 			report.Counts.ContextOnly++
@@ -430,6 +431,35 @@ func decodeArchiveMedia(data []byte, entries map[string][]byte, records []Record
 		result = append(result, item)
 	}
 	return result, issues
+}
+
+func sanitizeStudioMetadata(value StudioMetadata) StudioMetadata {
+	result := StudioMetadata{CommentNotes: make(map[string]string)}
+	seen := make(map[string]bool)
+	for _, tag := range value.Tags {
+		name := strings.TrimSpace(tag.Name)
+		if name == "" || len(name) > 128 || seen[name] || len(result.Tags) >= 100 {
+			continue
+		}
+		seen[name] = true
+		color := strings.TrimSpace(tag.Color)
+		if len(color) > 32 {
+			color = ""
+		}
+		result.Tags = append(result.Tags, PortableLocalTag{Name: name, Color: color})
+	}
+	if len(value.Note) <= 100_000 {
+		result.Note = strings.TrimSpace(value.Note)
+	}
+	for cid, note := range value.CommentNotes {
+		if _, err := strconv.ParseInt(cid, 10, 32); err == nil && len(note) <= 100_000 {
+			result.CommentNotes[cid] = strings.TrimSpace(note)
+		}
+	}
+	if len(result.CommentNotes) == 0 {
+		result.CommentNotes = nil
+	}
+	return result
 }
 
 func inferredMedia(ownerType string, ownerID int64, raw json.RawMessage, force bool) []MediaRecord {
