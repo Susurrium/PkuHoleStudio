@@ -20,6 +20,7 @@
 - 本地详情增加评论级笔记和有界引用关系图；图谱支持一层/两层展开、关系类型区分和 PID 跳转，并限制最多 100 个节点。
 - Studio archive v2 增加向后兼容的 `studioMetadata` 扩展，可往返本地标签、帖子笔记和评论笔记；导入采用合并且不覆盖策略，Markdown 同步输出本地元数据。
 - archive v2 与 Markdown 导出迁入 `export_archive` 持久任务，增加任务历史、完成后下载、失败重试和 30 天过期文件清理；旧同步导出 API 继续兼容。
+- AI 配置增加向后兼容的 Provider 列表和活动 Provider，可在 Web 新增、删除、切换 OpenAI-compatible 模型；各 Provider API key 独立保存且不通过读取接口回显。
 - 增加 Toolkit → Studio 一次性本地配对导入：配对码 5 分钟过期，归档先预检并等待用户确认，不传输登录凭据。
 - 同步中心改为优先自动验证已有本机会话，并把 Studio 账号密码登录折叠为备用方式。
 - TUI 认证状态现在区分 IAAA 与树洞会话验证阶段，短信/动态口令会提交到正确端点。

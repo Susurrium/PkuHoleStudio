@@ -175,6 +175,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	}
 	if application.AI == nil {
 		aiConfig := application.Config.AI
+		config.NormalizeAIProviders(&aiConfig)
 		defaults := config.DefaultConfig().AI
 		if aiConfig.MaxSearchRounds <= 0 {
 			aiConfig.MaxSearchRounds = defaults.MaxSearchRounds
