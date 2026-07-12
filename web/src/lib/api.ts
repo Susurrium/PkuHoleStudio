@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, Capabilities, CommentPage, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, Capabilities, CommentPage, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -44,6 +44,10 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, payload }),
   }),
   jobAction: (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => request<Job>(`/jobs/${id}/${action}`, { method: 'POST' }),
+	session: () => request<AuthStatus>('/session'),
+	probeSession: () => request<AuthStatus>('/session/probe', { method: 'POST' }),
+	loginSession: (username: string, password: string) => request<AuthStatus>('/session/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }),
+	continueSession: (challenge: 'sms' | 'otp', code: string) => request<AuthStatus>('/session/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge, code }) }),
 	importArchive: (file: File) => {
     const body = new FormData()
     body.append('file', file)

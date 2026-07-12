@@ -53,6 +53,18 @@ export interface Capabilities {
   jobs: boolean
   ai: boolean
   live_search: boolean
+  online_sync?: boolean
+}
+
+export interface AuthStatus {
+  checked: boolean
+  has_session: boolean
+  can_read_online: boolean
+  can_write_online: boolean
+  failure_kind?: string
+  message?: string
+  challenge?: 'sms' | 'otp' | 'username' | 'password' | ''
+  challenge_reason?: string
 }
 
 export interface ArchiveIssue { severity: string; code: string; message: string; path?: string; pid?: number; cid?: number }

@@ -28,7 +28,7 @@ export function DashboardPage() {
       <PageHeader eyebrow="LIBRARY DESK" title="你的树洞资料，在本机慢慢长成档案" description="同步、检索与导入共享同一套本地资料库。任务可以离开页面继续运行，进度会在返回时恢复。" actions={
         <>
           <button className="button-secondary" disabled={createJob.isPending} onClick={() => createJob.mutate({ type: 'rebuild_search_index' })}><Search size={16} />重建索引</button>
-          <button className="button-primary" disabled={createJob.isPending} onClick={() => createJob.mutate({ type: 'sync_followed', payload: { pages: 1 } })}><RefreshCw size={16} />同步关注</button>
+          <Link className="button-primary" to="/sync"><RefreshCw size={16} />打开同步中心</Link>
         </>
       } />
 
@@ -39,7 +39,7 @@ export function DashboardPage() {
         <Metric icon={RefreshCw} label="活动任务" value={(jobs.data ?? []).filter((job) => ['queued', 'running', 'paused'].includes(job.status)).length} note="刷新页面不会丢失" />
       </section>
 
-      {empty && <section className="mt-7"><EmptyState title="资料库还是空的" description="从 Toolkit 归档导入最稳妥，也可以登录后同步关注洞或指定 PID。" action={<div className="flex flex-wrap justify-center gap-2"><Link className="button-primary" to="/imports"><Import size={16} />导入归档</Link><button className="button-secondary" onClick={() => createJob.mutate({ type: 'sync_followed', payload: { pages: 1 } })}><RefreshCw size={16} />开始同步</button></div>} /></section>}
+      {empty && <section className="mt-7"><EmptyState title="资料库还是空的" description="从 Toolkit 归档导入最稳妥，也可以登录后同步关注洞或指定 PID。" action={<div className="flex flex-wrap justify-center gap-2"><Link className="button-primary" to="/imports"><Import size={16} />导入归档</Link><Link className="button-secondary" to="/sync"><RefreshCw size={16} />开始同步</Link></div>} /></section>}
 
       <section className="mt-7 grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
         <div className="panel p-5 md:p-6">

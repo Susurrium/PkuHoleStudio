@@ -29,6 +29,7 @@ type Options struct {
 	DataDir    string
 	Archive    service.ArchiveService
 	AI         service.AIService
+	Auth       service.AuthService
 	Jobs       *jobs.Manager
 }
 
@@ -57,6 +58,7 @@ type App struct {
 	Media   *service.MediaService
 	Archive service.ArchiveService
 	AI      service.AIService
+	Auth    service.AuthService
 	Jobs    *jobs.Manager
 
 	DataDir string
@@ -80,6 +82,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	application := &App{
 		Archive: options.Archive,
 		AI:      options.AI,
+		Auth:    options.Auth,
 		Jobs:    options.Jobs,
 		DataDir: normalizedDataDir(options.DataDir),
 	}
@@ -152,6 +155,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		application.DataDir,
 		service.NewTreeholeMediaRemote(application.Client),
 	)
+	if application.Auth == nil {
+		application.Auth = service.NewAuthService(application.Client, application.Config)
+	}
 	if application.Archive == nil {
 		application.Archive = archive.NewImporter(application.Repository)
 	}

@@ -69,6 +69,7 @@ func newServerEngine(application *app.App) *gin.Engine {
 		Media:      application.Media,
 		Archive:    application.Archive,
 		AI:         application.AI,
+		Auth:       application.Auth,
 		Jobs:       application.Jobs,
 		Repository: application.Repository,
 		DataDir:    application.DataDir,

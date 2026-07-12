@@ -133,6 +133,33 @@ func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	}
 }
 
+func TestAPIV1SessionStatusAndLocalLogin(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	response := performRequest(router, http.MethodGet, "/api/v1/session", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"has_session":true`) {
+		t.Fatalf("session response = %d %s", response.Code, response.Body.String())
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/login", strings.NewReader(`{"username":"student","password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:54321"
+	login := httptest.NewRecorder()
+	router.ServeHTTP(login, request)
+	if login.Code != http.StatusOK || !strings.Contains(login.Body.String(), `"can_read_online":true`) {
+		t.Fatalf("local login response = %d %s", login.Code, login.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/login", strings.NewReader(`{"username":"student","password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "192.0.2.10:54321"
+	remote := httptest.NewRecorder()
+	router.ServeHTTP(remote, request)
+	if remote.Code != http.StatusForbidden || !strings.Contains(remote.Body.String(), `"code":"local_access_required"`) {
+		t.Fatalf("remote login response = %d %s", remote.Code, remote.Body.String())
+	}
+}
+
 func TestAPIV1AISessionLifecycleWithoutConfiguredProvider(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()
