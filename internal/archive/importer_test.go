@@ -64,6 +64,7 @@ type fakeArchiveStore struct {
 	comments     []models.Comment
 	sources      []PostSource
 	references   []Reference
+	media        []MediaRecord
 	saved        *ImportRun
 	failAt       string
 	transactions int
@@ -86,6 +87,7 @@ func (s *fakeArchiveStore) Transaction(ctx context.Context, fn func(Transaction)
 	s.comments = append(s.comments, tx.comments...)
 	s.sources = append(s.sources, tx.sources...)
 	s.references = append(s.references, tx.references...)
+	s.media = append(s.media, tx.media...)
 	if tx.saved != nil {
 		copy := *tx.saved
 		s.saved = &copy
@@ -98,6 +100,7 @@ type fakeArchiveTransaction struct {
 	comments   []models.Comment
 	sources    []PostSource
 	references []Reference
+	media      []MediaRecord
 	saved      *ImportRun
 	failAt     string
 }
@@ -131,6 +134,14 @@ func (t *fakeArchiveTransaction) UpsertReferences(_ context.Context, rows []Refe
 		return errors.New("references failed")
 	}
 	t.references = append(t.references, rows...)
+	return nil
+}
+
+func (t *fakeArchiveTransaction) UpsertMedia(_ context.Context, rows []MediaRecord) error {
+	if t.failAt == "media" {
+		return errors.New("media failed")
+	}
+	t.media = append(t.media, rows...)
 	return nil
 }
 

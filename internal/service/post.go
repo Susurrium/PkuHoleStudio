@@ -131,6 +131,7 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 		return PostDetail{}, errors.New("post was not found")
 	}
 	references := []Reference{}
+	media := []models.Media{}
 	if query.Source == SourceLocal {
 		if repository, ok := s.repository.(ReferenceRepository); ok {
 			edges, referenceErr := repository.GetReferencesByPID(pid)
@@ -144,11 +145,18 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 				})
 			}
 		}
+		if repository, ok := s.repository.(MediaRepository); ok {
+			media, err = repository.GetMediaByPID(pid)
+			if err != nil {
+				return PostDetail{}, err
+			}
+		}
 	}
 	return PostDetail{
 		Post:              *post,
 		Comments:          comments.Items,
 		References:        references,
+		Media:             media,
 		NextCommentCursor: comments.NextCursor,
 		HasMoreComments:   comments.HasMore,
 	}, nil

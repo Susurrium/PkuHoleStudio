@@ -74,6 +74,32 @@ func (d *Database) schemaMigrations() ([]schemaMigration, error) {
 				)
 			},
 		},
+		{
+			version: 4,
+			name:    "media archive metadata and local availability",
+			apply: func(tx *gorm.DB) error {
+				if tx.Migrator().HasIndex(&models.Media{}, "idx_media_owner_remote") {
+					if err := tx.Migrator().DropIndex(&models.Media{}, "idx_media_owner_remote"); err != nil {
+						return err
+					}
+				}
+				if err := tx.AutoMigrate(&models.Media{}); err != nil {
+					return err
+				}
+				if err := tx.Model(&models.Media{}).Where("path <> ''").Update("status", "available").Error; err != nil {
+					return err
+				}
+				var posts []models.Post
+				if err := tx.Where("type = ? OR media_ids <> ''", "image").Find(&posts).Error; err != nil {
+					return err
+				}
+				var comments []models.Comment
+				if err := tx.Where("media_ids <> ''").Find(&comments).Error; err != nil {
+					return err
+				}
+				return upsertRemoteMediaMetadata(tx, posts, comments)
+			},
+		},
 	}
 	if d.dbType == "postgres" {
 		migrations = append(migrations, schemaMigration{

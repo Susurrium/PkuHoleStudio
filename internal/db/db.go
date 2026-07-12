@@ -227,6 +227,9 @@ func (d *Database) SaveCrawlResultWithSource(posts []models.Post, comments []mod
 		if err := upsertComments(tx, comments); err != nil {
 			return err
 		}
+		if err := upsertRemoteMediaMetadata(tx, posts, comments); err != nil {
+			return err
+		}
 		if source == "" || len(posts) == 0 {
 			return nil
 		}
@@ -240,6 +243,33 @@ func (d *Database) SaveCrawlResultWithSource(posts []models.Post, comments []mod
 			DoUpdates: clause.Assignments(map[string]any{"context_only": false, "last_seen_at": now}),
 		}).CreateInBatches(rows, 100).Error
 	})
+}
+
+func upsertRemoteMediaMetadata(tx *gorm.DB, posts []models.Post, comments []models.Comment) error {
+	now := time.Now().UTC()
+	rows := make([]models.Media, 0)
+	appendOwner := func(ownerType string, ownerID int64, rawIDs string, force bool) {
+		ids := strings.FieldsFunc(rawIDs, func(r rune) bool { return r == ',' || r == ';' || r == ' ' })
+		if len(ids) == 0 && force {
+			ids = []string{""}
+		}
+		for _, id := range ids {
+			rows = append(rows, models.Media{RemoteID: strings.TrimSpace(id), OwnerType: ownerType, OwnerID: ownerID, Variant: "original", Status: "missing", CreatedAt: now, UpdatedAt: now})
+		}
+	}
+	for _, post := range posts {
+		appendOwner("post", int64(post.Pid), post.MediaIds, post.Type == "image")
+	}
+	for _, comment := range comments {
+		appendOwner("comment", int64(comment.Cid), comment.MediaIds, false)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "owner_type"}, {Name: "owner_id"}, {Name: "variant"}, {Name: "remote_id"}},
+		DoNothing: true,
+	}).CreateInBatches(rows, 100).Error
 }
 
 func (d *Database) UpsertComments(comments []models.Comment) error {
@@ -333,6 +363,48 @@ func (d *Database) GetPostByPid(pid int32) (*models.Post, error) {
 		return nil, err
 	}
 	return &post, nil
+}
+
+func (d *Database) GetMediaByPID(pid int32) ([]models.Media, error) {
+	var media []models.Media
+	err := d.db.Where("(owner_type = ? AND owner_id = ?) OR (owner_type = ? AND owner_id IN (SELECT cid FROM comments WHERE pid = ?))", "post", pid, "comment", pid).
+		Order("owner_type ASC, owner_id ASC, variant ASC, id ASC").Find(&media).Error
+	return media, err
+}
+
+func (d *Database) GetMediaByID(id uint) (*models.Media, error) {
+	var media models.Media
+	if err := d.db.First(&media, id).Error; err != nil {
+		return nil, err
+	}
+	return &media, nil
+}
+
+func (d *Database) ListMissingMedia(limit int) ([]models.MediaRepairCandidate, error) {
+	if limit <= 0 || limit > 10_000 {
+		limit = 10_000
+	}
+	var media []models.MediaRepairCandidate
+	err := d.db.Raw(`SELECT media.*,
+		CASE WHEN media.owner_type = 'post' THEN media.owner_id ELSE comments.pid END AS pid
+		FROM media
+		LEFT JOIN comments ON media.owner_type = 'comment' AND comments.cid = media.owner_id
+		WHERE media.status <> 'available' OR media.path = ''
+		ORDER BY media.id ASC LIMIT ?`, limit).Scan(&media).Error
+	return media, err
+}
+
+func (d *Database) MarkMediaAvailable(id uint, contentHash, path, mimeType string, size int64) error {
+	return d.db.Model(&models.Media{}).Where("id = ?", id).Updates(map[string]any{
+		"content_hash": contentHash, "path": path, "mime_type": mimeType,
+		"size": size, "status": "available", "last_error": "", "updated_at": time.Now().UTC(),
+	}).Error
+}
+
+func (d *Database) MarkMediaFailed(id uint, message string) error {
+	return d.db.Model(&models.Media{}).Where("id = ?", id).Updates(map[string]any{
+		"status": "failed", "last_error": message, "updated_at": time.Now().UTC(),
+	}).Error
 }
 
 func (d *Database) GetCommentByCid(cid int32) (*models.Comment, error) {

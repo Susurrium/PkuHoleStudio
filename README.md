@@ -14,10 +14,11 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - SQLite 本地资料库；保留 PostgreSQL 基础兼容。
 - SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
 - 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
-- PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
+- Studio 原生支持旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
 - 原生 Web 同步中心：自动检测已有本机会话、关注/指定 PID/公共时间线同步；账号密码登录仅作为备用方式。
-- Toolkit 可用 5 分钟有效的一次性配对码把刚导出的归档直接发到 Studio；Studio 预检后仍需本机确认，桥接不传账号、Cookie 或 token。
-- 本地资料库可导出 archive v2 或逐洞 Markdown ZIP；Toolkit 保持为可选的浏览器迁移桥梁。
+- Studio 可独立导入和导出带图片的 archive v2 或逐洞 Markdown ZIP；旧 v2 继续兼容，图片按 SHA-256 校验和去重。
+- Toolkit 仅作为独立、可选的浏览器导出工具；也可用 5 分钟有效的一次性配对码把归档发送给 Studio，核心导入导出流程不依赖它。
+- 帖子详情展示帖子/评论图片、缺失媒体状态，以及明确、推断、评论引用的前向和反向关系。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。

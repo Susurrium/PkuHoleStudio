@@ -751,7 +751,12 @@ func apiMedia(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusNotFound, "not_found", "media was not found", nil)
 			return
 		}
-		file, err := dependencies.Media.Locate(c.Request.Context(), service.MediaRequest{ID: id, Thumbnail: c.Query("thumbnail") == "true"})
+		recordID, parseErr := strconv.ParseUint(id, 10, 64)
+		if parseErr != nil || recordID == 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "media id must be a positive integer", gin.H{"field": "id"})
+			return
+		}
+		file, err := dependencies.Media.Locate(c.Request.Context(), service.MediaRequest{RecordID: uint(recordID), Thumbnail: c.Query("thumbnail") == "true"})
 		if errors.Is(err, os.ErrNotExist) {
 			apiFailure(c, http.StatusNotFound, "not_found", "media was not found", nil)
 			return
@@ -858,7 +863,31 @@ func apiJobAction(dependencies Dependencies, action string) gin.HandlerFunc {
 			apiFailure(c, status, code, err.Error(), nil)
 			return
 		}
+		if action == "cancel" && job.Type == jobs.TypeImportArchive {
+			removeStagedImportFile(dependencies.DataDir, job.Payload)
+		}
 		apiRespond(c, http.StatusOK, toPublicJob(job))
+	}
+}
+
+func removeStagedImportFile(dataDir string, raw json.RawMessage) {
+	var payload struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(raw, &payload) != nil || strings.TrimSpace(payload.Path) == "" {
+		return
+	}
+	root, err := filepath.Abs(filepath.Join(dataDir, "imports", "staging"))
+	if err != nil {
+		return
+	}
+	path, err := filepath.Abs(payload.Path)
+	if err != nil {
+		return
+	}
+	relative, err := filepath.Rel(root, path)
+	if err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		_ = os.Remove(path)
 	}
 }
 

@@ -111,7 +111,8 @@ func (Reference) TableName() string { return "references" }
 
 type Media struct {
 	ID          uint      `gorm:"primaryKey;column:id" json:"id"`
-	RemoteID    string    `gorm:"column:remote_id;size:128;index" json:"remote_id,omitempty"`
+	RemoteID    string    `gorm:"column:remote_id;size:128;index;uniqueIndex:idx_media_owner_remote" json:"remote_id,omitempty"`
+	RemoteURL   string    `gorm:"column:remote_url;type:text" json:"remote_url,omitempty"`
 	ContentHash string    `gorm:"column:content_hash;size:64;index" json:"content_hash,omitempty"`
 	OwnerType   string    `gorm:"column:owner_type;size:16;not null;uniqueIndex:idx_media_owner_remote" json:"owner_type"`
 	OwnerID     int64     `gorm:"column:owner_id;not null;uniqueIndex:idx_media_owner_remote" json:"owner_id"`
@@ -119,11 +120,20 @@ type Media struct {
 	Path        string    `gorm:"column:path;type:text" json:"path,omitempty"`
 	MIMEType    string    `gorm:"column:mime_type;size:128" json:"mime_type,omitempty"`
 	Size        int64     `gorm:"column:size;not null;default:0" json:"size"`
+	Width       int       `gorm:"column:width;not null;default:0" json:"width,omitempty"`
+	Height      int       `gorm:"column:height;not null;default:0" json:"height,omitempty"`
+	Status      string    `gorm:"column:status;size:16;not null;default:missing;index" json:"status"`
+	LastError   string    `gorm:"column:last_error;type:text" json:"last_error,omitempty"`
 	CreatedAt   time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 }
 
 func (Media) TableName() string { return "media" }
+
+type MediaRepairCandidate struct {
+	Media
+	PID int32 `json:"pid" gorm:"column:pid"`
+}
 
 type SearchHistory struct {
 	ID          uint      `gorm:"primaryKey;column:id" json:"id"`

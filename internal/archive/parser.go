@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"path"
 	"regexp"
 	"strconv"
@@ -24,8 +25,9 @@ const MaxItems = 20_000
 var (
 	pidPattern        = regexp.MustCompile(`^\d{5,7}$`)
 	hashReference     = regexp.MustCompile(`#(\d{5,7})`)
-	leadingReference  = regexp.MustCompile(`^\s*(\d{5,7})\s+`)
-	allowedZIPEntries = map[string]bool{"manifest.json": true, "data.json": true, "readable.txt": true}
+	leadingReference  = regexp.MustCompile(`^\s*(\d{5,7})(?:\s+|$)`)
+	contextReference  = regexp.MustCompile(`(?i)(?:见|参考|来自|查看|看到|提到|推荐)\s*#?(\d{5,7})|(?:#?)(\d{5,7})\s*(?:的洞|的\s*dz|这个洞|号洞)`)
+	allowedZIPEntries = map[string]bool{"manifest.json": true, "data.json": true, "readable.txt": true, "media/index.json": true}
 )
 
 type rawItem struct {
@@ -95,8 +97,11 @@ func parseV2(ctx context.Context, reader io.ReaderAt, size int64, hash string) (
 			return PreflightReport{}, fmt.Errorf("duplicate ZIP entry %q", name)
 		}
 		seen[name] = true
-		if !allowedZIPEntries[name] {
+		if !allowedZIPEntries[name] && !strings.HasPrefix(name, "media/") {
 			return PreflightReport{}, fmt.Errorf("unexpected ZIP entry %q", name)
+		}
+		if strings.HasPrefix(name, "media/") && name != "media/index.json" && file.FileInfo().IsDir() {
+			continue
 		}
 		uncompressed += file.UncompressedSize64
 		if uncompressed > uint64(MaxUncompressedBytes) {
@@ -136,6 +141,27 @@ func parseV2(ctx context.Context, reader io.ReaderAt, size int64, hash string) (
 	}
 	report := validateItems(ctx, FormatV2, hash, manifest.RunID, items)
 	report.Manifest = &manifest
+	if indexBytes, ok := entries["media/index.json"]; ok {
+		media, mediaIssues := decodeArchiveMedia(indexBytes, entries, report.records)
+		report.media = mergeMediaRecords(report.media, media)
+		report.Issues = append(report.Issues, mediaIssues...)
+		referencedPaths := make(map[string]bool, len(media))
+		for _, item := range media {
+			referencedPaths[item.Path] = item.Path != ""
+		}
+		for name := range entries {
+			if strings.HasPrefix(name, "media/") && name != "media/index.json" && !referencedPaths[name] {
+				report.Issues = append(report.Issues, issue(SeverityError, "unreferenced_media_file", "media file is not declared by media/index.json", name))
+			}
+		}
+	} else {
+		for name := range entries {
+			if strings.HasPrefix(name, "media/") && name != "media/index.json" {
+				report.Issues = append(report.Issues, issue(SeverityError, "missing_media_index", "archive contains media files but no media/index.json", name))
+			}
+		}
+	}
+	recountMedia(&report)
 	if !manifest.Complete {
 		report.Issues = append(report.Issues, issue(SeverityWarning, "incomplete_export", "manifest marks this export incomplete", "manifest.complete"))
 	}
@@ -262,6 +288,7 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 			continue
 		}
 		record := Record{PID: pid, Source: item.Source, FetchStatus: item.FetchStatus, Post: post, ContextOnly: item.Source == "referenced"}
+		report.media = mergeMediaRecords(report.media, inferredMedia("post", int64(pid), item.Hole, post.Type == "image"))
 		if record.ContextOnly {
 			report.Counts.ContextOnly++
 		}
@@ -288,24 +315,235 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 			}
 			seenCIDs[comment.Cid] = true
 			record.Comments = append(record.Comments, comment)
-			record.References = append(record.References, textReferences(pid, &comment.Cid, comment.Text)...)
+			report.media = mergeMediaRecords(report.media, inferredMedia("comment", int64(comment.Cid), rawComment, false))
+			record.References = append(record.References, explicitTextReferences(pid, &comment.Cid, comment.Text)...)
 			if comment.QuoteID != nil {
 				targetCID := *comment.QuoteID
 				record.References = append(record.References, Reference{
-					Kind: "quotes", SourcePID: pid, SourceCID: &comment.Cid,
+					Kind: "quoted_comment", SourcePID: pid, SourceCID: &comment.Cid,
 					TargetPID: pid, TargetCID: &targetCID,
 				})
 			}
 		}
-		record.References = append(record.References, textReferences(pid, nil, post.Text)...)
+		record.References = append(record.References, explicitTextReferences(pid, nil, post.Text)...)
 		report.records = append(report.records, record)
 		report.Counts.ValidItems++
 		report.Counts.Comments += len(record.Comments)
 		report.Counts.Sources++
 		report.Counts.References += len(record.References)
 	}
+	knownTargets := make(map[int32]bool, len(report.records))
+	for _, record := range report.records {
+		knownTargets[record.PID] = true
+	}
+	for index := range report.records {
+		record := &report.records[index]
+		record.References = mergeReferences(record.References, inferredTextReferences(record.PID, nil, record.Post.Text, knownTargets))
+		for _, comment := range record.Comments {
+			record.References = mergeReferences(record.References, inferredTextReferences(record.PID, &comment.Cid, comment.Text, knownTargets))
+		}
+	}
+	report.Counts.References = 0
+	for _, record := range report.records {
+		report.Counts.References += len(record.References)
+	}
+	recountMedia(&report)
 	finalizeReport(&report)
 	return report
+}
+
+func decodeArchiveMedia(data []byte, entries map[string][]byte, records []Record) ([]MediaRecord, []Issue) {
+	var media []MediaRecord
+	if err := json.Unmarshal(data, &media); err != nil {
+		return nil, []Issue{issue(SeverityError, "invalid_media_index", "media/index.json must be an array: "+err.Error(), "media/index.json")}
+	}
+	validOwners := make(map[string]bool)
+	for _, record := range records {
+		validOwners[fmt.Sprintf("post:%d", record.PID)] = true
+		for _, comment := range record.Comments {
+			validOwners[fmt.Sprintf("comment:%d", comment.Cid)] = true
+		}
+	}
+	result := make([]MediaRecord, 0, len(media))
+	issues := make([]Issue, 0)
+	for index, item := range media {
+		itemPath := fmt.Sprintf("media/index.json[%d]", index)
+		item.OwnerType = strings.ToLower(strings.TrimSpace(item.OwnerType))
+		item.Variant = strings.ToLower(strings.TrimSpace(item.Variant))
+		item.Status = strings.ToLower(strings.TrimSpace(item.Status))
+		if item.Variant == "" {
+			item.Variant = "original"
+		}
+		if item.Status == "" {
+			item.Status = "missing"
+		}
+		if !validOwners[fmt.Sprintf("%s:%d", item.OwnerType, item.OwnerID)] {
+			issues = append(issues, issue(SeverityError, "invalid_media_owner", "media owner is not present in valid archive records", itemPath))
+			continue
+		}
+		if item.Variant != "original" && item.Variant != "thumbnail" {
+			issues = append(issues, issue(SeverityError, "invalid_media_variant", "media variant must be original or thumbnail", itemPath+".variant"))
+			continue
+		}
+		if item.Status != "available" && item.Status != "missing" && item.Status != "failed" {
+			issues = append(issues, issue(SeverityError, "invalid_media_status", "media status must be available, missing, or failed", itemPath+".status"))
+			continue
+		}
+		if item.Path == "" {
+			item.Status = "missing"
+			result = append(result, item)
+			continue
+		}
+		clean := path.Clean(strings.ReplaceAll(item.Path, `\`, "/"))
+		if clean != item.Path || !strings.HasPrefix(clean, "media/") || clean == "media/index.json" {
+			issues = append(issues, issue(SeverityError, "unsafe_media_path", "media path must name a safe file below media/", itemPath+".path"))
+			continue
+		}
+		content, ok := entries[clean]
+		if !ok {
+			issues = append(issues, issue(SeverityError, "missing_media_file", "media file is absent from the ZIP", itemPath+".path"))
+			continue
+		}
+		if int64(len(content)) > MaxMediaBytes {
+			issues = append(issues, issue(SeverityError, "media_too_large", fmt.Sprintf("individual media exceeds %d bytes", MaxMediaBytes), itemPath+".path"))
+			continue
+		}
+		if item.Size != int64(len(content)) {
+			issues = append(issues, issue(SeverityError, "media_size_mismatch", "media file size does not match index", itemPath+".size"))
+			continue
+		}
+		digest := sha256.Sum256(content)
+		actualHash := hex.EncodeToString(digest[:])
+		if !strings.EqualFold(item.SHA256, actualHash) {
+			issues = append(issues, issue(SeverityError, "media_hash_mismatch", "media SHA-256 does not match index", itemPath+".sha256"))
+			continue
+		}
+		detected := http.DetectContentType(content)
+		if !strings.HasPrefix(detected, "image/") {
+			issues = append(issues, issue(SeverityError, "invalid_media_type", "archive media must be an image", itemPath+".mimeType"))
+			continue
+		}
+		item.SHA256 = actualHash
+		item.MIMEType = detected
+		item.Status = "available"
+		item.Content = content
+		result = append(result, item)
+	}
+	return result, issues
+}
+
+func inferredMedia(ownerType string, ownerID int64, raw json.RawMessage, force bool) []MediaRecord {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	mediaIDs := splitJSONText(fields["media_ids"])
+	remoteURL := jsonText(fields["url"])
+	if len(mediaIDs) == 0 && !force && remoteURL == "" {
+		return nil
+	}
+	if len(mediaIDs) == 0 {
+		mediaIDs = []string{""}
+	}
+	dimensions := imageDimensions(fields["image_size"])
+	result := make([]MediaRecord, 0, len(mediaIDs))
+	for index, remoteID := range mediaIDs {
+		item := MediaRecord{OwnerType: ownerType, OwnerID: ownerID, RemoteID: remoteID, RemoteURL: remoteURL, Variant: "original", Status: "missing"}
+		if index < len(dimensions) {
+			item.Width, item.Height = dimensions[index][0], dimensions[index][1]
+		} else if len(dimensions) == 1 {
+			item.Width, item.Height = dimensions[0][0], dimensions[0][1]
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func splitJSONText(raw json.RawMessage) []string {
+	value := jsonText(raw)
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == ' ' })
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func jsonText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value string
+	if json.Unmarshal(raw, &value) == nil {
+		return strings.TrimSpace(value)
+	}
+	return strings.Trim(strings.TrimSpace(string(raw)), `"`)
+}
+
+func imageDimensions(raw json.RawMessage) [][2]int {
+	var values any
+	if len(raw) == 0 || json.Unmarshal(raw, &values) != nil {
+		return nil
+	}
+	var result [][2]int
+	var visit func(any)
+	visit = func(value any) {
+		items, ok := value.([]any)
+		if !ok {
+			return
+		}
+		if len(items) >= 2 {
+			width, widthOK := items[0].(float64)
+			height, heightOK := items[1].(float64)
+			if widthOK && heightOK && width > 0 && height > 0 {
+				result = append(result, [2]int{int(width), int(height)})
+				return
+			}
+		}
+		for _, item := range items {
+			visit(item)
+		}
+	}
+	visit(values)
+	return result
+}
+
+func mergeMediaRecords(base, additions []MediaRecord) []MediaRecord {
+	index := make(map[string]int, len(base)+len(additions))
+	for current := range base {
+		index[mediaRecordKey(base[current])] = current
+	}
+	for _, item := range additions {
+		key := mediaRecordKey(item)
+		if existing, ok := index[key]; ok {
+			if item.Status == "available" || base[existing].Status != "available" {
+				base[existing] = item
+			}
+			continue
+		}
+		index[key] = len(base)
+		base = append(base, item)
+	}
+	return base
+}
+
+func mediaRecordKey(item MediaRecord) string {
+	return fmt.Sprintf("%s:%d:%s:%s", item.OwnerType, item.OwnerID, item.Variant, item.RemoteID)
+}
+
+func recountMedia(report *PreflightReport) {
+	report.Counts.Media = len(report.media)
+	report.Counts.AvailableMedia = 0
+	report.Counts.MissingMedia = 0
+	for _, item := range report.media {
+		if item.Status == "available" {
+			report.Counts.AvailableMedia++
+		} else {
+			report.Counts.MissingMedia++
+		}
+	}
 }
 
 func decodeManifest(data []byte) (Manifest, error) {
@@ -538,7 +776,7 @@ func flattenCommentJSON(raw json.RawMessage) []json.RawMessage {
 	return result
 }
 
-func textReferences(sourcePID int32, sourceCID *int32, text string) []Reference {
+func explicitTextReferences(sourcePID int32, sourceCID *int32, text string) []Reference {
 	seen := make(map[int32]bool)
 	result := make([]Reference, 0)
 	appendMatch := func(value string) {
@@ -547,15 +785,69 @@ func textReferences(sourcePID int32, sourceCID *int32, text string) []Reference 
 			return
 		}
 		seen[pid] = true
-		result = append(result, Reference{Kind: "mentions", SourcePID: sourcePID, SourceCID: sourceCID, TargetPID: pid})
+		result = append(result, Reference{Kind: "explicit", SourcePID: sourcePID, SourceCID: sourceCID, TargetPID: pid})
 	}
 	for _, match := range hashReference.FindAllStringSubmatch(text, -1) {
 		appendMatch(match[1])
 	}
+	return result
+}
+
+func inferredTextReferences(sourcePID int32, sourceCID *int32, text string, knownTargets map[int32]bool) []Reference {
+	result := make([]Reference, 0)
+	seen := make(map[int32]bool)
+	appendMatch := func(value string) {
+		pid, err := parsePID(value)
+		if err != nil || pid == sourcePID || seen[pid] || !knownTargets[pid] {
+			return
+		}
+		seen[pid] = true
+		result = append(result, Reference{Kind: "inferred", SourcePID: sourcePID, SourceCID: sourceCID, TargetPID: pid})
+	}
 	if match := leadingReference.FindStringSubmatch(text); len(match) > 1 {
 		appendMatch(match[1])
 	}
+	for _, match := range contextReference.FindAllStringSubmatch(text, -1) {
+		for _, value := range match[1:] {
+			if value != "" {
+				appendMatch(value)
+			}
+		}
+	}
 	return result
+}
+
+// ExtractTextReferences exposes the same conservative reference rules to the
+// database repair job. Explicit #PID references do not require a local target;
+// contextual bare PIDs do.
+func ExtractTextReferences(sourcePID int32, sourceCID *int32, text string, knownTargets map[int32]bool) []Reference {
+	return mergeReferences(explicitTextReferences(sourcePID, sourceCID, text), inferredTextReferences(sourcePID, sourceCID, text, knownTargets))
+}
+
+func mergeReferences(base, additions []Reference) []Reference {
+	seen := make(map[string]bool, len(base)+len(additions))
+	for _, item := range base {
+		seen[referenceKey(item)] = true
+	}
+	for _, item := range additions {
+		key := referenceKey(item)
+		if !seen[key] {
+			seen[key] = true
+			base = append(base, item)
+		}
+	}
+	return base
+}
+
+func referenceKey(item Reference) string {
+	sourceCID, targetCID := int32(0), int32(0)
+	if item.SourceCID != nil {
+		sourceCID = *item.SourceCID
+	}
+	if item.TargetCID != nil {
+		targetCID = *item.TargetCID
+	}
+	return fmt.Sprintf("%s:%d:%d:%d:%d", item.Kind, item.SourcePID, sourceCID, item.TargetPID, targetCID)
 }
 
 func rawIntegerField(raw json.RawMessage, name string) (int64, bool) {

@@ -17,12 +17,13 @@ const (
 	TypeRepairMedia        Type = "repair_media"
 	TypeImportArchive      Type = "import_archive"
 	TypeRebuildSearchIndex Type = "rebuild_search_index"
+	TypeRebuildReferences  Type = "rebuild_references"
 )
 
 func (t Type) Valid() bool {
 	switch t {
 	case TypeSyncFollowed, TypeSyncPIDs, TypeSyncLatest, TypeRepairComments,
-		TypeRepairMedia, TypeImportArchive, TypeRebuildSearchIndex:
+		TypeRepairMedia, TypeImportArchive, TypeRebuildSearchIndex, TypeRebuildReferences:
 		return true
 	default:
 		return false

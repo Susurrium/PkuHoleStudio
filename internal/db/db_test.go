@@ -700,6 +700,25 @@ func TestGetCommentsWithImages(t *testing.T) {
 	}
 }
 
+func TestSaveCrawlResultRegistersPostAndCommentMedia(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	posts := []models.Post{{Pid: 123456, Text: "image", Type: "image", MediaIds: "10,11"}}
+	comments := []models.Comment{{Cid: 1001, Pid: 123456, Text: "comment image", MediaIds: "12"}}
+	if err := database.SaveCrawlResult(posts, comments); err != nil {
+		t.Fatal(err)
+	}
+	media, err := database.GetMediaByPID(123456)
+	if err != nil || len(media) != 3 {
+		t.Fatalf("GetMediaByPID() = %+v, %v", media, err)
+	}
+	for _, item := range media {
+		if item.Status != "missing" || item.Variant != "original" {
+			t.Fatalf("media = %+v", item)
+		}
+	}
+}
+
 func TestGetCommentsByPidCursor(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

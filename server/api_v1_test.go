@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -206,6 +208,32 @@ func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	response = performRequest(router, http.MethodGet, "/api/v1/search", nil, "")
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_input"`) {
 		t.Fatalf("missing q response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRemoveStagedImportFileCannotEscapeStagingDirectory(t *testing.T) {
+	dataDir := t.TempDir()
+	staging := filepath.Join(dataDir, "imports", "staging")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(staging, "cancelled.treehole.zip")
+	outside := filepath.Join(dataDir, "keep.txt")
+	if err := os.WriteFile(inside, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	insidePayload, _ := json.Marshal(map[string]any{"path": inside})
+	removeStagedImportFile(dataDir, insidePayload)
+	if _, err := os.Stat(inside); !os.IsNotExist(err) {
+		t.Fatalf("staged file still exists: %v", err)
+	}
+	outsidePayload, _ := json.Marshal(map[string]any{"path": outside})
+	removeStagedImportFile(dataDir, outsidePayload)
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside file was removed: %v", err)
 	}
 }
 

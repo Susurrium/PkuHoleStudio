@@ -22,7 +22,7 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	expectedVersion := expectedSchemaVersion(t, database)
+	expectedVersion := 4
 	if version != expectedVersion {
 		t.Fatalf("SchemaVersion() = %d, want %d", version, expectedVersion)
 	}
@@ -50,8 +50,9 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
-	if len(migrations) != expectedVersion {
-		t.Fatalf("applied migrations after reopen = %d, want %d", len(migrations), expectedVersion)
+	expectedCount := expectedMigrationCount(t, reopened)
+	if len(migrations) != expectedCount {
+		t.Fatalf("applied migrations after reopen = %d, want %d", len(migrations), expectedCount)
 	}
 	post, err := reopened.GetPostByPid(12345)
 	if err != nil || post.Text != "preserved" {
@@ -68,6 +69,9 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 	if err := legacy.Create(&models.Post{Pid: 54321, Text: "legacy", Timestamp: 10}).Error; err != nil {
 		t.Fatalf("seed legacy post: %v", err)
 	}
+	if err := legacy.Create(&models.Post{Pid: 54322, Text: "legacy image", Type: "image", MediaIds: "77"}).Error; err != nil {
+		t.Fatalf("seed legacy image post: %v", err)
+	}
 	closeRaw(t, legacy)
 
 	database := openDatabaseAt(t, path)
@@ -76,8 +80,8 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
-	expectedVersion := expectedSchemaVersion(t, database)
-	if len(migrations) != expectedVersion || migrations[0].Version != 1 || migrations[1].Version != 2 {
+	expectedCount := expectedMigrationCount(t, database)
+	if len(migrations) != expectedCount || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[len(migrations)-1].Version != 4 {
 		t.Fatalf("legacy migrations = %+v", migrations)
 	}
 	if migrations[0].Name != "pkuholetui baseline (adopted)" {
@@ -87,18 +91,22 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 	if err != nil || post.Text != "legacy" {
 		t.Fatalf("legacy post = %+v, error = %v", post, err)
 	}
+	media, err := database.GetMediaByPID(54322)
+	if err != nil || len(media) != 1 || media[0].RemoteID != "77" || media[0].Status != "missing" {
+		t.Fatalf("legacy media = %+v, error = %v", media, err)
+	}
 }
 
-func expectedSchemaVersion(t *testing.T, database *Database) int {
+func expectedMigrationCount(t *testing.T, database *Database) int {
 	t.Helper()
 	available, err := database.FTS5Available()
 	if err != nil {
 		t.Fatalf("FTS5Available() error = %v", err)
 	}
 	if available {
-		return 3
+		return 4
 	}
-	return 2
+	return 3
 }
 
 func TestMigrationsRejectIncompleteOrIncompatibleLegacySchema(t *testing.T) {
