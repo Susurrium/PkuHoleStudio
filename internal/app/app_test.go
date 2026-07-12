@@ -145,7 +145,7 @@ func TestCloseIsIdempotentAndClosesOwnedRepository(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 
-	if got, want := application.Ownership(), (Ownership{Repository: true, Jobs: true}); got != want {
+	if got, want := application.Ownership(), (Ownership{Repository: true, Jobs: true, AI: true}); got != want {
 		t.Errorf("Ownership() = %+v, want %+v", got, want)
 	}
 	if err := application.Close(); err != nil {
@@ -171,7 +171,7 @@ func TestOpenLoadsConfigAndOwnsCreatedDependencies(t *testing.T) {
 	if application.Config == nil || application.Repository == nil || application.Client == nil {
 		t.Fatal("Open() did not create its default dependencies")
 	}
-	if got, want := application.Ownership(), (Ownership{Config: true, Repository: true, Client: true, Jobs: true}); got != want {
+	if got, want := application.Ownership(), (Ownership{Config: true, Repository: true, Client: true, Jobs: true, AI: true}); got != want {
 		t.Errorf("Ownership() = %+v, want %+v", got, want)
 	}
 	if application.DataDir != "data" {

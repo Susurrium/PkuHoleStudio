@@ -16,6 +16,7 @@ type Dependencies struct {
 	Search     *service.SearchService
 	Media      *service.MediaService
 	Archive    service.ArchiveService
+	AI         service.AIService
 	Jobs       *jobs.Manager
 	Repository *db.Database
 	DataDir    string

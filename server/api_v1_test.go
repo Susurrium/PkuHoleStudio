@@ -107,6 +107,29 @@ func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	}
 }
 
+func TestAPIV1AISessionLifecycleWithoutConfiguredProvider(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	response := performRequest(router, http.MethodPost, "/api/v1/ai/sessions", strings.NewReader(`{"mode":"local","title":"Research"}`), "application/json")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create AI session = %d %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Data models.AISession `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Data.ID == "" {
+		t.Fatalf("created AI session = %+v, %v", created, err)
+	}
+	response = performRequest(router, http.MethodGet, "/api/v1/ai/sessions/"+created.Data.ID, nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Research") {
+		t.Fatalf("get AI session = %d %s", response.Code, response.Body.String())
+	}
+	response = performRequest(router, http.MethodPost, "/api/v1/ai/sessions/"+created.Data.ID+"/messages", strings.NewReader(`{"prompt":"question"}`), "application/json")
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "not configured") {
+		t.Fatalf("unconfigured AI message = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func performRequest(router http.Handler, method, target string, body io.Reader, contentType string) *httptest.ResponseRecorder {
 	var request *http.Request
 	if body == nil {

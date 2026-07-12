@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,10 @@ import (
 	"strings"
 	"time"
 
+	aipkg "github.com/Susurrium/PkuHoleStudio/internal/ai"
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -72,6 +75,24 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 
 	group.POST("/imports", apiCreateImport(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
+
+	group.GET("/ai/providers", apiAIProviders(dependencies))
+	group.GET("/ai/sessions", apiAISessions(dependencies))
+	group.POST("/ai/sessions", apiCreateAISession(dependencies))
+	group.GET("/ai/sessions/:id", apiAISession(dependencies))
+	group.POST("/ai/sessions/:id/messages", apiCreateAIMessage(dependencies))
+	group.GET("/ai/sessions/:id/events", apiAIEvents(dependencies))
+	group.POST("/ai/sessions/:id/cancel", apiAICancel(dependencies))
+}
+
+type aiAPIService interface {
+	service.AIService
+	Providers() []aipkg.ProviderInfo
+	CreateSession(ctx context.Context, mode, title string) (models.AISession, error)
+	ListSessions(ctx context.Context, limit int) ([]models.AISession, error)
+	GetSession(ctx context.Context, id string) (aipkg.SessionDetail, error)
+	Events(ctx context.Context, sessionID string) (<-chan service.AIEvent, error)
+	LiveSearchEnabled() bool
 }
 
 func apiHealth(dependencies Dependencies) gin.HandlerFunc {
@@ -91,15 +112,183 @@ func apiHealth(dependencies Dependencies) gin.HandlerFunc {
 func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fts, schemaVersion := false, 0
+		aiConfigured, liveSearch := false, false
 		if dependencies.Repository != nil {
 			fts, _ = dependencies.Repository.FTS5Available()
 			schemaVersion, _ = dependencies.Repository.SchemaVersion()
 		}
+		if aiService, ok := dependencies.AI.(aiAPIService); ok {
+			for _, provider := range aiService.Providers() {
+				aiConfigured = aiConfigured || provider.Configured
+			}
+			liveSearch = aiService.LiveSearchEnabled()
+		}
 		apiRespond(c, http.StatusOK, gin.H{
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
 			"archive_import": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
-			"ai": false, "live_search": false,
+			"ai": aiConfigured, "live_search": liveSearch,
 		})
+	}
+}
+
+func apiAIProviders(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, aiService.Providers())
+	}
+}
+
+func apiAISessions(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		limit, valid := boundedIntQuery(c, "limit", 50, 1, 100)
+		if !valid {
+			return
+		}
+		sessions, err := aiService.ListSessions(c.Request.Context(), limit)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, sessions)
+	}
+}
+
+func apiCreateAISession(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Mode  string `json:"mode"`
+		Title string `json:"title,omitempty"`
+	}
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		session, err := aiService.CreateSession(c.Request.Context(), body.Mode, body.Title)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, session)
+	}
+}
+
+func apiAISession(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		detail, err := aiService.GetSession(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			apiFailure(c, http.StatusNotFound, "not_found", "AI session was not found", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, detail)
+	}
+}
+
+func apiCreateAIMessage(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Prompt   string   `json:"prompt"`
+		PIDs     []int32  `json:"pids,omitempty"`
+		Course   string   `json:"course,omitempty"`
+		Teachers []string `json:"teachers,omitempty"`
+	}
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		for _, pid := range body.PIDs {
+			if pid <= 0 {
+				apiFailure(c, http.StatusBadRequest, "invalid_input", "pids must contain positive integers", gin.H{"field": "pids"})
+				return
+			}
+		}
+		detail, err := aiService.GetSession(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			apiFailure(c, http.StatusNotFound, "not_found", "AI session was not found", nil)
+			return
+		}
+		events, err := aiService.Run(context.Background(), service.AIRequest{SessionID: detail.Session.ID, Mode: detail.Session.Mode, Prompt: body.Prompt, PIDs: body.PIDs, Course: body.Course, Teachers: body.Teachers})
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "ai_rejected", err.Error(), nil)
+			return
+		}
+		go func() {
+			for range events {
+			}
+		}()
+		apiRespond(c, http.StatusAccepted, gin.H{"session_id": detail.Session.ID, "status": "started"})
+	}
+}
+
+func apiAIEvents(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		events, err := aiService.Events(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			apiFailure(c, http.StatusNotFound, "not_found", err.Error(), nil)
+			return
+		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+		c.Writer.Flush()
+		for {
+			select {
+			case event, open := <-events:
+				if !open {
+					return
+				}
+				encoded, _ := json.Marshal(event.Data)
+				_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, encoded)
+				c.Writer.Flush()
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
+	}
+}
+
+func apiAICancel(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aiService, ok := dependencies.AI.(aiAPIService)
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
+			return
+		}
+		if err := aiService.Cancel(c.Param("id")); err != nil {
+			apiFailure(c, http.StatusConflict, "invalid_state", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"status": "cancelling"})
 	}
 }
 
