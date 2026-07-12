@@ -31,6 +31,10 @@ func TestAPIV1PostsSearchAndErrorShape(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"pid":12345`) || strings.Contains(response.Body.String(), `"pid":23456`) {
 		t.Fatalf("search response = %d %s", response.Code, response.Body.String())
 	}
+	response = performRequest(router, http.MethodGet, "/api/v1/search/history", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "alpha beta") {
+		t.Fatalf("history response = %d %s", response.Code, response.Body.String())
+	}
 	response = performRequest(router, http.MethodGet, "/api/v1/posts?cursor=-1", nil, "")
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid response = %d %s", response.Code, response.Body.String())
