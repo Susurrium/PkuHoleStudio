@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, Post, PostDetail, PostPage, SearchHistory, Tag, UploadedMedia } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, NotificationPage, Post, PostDetail, PostPage, SearchHistory, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -44,6 +44,9 @@ export const api = {
 	createPost: (text: string, mediaIDs: string[]) => request<Post>('/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, media_ids: mediaIDs }) }),
 	createComment: (pid: number, text: string, quoteCID: number | undefined, mediaIDs: string[]) => request<Comment>(`/posts/${pid}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, quote_cid: quoteCID, media_ids: mediaIDs }) }),
 	togglePost: (pid: number, action: 'praise' | 'follow') => request<Post | { pid: number; updated: boolean }>(`/posts/${pid}/${action}`, { method: 'POST' }),
+	notifications: (type: 'interactive' | 'system') => request<NotificationPage>(`/notifications?type=${type}&limit=50`),
+	markNotificationRead: (id: number) => request<{ id: number; read: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
+	markAllNotificationsRead: (type: 'interactive' | 'system') => request<{ type: string; read: boolean }>(`/notifications/read-all?type=${type}`, { method: 'POST' }),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {
@@ -55,6 +58,7 @@ export const api = {
 	loginSession: (username: string, password: string) => request<AuthStatus>('/session/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }),
 	sendSessionSMS: (username: string) => request<AuthStatus>('/session/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) }),
 	continueSession: (stage: 'iaaa' | 'treehole' | '', challenge: 'sms' | 'otp', username: string, password: string, code: string) => request<AuthStatus>('/session/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, challenge, username: stage === 'iaaa' ? username : undefined, password: stage === 'iaaa' ? password : undefined, code }) }),
+	logoutSession: () => request<AuthStatus>('/session/logout', { method: 'POST' }),
 	importArchive: (file: File) => {
     const body = new FormData()
     body.append('file', file)

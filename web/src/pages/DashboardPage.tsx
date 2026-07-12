@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Database, Flame, Import, RefreshCw, Search } from 'lucide-react'
+import { Archive, Bell, Database, Flame, Import, RefreshCw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { Job } from '../lib/types'
@@ -14,6 +14,8 @@ export function DashboardPage() {
   const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: api.capabilities })
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 10_000 })
 	const hotPosts = useQuery({ queryKey: ['hot-posts'], queryFn: api.hotPosts, retry: false, staleTime: 5 * 60_000 })
+	const session = useQuery({ queryKey: ['session'], queryFn: api.session })
+	const notifications = useQuery({ queryKey: ['notifications', 'interactive'], queryFn: () => api.notifications('interactive'), enabled: session.data?.has_session === true, retry: false })
   const createJob = useMutation({
     mutationFn: ({ type, payload }: { type: string; payload?: unknown }) => api.createJob(type, payload),
     onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }),
@@ -49,7 +51,7 @@ export function DashboardPage() {
             {jobs.data?.length ? jobs.data.slice(0, 6).map((job) => <JobController key={job.id} job={job} />) : <p className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-ink-soft">还没有任务记录</p>}
           </div>
         </div>
-        <div className="grid gap-6"><div className="panel p-5 md:p-6">
+        <div className="grid gap-6">{session.data?.has_session && <div className="panel p-5 md:p-6"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">NOTIFICATIONS</p><h2 className="mt-1 text-xl font-semibold">互动通知</h2></div><Bell size={19} className="text-teal" /></div><p className="mt-4 text-sm text-ink-soft">{notifications.data ? `${notifications.data.items.filter((item) => !item.read).length} 条未读，最近载入 ${notifications.data.items.length} 条` : notifications.error ? '通知暂时不可用' : '正在读取通知…'}</p><Link className="button-secondary mt-4 w-full" to="/notifications">打开通知中心</Link></div>}<div className="panel p-5 md:p-6">
           <p className="eyebrow">HOT POSTS</p><h2 className="mt-1 text-xl font-semibold">最近 12 小时热榜</h2>
 			<div className="mt-4 grid gap-2">{hotPosts.data?.length ? hotPosts.data.map((post) => <Link key={post.id} to={`/posts/${post.id}?source=live`} className="rounded-xl border border-line bg-white/45 p-3 text-sm hover:border-coral/40"><span className="font-mono font-semibold text-coral">#{post.id}</span><p className="mt-1 line-clamp-2 text-ink-soft">{post.text || '（无正文）'}</p><span className="mt-2 inline-flex items-center gap-1 text-xs text-ink-soft"><Flame size={12} />{post.follownum}</span></Link>) : <p className="rounded-xl border border-dashed border-line p-5 text-center text-xs text-ink-soft">{hotPosts.error ? '热榜暂时不可用' : '正在读取热榜…'}</p>}</div>
 		</div><div className="panel p-5 md:p-6">

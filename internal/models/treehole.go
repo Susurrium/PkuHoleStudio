@@ -141,12 +141,12 @@ const (
 )
 
 type Notification struct {
-	ID        int
-	PID       int32
-	Title     string
-	Content   string
-	Read      bool
-	CreatedAt string
-	Timestamp int64
-	Type      NotificationType
+	ID        int              `json:"id"`
+	PID       int32            `json:"pid"`
+	Title     string           `json:"title"`
+	Content   string           `json:"content"`
+	Read      bool             `json:"read"`
+	CreatedAt string           `json:"created_at"`
+	Timestamp int64            `json:"timestamp"`
+	Type      NotificationType `json:"type"`
 }

@@ -263,6 +263,7 @@ type Model struct {
 	PostsService   *service.PostService
 	SyncOperations SyncOperations
 	Client         *client.Client
+	Notifications  *service.NotificationService
 	Config         *config.Config
 	Provider       PostsProvider
 	Session        SessionState
@@ -313,6 +314,7 @@ func NewModel(posts *service.PostService, syncOperations SyncOperations, client 
 		PostsService:   posts,
 		SyncOperations: syncOperations,
 		Client:         client,
+		Notifications:  service.NewNotificationService(client),
 		Config:         cfg,
 		Provider:       provider,
 		Session:        session,
@@ -336,7 +338,7 @@ func (m Model) Init() tea.Cmd {
 		func() tea.Msg {
 			return LoginMsg{Username: username}
 		},
-		loadDashboardNotificationsCmd(m.Client),
+		loadDashboardNotificationsCmd(m.Notifications),
 		loadDashboardHotPostsCmd(),
 		tickCmd(),
 	)

@@ -27,6 +27,7 @@ type AuthService interface {
 	Login(ctx context.Context, username, password string) AuthStatus
 	SendSMS(ctx context.Context, username string) AuthStatus
 	Continue(ctx context.Context, stage, challenge, username, password, code string) AuthStatus
+	Logout(ctx context.Context) error
 }
 
 type TreeholeAuthService struct {
@@ -131,6 +132,16 @@ func (s *TreeholeAuthService) Continue(ctx context.Context, stage, challenge, us
 		return authStatusFromBootstrap(s.client.BootstrapSessionWithIAAAVerification(&cfg, password, kind, strings.TrimSpace(code)))
 	}
 	return authStatusFromBootstrap(s.client.ContinueAuthChallenge(kind, strings.TrimSpace(code)))
+}
+
+func (s *TreeholeAuthService) Logout(ctx context.Context) error {
+	if err := authContextError(ctx); err != nil {
+		return err
+	}
+	if s == nil || s.client == nil {
+		return errors.New("树洞客户端未初始化")
+	}
+	return s.client.ClearSession()
 }
 
 func authStatusFromBootstrap(result client.AuthBootstrapResult) AuthStatus {

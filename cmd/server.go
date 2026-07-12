@@ -64,16 +64,17 @@ func newServerEngine(application *app.App) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	server.Init(r, server.Dependencies{
-		Posts:      application.Posts,
-		Search:     application.Search,
-		Media:      application.Media,
-		Dashboard:  application.Dashboard,
-		Archive:    application.Archive,
-		AI:         application.AI,
-		Auth:       application.Auth,
-		Jobs:       application.Jobs,
-		Repository: application.Repository,
-		DataDir:    application.DataDir,
+		Posts:         application.Posts,
+		Search:        application.Search,
+		Media:         application.Media,
+		Dashboard:     application.Dashboard,
+		Notifications: application.Notifications,
+		Archive:       application.Archive,
+		AI:            application.AI,
+		Auth:          application.Auth,
+		Jobs:          application.Jobs,
+		Repository:    application.Repository,
+		DataDir:       application.DataDir,
 	})
 	return r
 }

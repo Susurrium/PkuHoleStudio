@@ -16,6 +16,7 @@ export function SyncPage() {
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 10_000 })
   const setSession = (value: AuthStatus) => client.setQueryData(['session'], value)
   const probe = useMutation({ mutationFn: api.probeSession, onSuccess: setSession })
+	const logout = useMutation({ mutationFn: api.logoutSession, onSuccess: (value) => { setSession(value); setShowLogin(false) } })
   const create = useMutation({ mutationFn: ({ type, payload }: { type: string; payload?: unknown }) => api.createJob(type, payload), onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }) })
 
   useEffect(() => {
@@ -29,12 +30,12 @@ export function SyncPage() {
   const online = Boolean(status?.checked && status.can_read_online)
   const recentJobs = (jobs.data ?? []).filter((job) => syncTypes.has(job.type)).slice(0, 10)
   return <>
-    <PageHeader eyebrow="NATIVE SYNC" title="同步中心" description="直接从树洞同步关注、指定 PID 或最新时间线。同步写入本机资料库，并复用可暂停、恢复和重试的持久任务。" actions={<button className="button-secondary" disabled={probe.isPending} onClick={() => probe.mutate()}><SearchCheck size={16} />{probe.isPending ? '检测中…' : '检测登录状态'}</button>} />
+    <PageHeader eyebrow="NATIVE SYNC" title="同步中心" description="直接从树洞同步关注、指定 PID 或最新时间线。同步写入本机资料库，并复用可暂停、恢复和重试的持久任务。" actions={<>{status?.has_session && <button className="button-secondary" disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? '正在退出…' : '退出本机会话'}</button>}<button className="button-secondary" disabled={probe.isPending} onClick={() => probe.mutate()}><SearchCheck size={16} />{probe.isPending ? '检测中…' : '检测登录状态'}</button></>} />
     <section className={`panel p-5 md:p-6 ${online ? 'border-teal/30' : ''}`}>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3"><div className={`grid size-11 shrink-0 place-items-center rounded-xl ${online ? 'bg-teal-soft text-teal' : 'bg-coral-soft text-coral'}`}>{online ? <ShieldCheck size={20} /> : <KeyRound size={20} />}</div><div><p className="font-semibold">{online ? '在线读取已就绪' : status?.has_session ? '发现本机凭据，尚未验证' : '需要登录树洞'}</p><p className="mt-1 text-sm leading-6 text-ink-soft">{status?.message || '点击检测登录状态，或在本页完成登录。'}</p>{status?.challenge_reason && <p className="mt-2 text-xs text-coral">{status.challenge_reason}</p>}</div></div>
         {!online && <div className="w-full max-w-md lg:w-[420px]">
-          {!showLogin && !status?.challenge && <div className="rounded-xl border border-line bg-white/55 p-4"><p className="text-sm font-semibold">推荐：使用浏览器里的 Toolkit</p><p className="mt-1 text-xs leading-5 text-ink-soft">先在树洞网页正常登录，再由 Toolkit 把 archive v2 直接发送到 Studio。Studio 不需要读取浏览器 Cookie，也不会接触你的登录凭据。</p><a className="button-primary mt-3 w-full" href="/imports">前往安全配对导入</a><button className="mt-3 w-full text-xs font-semibold text-ink-soft hover:text-ink" type="button" onClick={() => setShowLogin(true)}>其他方式：在 Studio 中登录</button></div>}
+          {!showLogin && !status?.challenge && <div className="rounded-xl border border-line bg-white/55 p-4"><p className="text-sm font-semibold">Studio 原生在线同步</p><p className="mt-1 text-xs leading-5 text-ink-soft">在这里登录后即可直接同步和使用在线功能。密码只用于当前登录请求，不由网页保存；已建立的会话保存在本机。</p><button className="button-primary mt-3 w-full" type="button" onClick={() => setShowLogin(true)}>在 Studio 中登录</button><a className="mt-3 block w-full text-center text-xs font-semibold text-ink-soft hover:text-ink" href="/imports">只想迁移资料？前往归档导入</a></div>}
           {(showLogin || Boolean(status?.challenge)) && <><LoginPanel status={status} onStatus={setSession} /><button className="mt-2 w-full text-xs text-ink-soft hover:text-ink" type="button" onClick={() => setShowLogin(false)}>收起备用登录</button></>}
         </div>}
       </div>

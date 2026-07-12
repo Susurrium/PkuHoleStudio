@@ -51,6 +51,8 @@ export interface Job {
 export interface Health { status: string; posts?: number; comments?: number }
 export interface HotPost { id: number; text: string; follownum: number }
 export interface UploadedMedia { id: string; filename: string; size: number }
+export interface Notification { id: number; pid?: number; title?: string; content: string; read: boolean; created_at?: string; timestamp?: number; type: 'int_msg' | 'sys_msg' }
+export interface NotificationPage { items: Notification[]; total: number; page: number }
 export interface Capabilities {
   api_version: string
   schema_version: number

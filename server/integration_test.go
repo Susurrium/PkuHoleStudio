@@ -99,6 +99,7 @@ func (authStub) SendSMS(context.Context, string) service.AuthStatus {
 func (authStub) Continue(context.Context, string, string, string, string, string) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
 }
+func (authStub) Logout(context.Context) error { return nil }
 
 func TestRouterRegistration(t *testing.T) {
 	_, r, cleanup := setupTestEnv(t)

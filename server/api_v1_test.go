@@ -364,6 +364,13 @@ func TestAPIV1SessionStatusAndLocalLogin(t *testing.T) {
 	if remote.Code != http.StatusForbidden || !strings.Contains(remote.Body.String(), `"code":"local_access_required"`) {
 		t.Fatalf("remote login response = %d %s", remote.Code, remote.Body.String())
 	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/logout", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	logout := httptest.NewRecorder()
+	router.ServeHTTP(logout, request)
+	if logout.Code != http.StatusOK || !strings.Contains(logout.Body.String(), `"has_session":false`) {
+		t.Fatalf("logout response = %d %s", logout.Code, logout.Body.String())
+	}
 }
 
 func TestAPIV1AISessionLifecycleWithoutConfiguredProvider(t *testing.T) {

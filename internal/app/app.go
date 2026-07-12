@@ -53,15 +53,16 @@ type App struct {
 	Repository *db.Database
 	Client     *client.Client
 
-	Posts     *service.PostService
-	Search    *service.SearchService
-	Sync      *service.SyncService
-	Media     *service.MediaService
-	Dashboard *service.DashboardService
-	Archive   service.ArchiveService
-	AI        service.AIService
-	Auth      service.AuthService
-	Jobs      *jobs.Manager
+	Posts         *service.PostService
+	Search        *service.SearchService
+	Sync          *service.SyncService
+	Media         *service.MediaService
+	Dashboard     *service.DashboardService
+	Notifications *service.NotificationService
+	Archive       service.ArchiveService
+	AI            service.AIService
+	Auth          service.AuthService
+	Jobs          *jobs.Manager
 
 	DataDir string
 
@@ -159,6 +160,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		application.Repository,
 	)
 	application.Dashboard = service.NewDashboardService()
+	application.Notifications = service.NewNotificationService(application.Client)
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}
