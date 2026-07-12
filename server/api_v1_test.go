@@ -15,7 +15,51 @@ import (
 
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
+	"github.com/gin-gonic/gin"
 )
+
+type writeRemoteStub struct {
+	postRequest    service.CreatePostRequest
+	commentRequest service.CreateCommentRequest
+	uploaded       bool
+}
+
+func (s *writeRemoteStub) ListPosts(context.Context, service.RemoteListQuery) ([]models.Post, int, error) {
+	return nil, 0, nil
+}
+func (s *writeRemoteStub) GetPost(context.Context, int32) (*models.Post, error) {
+	return &models.Post{Pid: 123456}, nil
+}
+func (s *writeRemoteStub) ListComments(context.Context, int32, service.RemoteCommentQuery) ([]models.Comment, int, error) {
+	return nil, 0, nil
+}
+func (s *writeRemoteStub) ListTags(context.Context) ([]models.Tag, error) { return nil, nil }
+func (s *writeRemoteStub) GetCourseTable(context.Context) ([]models.CourseScheduleRow, error) {
+	return nil, nil
+}
+func (s *writeRemoteStub) GetCourseScores(context.Context) (*models.ScoreSummary, error) {
+	return nil, nil
+}
+func (s *writeRemoteStub) RefreshPost(context.Context, int32) (*models.Post, error) {
+	return &models.Post{Pid: 123456}, nil
+}
+func (s *writeRemoteStub) TogglePraise(context.Context, int32) error    { return nil }
+func (s *writeRemoteStub) ToggleAttention(context.Context, int32) error { return nil }
+func (s *writeRemoteStub) UploadImage(_ context.Context, path string) (string, error) {
+	_, err := os.Stat(path)
+	s.uploaded = err == nil
+	return "77", err
+}
+func (s *writeRemoteStub) CreatePost(_ context.Context, request service.CreatePostRequest) (*models.Post, error) {
+	s.postRequest = request
+	return &models.Post{Pid: 123456, Text: request.Text}, nil
+}
+func (s *writeRemoteStub) CreateComment(_ context.Context, request service.CreateCommentRequest) (*models.Comment, error) {
+	s.commentRequest = request
+	return &models.Comment{Cid: 7, Pid: request.PID, Text: request.Text}, nil
+}
+func (s *writeRemoteStub) CanWrite(context.Context) (bool, error) { return true, nil }
 
 func TestAPIV1PostsSearchAndErrorShape(t *testing.T) {
 	database, router, cleanup := setupTestEnv(t)
@@ -46,6 +90,42 @@ func TestAPIV1PostsSearchAndErrorShape(t *testing.T) {
 	var failure apiErrorEnvelope
 	if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil || failure.Error.Code != "invalid_input" || failure.Error.Details == nil {
 		t.Fatalf("error body = %+v, %v", failure, err)
+	}
+}
+
+func TestAPIV1OnlineWriteEndpointsUsePostService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	remote := &writeRemoteStub{}
+	router := gin.New()
+	Init(router, Dependencies{Posts: service.NewPostService(nil, remote), Media: service.NewMediaService(t.TempDir(), nil), DataDir: t.TempDir()})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/posts", strings.NewReader(`{"text":"hello","media_ids":["77"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:50000"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || remote.postRequest.Text != "hello" || len(remote.postRequest.MediaIDs) != 1 {
+		t.Fatalf("create post = %d %s request=%+v", response.Code, response.Body.String(), remote.postRequest)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/posts/123456/comments", strings.NewReader(`{"text":"reply","quote_cid":6,"media_ids":["77"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:50000"
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || remote.commentRequest.QuoteID == nil || *remote.commentRequest.QuoteID != 6 {
+		t.Fatalf("create comment = %d %s request=%+v", response.Code, response.Body.String(), remote.commentRequest)
+	}
+	var upload bytes.Buffer
+	writer := multipart.NewWriter(&upload)
+	part, _ := writer.CreateFormFile("file", "image.png")
+	_, _ = part.Write([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00})
+	_ = writer.Close()
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/media/uploads", &upload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.RemoteAddr = "127.0.0.1:50000"
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !remote.uploaded || !strings.Contains(response.Body.String(), `"id":"77"`) {
+		t.Fatalf("upload = %d %s", response.Code, response.Body.String())
 	}
 }
 

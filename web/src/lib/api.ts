@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, PostDetail, PostPage, SearchHistory, Tag } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, ExportDownload, Health, HotPost, ImportCreated, Job, Post, PostDetail, PostPage, SearchHistory, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -40,6 +40,10 @@ export const api = {
   post: (pid: string | number, source: 'local' | 'live' = 'local') => request<PostDetail>(`/posts/${pid}${queryString({ source })}`),
   comments: (pid: string | number, cursor = 0, source: 'local' | 'live' = 'local') => request<CommentPage>(`/posts/${pid}/comments${queryString({ cursor, source })}`),
 	tags: () => request<Tag[]>('/tags?source=live'),
+	uploadMedia: (file: File) => { const body = new FormData(); body.append('file', file); return request<UploadedMedia>('/media/uploads', { method: 'POST', body }) },
+	createPost: (text: string, mediaIDs: string[]) => request<Post>('/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, media_ids: mediaIDs }) }),
+	createComment: (pid: number, text: string, quoteCID: number | undefined, mediaIDs: string[]) => request<Comment>(`/posts/${pid}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, quote_cid: quoteCID, media_ids: mediaIDs }) }),
+	togglePost: (pid: number, action: 'praise' | 'follow') => request<Post | { pid: number; updated: boolean }>(`/posts/${pid}/${action}`, { method: 'POST' }),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {

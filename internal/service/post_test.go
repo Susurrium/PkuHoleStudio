@@ -187,6 +187,25 @@ func TestPostServiceLiveDetailDescribesRemotePostAndCommentMedia(t *testing.T) {
 	}
 }
 
+func TestPostServicePublishesAndRepliesWithUploadedMediaIDs(t *testing.T) {
+	remote := &fakeRemote{canWrite: true}
+	posts := NewPostService(nil, remote)
+	id, err := posts.UploadMedia(context.Background(), "image.png", SourceLive)
+	if err != nil || id != "1" {
+		t.Fatalf("UploadMedia() = %q, %v", id, err)
+	}
+	if _, err := posts.PublishPost(context.Background(), "post", []string{id}, SourceLive); err != nil {
+		t.Fatal(err)
+	}
+	quote := int32(7)
+	if _, err := posts.Reply(context.Background(), 123456, "reply", &quote, []string{id}, SourceLive); err != nil {
+		t.Fatal(err)
+	}
+	if len(remote.uploadedPaths) != 1 || remote.uploadedPaths[0] != "image.png" {
+		t.Fatalf("uploaded paths = %+v", remote.uploadedPaths)
+	}
+}
+
 func TestPostServiceRejectsLocalFollowAndCancellation(t *testing.T) {
 	service := NewPostService(&fakeRepository{}, nil)
 	if _, err := service.List(context.Background(), PostQuery{Query: ":follow"}); err == nil {
