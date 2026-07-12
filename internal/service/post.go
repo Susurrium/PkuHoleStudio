@@ -389,6 +389,54 @@ func (s *PostService) CreatePost(ctx context.Context, text string, imagePaths []
 	return err
 }
 
+func (s *PostService) UploadMedia(ctx context.Context, imagePath, source string) (string, error) {
+	if normalizeSource(source) != SourceLive {
+		return "", errLiveOnly
+	}
+	if err := s.requireRemote(ctx); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(imagePath) == "" {
+		return "", errors.New("image path is required")
+	}
+	return s.remote.UploadImage(ctx, imagePath)
+}
+
+func (s *PostService) PublishPost(ctx context.Context, text string, mediaIDs []string, source string) (*models.Post, error) {
+	if normalizeSource(source) != SourceLive {
+		return nil, errLiveOnly
+	}
+	if err := s.requireRemote(ctx); err != nil {
+		return nil, err
+	}
+	text = strings.TrimSpace(text)
+	if text == "" && len(mediaIDs) == 0 {
+		return nil, errors.New("post text or media is required")
+	}
+	postType := "text"
+	if len(mediaIDs) > 0 {
+		postType = "image"
+	}
+	return s.remote.CreatePost(ctx, CreatePostRequest{Type: postType, Text: text, MediaIDs: mediaIDs})
+}
+
+func (s *PostService) Reply(ctx context.Context, pid int32, text string, quoteID *int32, mediaIDs []string, source string) (*models.Comment, error) {
+	if normalizeSource(source) != SourceLive {
+		return nil, errLiveOnly
+	}
+	if err := s.requireRemote(ctx); err != nil {
+		return nil, err
+	}
+	if pid <= 0 {
+		return nil, errors.New("pid must be positive")
+	}
+	text = strings.TrimSpace(text)
+	if text == "" && len(mediaIDs) == 0 {
+		return nil, errors.New("comment text or media is required")
+	}
+	return s.remote.CreateComment(ctx, CreateCommentRequest{PID: pid, Text: text, QuoteID: quoteID, MediaIDs: mediaIDs})
+}
+
 func (s *PostService) listLocal(ctx context.Context, query PostQuery, parsed ParsedPostQuery) (PostPage, error) {
 	if s == nil || s.repository == nil {
 		return PostPage{}, errRepositoryUnavailable

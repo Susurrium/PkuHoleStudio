@@ -60,13 +60,18 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/health", apiHealth(dependencies))
 	group.GET("/capabilities", apiCapabilities(dependencies))
 	group.GET("/posts", apiPosts(dependencies))
+	group.POST("/posts", apiCreatePost(dependencies))
 	group.GET("/posts/hot", apiHotPosts(dependencies))
 	group.GET("/posts/:pid", apiPost(dependencies))
 	group.GET("/posts/:pid/comments", apiComments(dependencies))
+	group.POST("/posts/:pid/comments", apiCreateComment(dependencies))
+	group.POST("/posts/:pid/praise", apiPostToggle(dependencies, "praise"))
+	group.POST("/posts/:pid/follow", apiPostToggle(dependencies, "follow"))
 	group.GET("/tags", apiTags(dependencies))
 	group.GET("/search", apiSearch(dependencies))
 	group.GET("/search/history", apiSearchHistory(dependencies))
 	group.GET("/media/:id", apiMedia(dependencies))
+	group.POST("/media/uploads", apiUploadMedia(dependencies))
 	group.GET("/remote-media/:id", apiRemoteMedia(dependencies))
 	group.GET("/session", apiSession(dependencies))
 	group.POST("/session/probe", apiProbeSession(dependencies))
@@ -680,6 +685,159 @@ func apiTags(dependencies Dependencies) gin.HandlerFunc {
 		}
 		apiRespond(c, http.StatusOK, items)
 	}
+}
+
+func apiCreatePost(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Text     string   `json:"text"`
+		MediaIDs []string `json:"media_ids,omitempty"`
+	}
+	return func(c *gin.Context) {
+		if !requireOnlineWrite(c, dependencies) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if len(body.Text) > 10_000 || !validRemoteMediaIDs(body.MediaIDs) {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "post text or media ids are invalid", nil)
+			return
+		}
+		post, err := dependencies.Posts.PublishPost(c.Request.Context(), body.Text, body.MediaIDs, service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "publish_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, post)
+	}
+}
+
+func apiCreateComment(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Text     string   `json:"text"`
+		QuoteCID *int32   `json:"quote_cid,omitempty"`
+		MediaIDs []string `json:"media_ids,omitempty"`
+	}
+	return func(c *gin.Context) {
+		if !requireOnlineWrite(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if len(body.Text) > 10_000 || (body.QuoteCID != nil && *body.QuoteCID <= 0) || !validRemoteMediaIDs(body.MediaIDs) {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "comment text, quote cid, or media ids are invalid", nil)
+			return
+		}
+		comment, err := dependencies.Posts.Reply(c.Request.Context(), pid, body.Text, body.QuoteCID, body.MediaIDs, service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "reply_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, comment)
+	}
+}
+
+func apiPostToggle(dependencies Dependencies, action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireOnlineWrite(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		var err error
+		if action == "praise" {
+			err = dependencies.Posts.TogglePraise(c.Request.Context(), pid, service.SourceLive)
+		} else {
+			err = dependencies.Posts.ToggleAttention(c.Request.Context(), pid, service.SourceLive)
+		}
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "interaction_failed", err.Error(), nil)
+			return
+		}
+		post, err := dependencies.Posts.RefreshPost(c.Request.Context(), pid, service.SourceLive)
+		if err != nil {
+			apiRespond(c, http.StatusOK, gin.H{"pid": pid, "updated": true})
+			return
+		}
+		apiRespond(c, http.StatusOK, post)
+	}
+}
+
+func apiUploadMedia(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireOnlineWrite(c, dependencies) {
+			return
+		}
+		const maxUpload = int64(20 << 20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUpload+(1<<20))
+		file, header, err := c.Request.FormFile("file")
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "multipart field file is required", gin.H{"field": "file"})
+			return
+		}
+		defer file.Close()
+		uploadDir := filepath.Join(dependencies.DataDir, "uploads", "temporary")
+		if err := os.MkdirAll(uploadDir, 0o700); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
+			return
+		}
+		staged, err := os.CreateTemp(uploadDir, "upload-*")
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
+			return
+		}
+		path := staged.Name()
+		defer os.Remove(path)
+		written, copyErr := io.Copy(staged, io.LimitReader(file, maxUpload+1))
+		closeErr := staged.Close()
+		if copyErr != nil || closeErr != nil || written <= 0 || written > maxUpload {
+			apiFailure(c, http.StatusBadRequest, "invalid_media", "image is empty, unreadable, or too large", nil)
+			return
+		}
+		content, err := os.ReadFile(path)
+		if err != nil || !strings.HasPrefix(http.DetectContentType(content), "image/") {
+			apiFailure(c, http.StatusBadRequest, "invalid_media", "uploaded file is not an image", gin.H{"filename": header.Filename})
+			return
+		}
+		id, err := dependencies.Posts.UploadMedia(c.Request.Context(), path, service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "upload_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, gin.H{"id": id, "filename": filepath.Base(header.Filename), "size": written})
+	}
+}
+
+func requireOnlineWrite(c *gin.Context, dependencies Dependencies) bool {
+	if !requireStudioBrowser(c) {
+		return false
+	}
+	if dependencies.Posts == nil || !dependencies.Posts.CanWrite(c.Request.Context(), service.SourceLive) {
+		apiFailure(c, http.StatusUnauthorized, "online_login_required", "a writable Treehole session is required", nil)
+		return false
+	}
+	return true
+}
+
+func validRemoteMediaIDs(values []string) bool {
+	if len(values) > 9 {
+		return false
+	}
+	for _, value := range values {
+		if _, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func apiPost(dependencies Dependencies) gin.HandlerFunc {

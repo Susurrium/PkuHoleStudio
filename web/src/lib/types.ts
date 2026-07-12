@@ -8,6 +8,8 @@ export interface Post {
   praise_num?: number
   media_ids?: string
   anonymous?: number | boolean
+  is_follow?: number | boolean
+  is_praise?: number | boolean
   comment_list?: Comment[]
 }
 
@@ -48,6 +50,7 @@ export interface Job {
 
 export interface Health { status: string; posts?: number; comments?: number }
 export interface HotPost { id: number; text: string; follownum: number }
+export interface UploadedMedia { id: string; filename: string; size: number }
 export interface Capabilities {
   api_version: string
   schema_version: number

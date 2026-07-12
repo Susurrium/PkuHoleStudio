@@ -1,6 +1,8 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Filter, Radio, Search } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Filter, ImagePlus, Radio, Search, Send } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/PageHeader'
@@ -22,6 +24,12 @@ export function PostsPage() {
 	const online = useQuery({ queryKey: ['online-posts-session'], queryFn: api.probeSession, enabled: source === 'live', retry: false })
 	const tags = useQuery({ queryKey: ['live-tags'], queryFn: api.tags, enabled: source === 'live' && online.data?.can_read_online === true })
 	const canRead = source === 'local' || online.data?.can_read_online === true
+	const [draft, setDraft] = useState('')
+	const [files, setFiles] = useState<File[]>([])
+	const publish = useMutation({
+		mutationFn: async () => { const ids: string[] = []; for (const file of files) ids.push((await api.uploadMedia(file)).id); return api.createPost(draft, ids) },
+		onSuccess: () => { setDraft(''); setFiles([]); query.refetch() },
+	})
 	const query = useInfiniteQuery({
 		queryKey: ['posts', source, sort, hasMedia, followed, label],
 		initialPageParam: 0,
@@ -36,6 +44,7 @@ export function PostsPage() {
 		<div className="mb-5 inline-flex rounded-xl border border-line bg-white/50 p-1"><button className={`rounded-lg px-4 py-2 text-sm font-medium ${source === 'local' ? 'bg-ink text-white' : 'text-ink-soft'}`} onClick={() => setParam('source', '')}>本地资料库</button><button className={`rounded-lg px-4 py-2 text-sm font-medium ${source === 'live' ? 'bg-ink text-white' : 'text-ink-soft'}`} onClick={() => setParam('source', 'live')}><Radio size={14} className="mr-1 inline" />在线树洞</button></div>
 		{source === 'live' && online.isLoading && <div className="mb-5"><LoadingState label="正在验证在线会话…" /></div>}
 		{source === 'live' && !online.isLoading && !online.data?.can_read_online && <div className="panel mb-5 border-coral/30 bg-coral-soft/30 p-5 text-sm"><p className="font-semibold">需要先登录树洞</p><p className="mt-1 text-ink-soft">{online.data?.message || '当前本机会话不能读取在线内容。'}</p><Link className="button-primary mt-4" to="/sync">前往同步中心登录</Link></div>}
+		{source === 'live' && online.data?.can_write_online && <section className="panel mb-6 p-5"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">COMPOSE</p><h2 className="mt-1 text-lg font-semibold">发布树洞</h2></div><span className="text-xs text-ink-soft">{draft.length}/10000</span></div><textarea className="field mt-4 min-h-28" value={draft} maxLength={10000} onChange={(event) => setDraft(event.target.value)} placeholder="写下想发布的内容…" /><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="button-secondary cursor-pointer"><ImagePlus size={16} />选择图片<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><div className="flex items-center gap-3"><span className="text-xs text-ink-soft">{files.length ? `已选择 ${files.length} 张图片` : publish.error ? String(publish.error) : ''}</span><button className="button-primary" disabled={publish.isPending || (!draft.trim() && !files.length)} onClick={() => publish.mutate()}><Send size={16} />{publish.isPending ? '正在上传并发布…' : '确认发布'}</button></div></div></section>}
     <div className="panel mb-6 grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto]">
 		<label><span className="mb-1.5 block text-xs font-medium text-ink-soft">排序</span><select className="field" value={sort} disabled={source === 'live'} onChange={(event) => setParam('sort', event.target.value)}><option value="desc">最新 PID 优先</option><option value="asc">最早 PID 优先</option><option value="reply">评论数优先</option><option value="praise_num">点赞数优先</option></select></label>
 		<label><span className="mb-1.5 block text-xs font-medium text-ink-soft">媒体</span><select className="field" value={hasMedia} onChange={(event) => setParam('media', event.target.value)}><option value="">全部内容</option><option value="true">有图片</option><option value="false">无图片</option></select></label>
