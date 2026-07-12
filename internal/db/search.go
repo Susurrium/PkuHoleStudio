@@ -183,6 +183,9 @@ func (d *Database) buildSearchPage(query models.FullTextQuery, posts []postMatch
 func searchFilterSQL(query models.FullTextQuery, pid *int32, postAlias string) (string, []any) {
 	var builder strings.Builder
 	args := make([]any, 0)
+	if len(query.Sources) == 0 {
+		builder.WriteString(" AND (NOT EXISTS (SELECT 1 FROM post_sources visibility_source WHERE visibility_source.pid = " + postAlias + ".pid) OR EXISTS (SELECT 1 FROM post_sources visibility_source WHERE visibility_source.pid = " + postAlias + ".pid AND visibility_source.context_only = false))")
+	}
 	if pid != nil {
 		builder.WriteString(" AND " + postAlias + ".pid = ?")
 		args = append(args, *pid)

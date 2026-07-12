@@ -70,6 +70,9 @@ type Database struct {
 	dbType string
 }
 
+const visibleLibraryPostSQL = `(NOT EXISTS (SELECT 1 FROM post_sources visibility_source WHERE visibility_source.pid = posts.pid)
+	OR EXISTS (SELECT 1 FROM post_sources visibility_source WHERE visibility_source.pid = posts.pid AND visibility_source.context_only = false))`
+
 func NewDatabase(cfg *config.Config) (*Database, error) {
 	dsn, err := cfg.GetDatabaseDSN()
 	if err != nil {
@@ -334,10 +337,10 @@ func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models
 	}
 
 	if cursor != 0 {
-		err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE pid "+comparator+" ? ORDER BY pid "+order+" LIMIT ?", cursor, limit).Scan(&posts).Error
+		err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" AND pid "+comparator+" ? ORDER BY pid "+order+" LIMIT ?", cursor, limit).Scan(&posts).Error
 		return posts, err
 	}
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts ORDER BY pid "+order+" LIMIT ?", limit).Scan(&posts).Error
+	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" ORDER BY pid "+order+" LIMIT ?", limit).Scan(&posts).Error
 	return posts, err
 }
 
@@ -345,7 +348,8 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 	var posts []models.Post
 	order := "DESC"
 	query := d.db.Model(&models.Post{}).
-		Select("pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids")
+		Select("pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids").
+		Where(visibleLibraryPostSQL)
 	if sortAsc {
 		order = "ASC"
 	}
@@ -387,7 +391,7 @@ func (d *Database) GetPostsOrderBy(field string, cursor int, limit int) ([]model
 	var posts []models.Post
 	orderCol := validateOrderField(field)
 
-	query := d.db.Model(&models.Post{}).Order(orderCol + " DESC")
+	query := d.db.Model(&models.Post{}).Where(visibleLibraryPostSQL).Order(orderCol + " DESC")
 	if cursor != 0 {
 		query = query.Where(orderCol+" < ?", cursor)
 	}
@@ -400,7 +404,7 @@ func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, 
 	var posts []models.Post
 	orderCol := validateOrderField(field)
 
-	query := applyPostSearch(d.db.Model(&models.Post{}), keyword).Order(orderCol + " DESC")
+	query := applyPostSearch(d.db.Model(&models.Post{}).Where(visibleLibraryPostSQL), keyword).Order(orderCol + " DESC")
 	if cursor != 0 {
 		query = query.Where(orderCol+" < ?", cursor)
 	}

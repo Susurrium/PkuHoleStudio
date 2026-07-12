@@ -3,30 +3,18 @@ package service
 import (
 	"context"
 	"io"
+
+	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 )
 
-type ArchiveFormat string
+type ArchiveFormat = archive.Format
+type ArchivePreflight = archive.PreflightReport
+type ArchiveImportReport = archive.ImportReport
 
 const (
-	ArchiveFormatLegacyJSON ArchiveFormat = "legacy-json"
-	ArchiveFormatTreeholeV2 ArchiveFormat = "treehole-v2"
+	ArchiveFormatLegacyJSON = archive.FormatLegacyV1
+	ArchiveFormatTreeholeV2 = archive.FormatV2
 )
-
-type ArchivePreflight struct {
-	Format        ArchiveFormat
-	SchemaVersion int
-	PostCount     int
-	CommentCount  int
-	Warnings      []string
-}
-
-type ArchiveImportReport struct {
-	RunID            string
-	ImportedPosts    int
-	ImportedComments int
-	SkippedRecords   int
-	Errors           []string
-}
 
 // ArchiveService is implemented in Phase 2. The boundary lives here so App,
 // CLI, and HTTP handlers never depend on a ZIP or JSON implementation.

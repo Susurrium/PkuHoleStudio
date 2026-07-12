@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Susurrium/PkuHoleStudio/internal/archive"
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
@@ -148,6 +149,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		application.DataDir,
 		service.NewTreeholeMediaRemote(application.Client),
 	)
+	if application.Archive == nil {
+		application.Archive = archive.NewImporter(application.Repository)
+	}
 	if options.Jobs != nil {
 		application.Jobs = options.Jobs
 	} else {
