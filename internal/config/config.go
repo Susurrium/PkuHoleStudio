@@ -8,10 +8,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 var (
-	Conf *Config
+	Conf       *Config
+	configLock sync.Mutex
 )
 
 const (
@@ -247,6 +249,70 @@ func LoadConfig() (*Config, error) {
 	Conf = &config
 
 	return &config, nil
+}
+
+// SaveConfig persists a complete validated configuration using a temporary
+// file and replacement. Callers should keep secrets from the existing Config
+// when a write-only field was not supplied by the user.
+func SaveConfig(value *Config) error {
+	if value == nil {
+		return errors.New("config is required")
+	}
+	path, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := saveConfigAt(path, value); err != nil {
+		return err
+	}
+	Conf = value
+	return nil
+}
+
+func saveConfigAt(path string, value *Config) error {
+	configLock.Lock()
+	defer configLock.Unlock()
+	data, err := json.MarshalIndent(value, "", "    ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+
+	backup := path + ".bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(path, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		_ = os.Rename(backup, path)
+		return err
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 func (c *Config) HasPasswordLogin() bool {

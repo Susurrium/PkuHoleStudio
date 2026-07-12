@@ -91,6 +91,29 @@ describe('PkuHoleStudio Web', () => {
 		expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
 	})
 
+	it('writes AI settings without requiring the existing API key to be returned', async () => {
+		let saved = ''
+		const settings = { database_type: 'sqlite3', database_file: './treehole.db', ai_enabled: false, ai_live_search: false, ai_provider_name: 'DeepSeek', ai_base_url: 'https://api.deepseek.com', ai_model: 'deepseek-chat', ai_temperature: 0.2, ai_max_output_tokens: 4096, ai_request_timeout_seconds: 120, ai_max_search_rounds: 5, ai_api_key_configured: true, restart_required: false }
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/capabilities')) return json({ api_version: 'v1', schema_version: 4, fts5: true, archive_import: true, archive_export: true, jobs: true, ai: true, online_sync: true })
+			if (path.endsWith('/ai/providers')) return json([{ name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: true }])
+			if (path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/settings') && init?.method === 'PUT') { saved = String(init.body); return json({ ...settings, ai_enabled: true, restart_required: true }) }
+			if (path.endsWith('/settings')) return json(settings)
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/settings')
+		const key = await screen.findByLabelText(/API key/)
+		expect(key).toHaveAttribute('placeholder', '已配置；不会回显')
+		await user.click(screen.getByLabelText('启用 AI'))
+		await user.click(screen.getByRole('button', { name: '保存 AI 设置' }))
+		await waitFor(() => expect(saved).toContain('"ai_enabled":true'))
+		expect(saved).not.toContain('existing')
+		expect(await screen.findByText(/设置已安全写入/)).toBeInTheDocument()
+	})
+
 	it('creates a native PID sync job after an online session is verified', async () => {
 		let createdBody = ''
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

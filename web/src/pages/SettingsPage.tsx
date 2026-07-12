@@ -4,23 +4,38 @@ import { Check, CircleOff, Database, Pencil, Server, Sparkles, Tags, Trash2 } fr
 import { api } from '../lib/api'
 import { PageHeader } from '../components/PageHeader'
 import { ErrorState, LoadingState } from '../components/States'
+import type { Settings, SettingsUpdate } from '../lib/types'
 
 export function SettingsPage() {
 	const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: api.capabilities })
 	const providers = useQuery({ queryKey: ['ai-providers'], queryFn: api.aiProviders })
 	const tags = useQuery({ queryKey: ['local-tags'], queryFn: api.localTags })
-	if (capabilities.isLoading || providers.isLoading || tags.isLoading) return <LoadingState />
-	if (capabilities.error || providers.error || tags.error || !capabilities.data) return <ErrorState error={capabilities.error || providers.error || tags.error} />
+	const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
+	if (capabilities.isLoading || providers.isLoading || tags.isLoading || settings.isLoading) return <LoadingState />
+	if (capabilities.error || providers.error || tags.error || settings.error || !capabilities.data || !settings.data) return <ErrorState error={capabilities.error || providers.error || tags.error || settings.error} />
 	const provider = providers.data?.[0]
   return <>
-    <PageHeader eyebrow="LOCAL CONFIG" title="设置与能力" description="首版展示当前运行能力。数据库连接、同步账号和 AI 密钥仍通过本机配置文件管理，不会由网页回显敏感值。" />
+    <PageHeader eyebrow="LOCAL CONFIG" title="设置与能力" description="查看本机资料库与服务能力，并安全配置 OpenAI-compatible 模型。API key 只写入本机配置文件，网页不会回显。" />
     <div className="grid gap-5 lg:grid-cols-2">
       <SettingCard icon={Database} title="资料库" items={[['Schema', `v${capabilities.data.schema_version}`], ['全文搜索', capabilities.data.fts5 ? 'FTS5 trigram' : 'LIKE 兼容模式'], ['归档导入', capabilities.data.archive_import ? '可用' : '不可用'], ['归档导出', capabilities.data.archive_export ? '可用' : '不可用']]} />
       <SettingCard icon={Server} title="本机服务" items={[['API', capabilities.data.api_version], ['任务管理', capabilities.data.jobs ? '持久化可用' : '不可用'], ['原生同步', capabilities.data.online_sync ? '可用' : '不可用'], ['访问范围', '由启动参数决定']]} />
-		<section className="panel p-6 lg:col-span-2"><div className="flex items-start gap-4"><div className="grid size-11 place-items-center rounded-xl bg-coral-soft text-coral"><Sparkles size={20} /></div><div className="flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">AI Provider</h2><p className="mt-1 text-sm text-ink-soft">{provider?.name ?? 'OpenAI-compatible'} · {provider?.model ?? '未配置模型'}</p></div><span className={`badge gap-1 ${provider?.configured ? '!border-teal/30 !bg-teal-soft !text-teal' : ''}`}>{provider?.configured ? <><Check size={11} />已启用</> : <><CircleOff size={11} />尚未启用</>}</span></div><p className="mt-5 rounded-xl border border-dashed border-line bg-paper/40 p-4 text-sm leading-6 text-ink-soft">Base URL：{provider?.base_url ?? '未配置'}。API key 不会由网页回显。AI 默认只使用本地 FTS；实时树洞搜索保持独立、默认关闭。</p></div></div></section>
+		<AISettingsForm initial={settings.data} runtimeConfigured={provider?.configured ?? false} refresh={() => settings.refetch()} />
 		<TagManager tags={tags.data ?? []} refresh={() => tags.refetch()} />
     </div>
   </>
+}
+
+function AISettingsForm({ initial, runtimeConfigured, refresh }: { initial: Settings; runtimeConfigured: boolean; refresh: () => unknown }) {
+	const [draft, setDraft] = useState<SettingsUpdate>(() => settingsDraft(initial))
+	const [apiKey, setAPIKey] = useState('')
+	useEffect(() => setDraft(settingsDraft(initial)), [initial])
+	const save = useMutation({ mutationFn: () => api.updateSettings({ ...draft, ai_api_key: apiKey || undefined }), onSuccess: () => { setAPIKey(''); refresh() } })
+	const number = (key: keyof SettingsUpdate, value: string) => setDraft((current) => ({ ...current, [key]: Number(value) }))
+	return <section className="panel p-6 lg:col-span-2"><div className="flex items-start gap-4"><div className="grid size-11 place-items-center rounded-xl bg-coral-soft text-coral"><Sparkles size={20} /></div><div className="flex-1"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">AI Provider</h2><p className="mt-1 text-sm text-ink-soft">OpenAI-compatible 多模型配置</p></div><span className={`badge gap-1 ${runtimeConfigured ? '!border-teal/30 !bg-teal-soft !text-teal' : ''}`}>{runtimeConfigured ? <><Check size={11} />当前进程已启用</> : <><CircleOff size={11} />当前进程未启用</>}</span></div><div className="mt-5 grid gap-4 md:grid-cols-2"><label className="text-xs text-ink-soft">Provider 名称<input className="field mt-1" value={draft.ai_provider_name} onChange={(event) => setDraft({ ...draft, ai_provider_name: event.target.value })} /></label><label className="text-xs text-ink-soft">模型<input className="field mt-1" value={draft.ai_model} onChange={(event) => setDraft({ ...draft, ai_model: event.target.value })} /></label><label className="text-xs text-ink-soft md:col-span-2">Base URL<input className="field mt-1" value={draft.ai_base_url} onChange={(event) => setDraft({ ...draft, ai_base_url: event.target.value })} /></label><label className="text-xs text-ink-soft md:col-span-2">API key（留空即保留现有密钥）<input className="field mt-1" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setAPIKey(event.target.value)} placeholder={initial.ai_api_key_configured ? '已配置；不会回显' : '尚未配置'} /></label><label className="text-xs text-ink-soft">Temperature<input className="field mt-1" type="number" min="0" max="2" step="0.1" value={draft.ai_temperature} onChange={(event) => number('ai_temperature', event.target.value)} /></label><label className="text-xs text-ink-soft">最大输出 tokens<input className="field mt-1" type="number" min="1" max="1000000" value={draft.ai_max_output_tokens} onChange={(event) => number('ai_max_output_tokens', event.target.value)} /></label><label className="text-xs text-ink-soft">请求超时（秒）<input className="field mt-1" type="number" min="1" max="3600" value={draft.ai_request_timeout_seconds} onChange={(event) => number('ai_request_timeout_seconds', event.target.value)} /></label><label className="text-xs text-ink-soft">最大检索轮数<input className="field mt-1" type="number" min="1" max="20" value={draft.ai_max_search_rounds} onChange={(event) => number('ai_max_search_rounds', event.target.value)} /></label></div><div className="mt-4 flex flex-wrap gap-5 text-sm"><label className="inline-flex items-center gap-2"><input type="checkbox" checked={draft.ai_enabled} onChange={(event) => setDraft({ ...draft, ai_enabled: event.target.checked })} />启用 AI</label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={draft.ai_live_search} onChange={(event) => setDraft({ ...draft, ai_live_search: event.target.checked })} />允许 AI 实时搜索树洞</label></div><div className="mt-5 flex flex-wrap items-center gap-3"><button className="button-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? '正在保存…' : '保存 AI 设置'}</button><p className="text-xs text-ink-soft">保存后需重启 PkuHoleStudio 才会应用到 AI 会话。</p></div>{save.isSuccess && <p className="mt-3 text-sm text-teal">设置已安全写入；API key 未被回显。请重启程序。</p>}{save.error && <p className="mt-3 text-sm text-coral">{String(save.error)}</p>}</div></div></section>
+}
+
+function settingsDraft(settings: Settings): SettingsUpdate {
+	return { ai_enabled: settings.ai_enabled, ai_live_search: settings.ai_live_search, ai_provider_name: settings.ai_provider_name, ai_base_url: settings.ai_base_url, ai_model: settings.ai_model, ai_temperature: settings.ai_temperature, ai_max_output_tokens: settings.ai_max_output_tokens, ai_request_timeout_seconds: settings.ai_request_timeout_seconds, ai_max_search_rounds: settings.ai_max_search_rounds }
 }
 
 function TagManager({ tags, refresh }: { tags: import('../lib/types').LocalTag[]; refresh: () => unknown }) {

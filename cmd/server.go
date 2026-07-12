@@ -71,6 +71,7 @@ func newServerEngine(application *app.App) *gin.Engine {
 		Notifications: application.Notifications,
 		Logs:          application.Logs,
 		Library:       application.Library,
+		Settings:      application.Settings,
 		Archive:       application.Archive,
 		AI:            application.AI,
 		Auth:          application.Auth,
