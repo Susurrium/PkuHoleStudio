@@ -65,6 +65,7 @@ export interface AuthStatus {
   failure_kind?: string
   message?: string
   challenge?: 'sms' | 'otp' | 'username' | 'password' | ''
+  challenge_stage?: 'iaaa' | 'treehole' | ''
   challenge_reason?: string
 }
 

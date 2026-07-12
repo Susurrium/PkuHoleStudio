@@ -93,7 +93,10 @@ func (authStub) Probe(context.Context) service.AuthStatus {
 func (authStub) Login(context.Context, string, string) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
 }
-func (authStub) Continue(context.Context, string, string) service.AuthStatus {
+func (authStub) SendSMS(context.Context, string) service.AuthStatus {
+	return service.AuthStatus{Checked: true, Challenge: "sms", ChallengeStage: "iaaa"}
+}
+func (authStub) Continue(context.Context, string, string, string, string, string) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
 }
 
@@ -112,6 +115,7 @@ func TestRouterRegistration(t *testing.T) {
 		"/api/v1/session":           false,
 		"/api/v1/session/probe":     false,
 		"/api/v1/session/login":     false,
+		"/api/v1/session/sms":       false,
 		"/api/v1/session/challenge": false,
 		"/media/image":              false,
 		"/api/v1/health":            false,

@@ -111,6 +111,30 @@ describe('PkuHoleStudio Web', () => {
 		expect(JSON.parse(createdBody)).toEqual({ type: 'sync_pids', payload: { pids: [123456, 234567] } })
 	})
 
+	it('completes an IAAA SMS challenge with the original credentials', async () => {
+		let challengeBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session')) return json({ checked: false, has_session: false, can_read_online: false, can_write_online: false })
+			if (path.endsWith('/session/login')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false, challenge: 'sms', challenge_stage: 'iaaa', message: '短信验证码已发送至 138****0000' })
+			if (path.endsWith('/session/challenge')) {
+				challengeBody = String(init?.body)
+				return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
+			}
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
+		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
+		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		await user.type(await screen.findByPlaceholderText('验证码'), '654321')
+		await user.click(screen.getByRole('button', { name: '继续登录' }))
+		await waitFor(() => expect(challengeBody).not.toBe(''))
+		expect(JSON.parse(challengeBody)).toEqual({ stage: 'iaaa', challenge: 'sms', username: '1234567890', password: 'secret', code: '654321' })
+	})
+
 	it('renders AI search trace, streamed delta, and a source link', async () => {
 		const session = { id: 'session-1', title: 'Research', mode: 'local', provider: 'fake', model: 'fake-model', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

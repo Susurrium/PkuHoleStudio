@@ -168,6 +168,24 @@ func TestAPIV1SessionStatusAndLocalLogin(t *testing.T) {
 		t.Fatalf("local login response = %d %s", login.Code, login.Body.String())
 	}
 
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/sms", strings.NewReader(`{"username":"student"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:54321"
+	sms := httptest.NewRecorder()
+	router.ServeHTTP(sms, request)
+	if sms.Code != http.StatusOK || !strings.Contains(sms.Body.String(), `"challenge_stage":"iaaa"`) {
+		t.Fatalf("send sms response = %d %s", sms.Code, sms.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/challenge", strings.NewReader(`{"stage":"iaaa","challenge":"sms","username":"student","password":"secret","code":"654321"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:54321"
+	challenge := httptest.NewRecorder()
+	router.ServeHTTP(challenge, request)
+	if challenge.Code != http.StatusOK || !strings.Contains(challenge.Body.String(), `"can_read_online":true`) {
+		t.Fatalf("challenge response = %d %s", challenge.Code, challenge.Body.String())
+	}
+
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/login", strings.NewReader(`{"username":"student","password":"secret"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.RemoteAddr = "192.0.2.10:54321"

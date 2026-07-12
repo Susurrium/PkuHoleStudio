@@ -98,6 +98,45 @@ func (rt *bootstrapPasswordRoundTripper) RoundTrip(req *http.Request) (*http.Res
 	}
 }
 
+type iaaaSMSRoundTripper struct {
+	sendCalls   int
+	oauthCalls  int
+	lastSMSCode string
+}
+
+func (rt *iaaaSMSRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"success":false,"message":"登录态不可用"}`
+	switch {
+	case strings.Contains(req.URL.String(), string(UN_READ)):
+	case strings.Contains(req.URL.String(), string(IAAA_SEND_SMS)):
+		rt.sendCalls++
+		body = `{"success":true,"mobileMask":"138****0000"}`
+	case strings.Contains(req.URL.String(), string(OAUTH_LOGIN)):
+		rt.oauthCalls++
+		if err := req.ParseForm(); err != nil {
+			return nil, err
+		}
+		rt.lastSMSCode = req.Form.Get("smsCode")
+		if rt.lastSMSCode == "" {
+			body = `{"success":false,"errors":{"msg":"请使用短信验证"}}`
+		} else {
+			body = `{"success":true,"token":"oauth-token"}`
+		}
+	default:
+		return nil, io.EOF
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func newIAAASMSTestClient(t *testing.T, rt http.RoundTripper) *Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Client{httpClient: &http.Client{Jar: jar, Transport: rt}, deviceUUID: "test-uuid"}
+}
+
 func newBootstrapTestClient(t *testing.T) *Client {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
@@ -149,6 +188,27 @@ func TestBootstrapSessionWithPasswordRequestsPasswordChallengeWhenOAuthReturnsNo
 	}
 	if !strings.Contains(result.Status.Message, "OAuth 登录未返回 token") {
 		t.Fatalf("message = %q, want oauth token error", result.Status.Message)
+	}
+}
+
+func TestBootstrapSessionSendsIAAASMSWhenOAuthRequiresIt(t *testing.T) {
+	rt := &iaaaSMSRoundTripper{}
+	c := newIAAASMSTestClient(t, rt)
+	result := c.BootstrapSessionWithPassword(&config.Config{Username: "1234567890"}, "secret")
+	if result.Challenge != AuthChallengeSMS || result.ChallengeStage != AuthChallengeStageIAAA {
+		t.Fatalf("challenge/stage = %q/%q", result.Challenge, result.ChallengeStage)
+	}
+	if rt.sendCalls != 1 || !strings.Contains(result.Status.Message, "138****0000") {
+		t.Fatalf("send calls/message = %d/%q", rt.sendCalls, result.Status.Message)
+	}
+}
+
+func TestOAuthLoginWithVerificationSubmitsIAAASMSCode(t *testing.T) {
+	rt := &iaaaSMSRoundTripper{}
+	c := newIAAASMSTestClient(t, rt)
+	result, err := c.OAuthLoginWithVerification("1234567890", "secret", "654321", "")
+	if err != nil || result["token"] != "oauth-token" || rt.lastSMSCode != "654321" {
+		t.Fatalf("result/error/code = %+v/%v/%q", result, err, rt.lastSMSCode)
 	}
 }
 

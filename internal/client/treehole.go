@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,6 +24,7 @@ type TreeHoleWeb string
 
 const (
 	OAUTH_LOGIN       TreeHoleWeb = "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do"
+	IAAA_SEND_SMS     TreeHoleWeb = "https://iaaa.pku.edu.cn/iaaa/sendSMSCode.do"
 	REDIR_URL         TreeHoleWeb = "https://treehole.pku.edu.cn/cas_iaaa_login?uuid=fc71db5799cf&plat=web"
 	SSO_LOGIN         TreeHoleWeb = "http://treehole.pku.edu.cn/cas_iaaa_login"
 	UN_READ           TreeHoleWeb = "https://treehole.pku.edu.cn/api/mail/un_read"
@@ -145,13 +147,17 @@ func (c *Client) applyTreeholeHeaders(req *http.Request) {
 }
 
 func (c *Client) OAuthLogin(username, password string) (map[string]interface{}, error) {
+	return c.OAuthLoginWithVerification(username, password, "", "")
+}
+
+func (c *Client) OAuthLoginWithVerification(username, password, smsCode, otpCode string) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("appid", "PKU Helper")
 	data.Set("userName", username)
 	data.Set("password", password)
 	data.Set("randCode", "")
-	data.Set("smsCode", "")
-	data.Set("otpCode", "")
+	data.Set("smsCode", smsCode)
+	data.Set("otpCode", otpCode)
 	data.Set("redirUrl", string(REDIR_URL))
 
 	resp, err := c.httpClient.PostForm(string(OAUTH_LOGIN), data)
@@ -171,6 +177,38 @@ func (c *Client) OAuthLogin(username, password string) (map[string]interface{}, 
 	}
 
 	return result, nil
+}
+
+func (c *Client) SendIAAASMSCode(username string) (string, error) {
+	params := url.Values{}
+	params.Set("userName", username)
+	params.Set("appId", "PKU Helper")
+	params.Set("_rand", fmt.Sprintf("%f", randFloat()))
+	req, err := http.NewRequest(http.MethodGet, string(IAAA_SEND_SMS)+"?"+params.Encode(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("发送 IAAA 短信验证码失败: HTTP %d", resp.StatusCode)
+	}
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", fmt.Errorf("解析 IAAA 短信响应失败: %w", err)
+	}
+	if success, _ := payload["success"].(bool); !success {
+		message, _ := payload["message"].(string)
+		if strings.TrimSpace(message) == "" {
+			message = "IAAA 未发送短信验证码"
+		}
+		return "", errors.New(message)
+	}
+	mask, _ := payload["mobileMask"].(string)
+	return strings.TrimSpace(mask), nil
 }
 
 func (c *Client) SSOLogin(token string) error {
