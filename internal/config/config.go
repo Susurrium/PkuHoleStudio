@@ -15,12 +15,12 @@ var (
 )
 
 const (
-	dataDirName            = "data"
-	configFileName         = "config.json"
-	cookiesFileName        = "cookies.json"
-	logFileName            = "crawler.log"
-	tuiLogFileName         = "tui.log"
-	searchHistoryFileName  = ".search_history"
+	dataDirName           = "data"
+	configFileName        = "config.json"
+	cookiesFileName       = "cookies.json"
+	logFileName           = "crawler.log"
+	tuiLogFileName        = "tui.log"
+	searchHistoryFileName = ".search_history"
 )
 
 type runtimePaths struct {
@@ -51,6 +51,23 @@ type CorsConfig struct {
 	AllowHeaders []string `json:"allow_headers"`
 }
 
+type AIProviderConfig struct {
+	Name            string  `json:"name"`
+	BaseURL         string  `json:"base_url"`
+	APIKey          string  `json:"api_key"`
+	Model           string  `json:"model"`
+	Temperature     float64 `json:"temperature"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
+	RequestTimeout  int     `json:"request_timeout_seconds"`
+}
+
+type AIConfig struct {
+	Enabled         bool             `json:"enabled"`
+	AllowLiveSearch bool             `json:"allow_live_search"`
+	MaxSearchRounds int              `json:"max_search_rounds"`
+	Provider        AIProviderConfig `json:"provider"`
+}
+
 type Config struct {
 	Username   string         `json:"username"`
 	Password   string         `json:"password"`
@@ -58,6 +75,7 @@ type Config struct {
 	DeviceUUID string         `json:"device_uuid"` // 设备标识符，用于API请求的uuid header
 	Database   DatabaseConfig `json:"database"`
 	Cors       CorsConfig     `json:"cors"`
+	AI         AIConfig       `json:"ai"`
 }
 
 func resolveRuntimePaths() (runtimePaths, error) {
@@ -197,6 +215,26 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// 生成并保存 device_uuid（如果为空）
+	aiDefaults := DefaultConfig().AI
+	if config.AI.MaxSearchRounds <= 0 {
+		config.AI.MaxSearchRounds = aiDefaults.MaxSearchRounds
+	}
+	if config.AI.Provider.Name == "" {
+		config.AI.Provider.Name = aiDefaults.Provider.Name
+	}
+	if config.AI.Provider.BaseURL == "" {
+		config.AI.Provider.BaseURL = aiDefaults.Provider.BaseURL
+	}
+	if config.AI.Provider.Model == "" {
+		config.AI.Provider.Model = aiDefaults.Provider.Model
+	}
+	if config.AI.Provider.MaxOutputTokens <= 0 {
+		config.AI.Provider.MaxOutputTokens = aiDefaults.Provider.MaxOutputTokens
+	}
+	if config.AI.Provider.RequestTimeout <= 0 {
+		config.AI.Provider.RequestTimeout = aiDefaults.Provider.RequestTimeout
+	}
+
 	if config.DeviceUUID == "" {
 		config.DeviceUUID = generateDeviceUUID()
 		if err := saveDeviceUUID(configPath, config.DeviceUUID); err != nil {
@@ -253,6 +291,15 @@ func DefaultConfig() Config {
 			AllowOrigins: []string{"*"},
 			AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		},
+		AI: AIConfig{
+			Enabled:         false,
+			AllowLiveSearch: false,
+			MaxSearchRounds: 5,
+			Provider: AIProviderConfig{
+				Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat",
+				Temperature: 0.2, MaxOutputTokens: 4096, RequestTimeout: 120,
+			},
 		},
 	}
 }

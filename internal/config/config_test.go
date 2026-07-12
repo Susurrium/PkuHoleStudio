@@ -47,6 +47,9 @@ func TestLoadConfigValid(t *testing.T) {
 	if cfg.Database.DBFile != "./treehole.db" {
 		t.Errorf("Database.DBFile = %s, want ./treehole.db", cfg.Database.DBFile)
 	}
+	if cfg.AI.Provider.BaseURL != "https://api.deepseek.com" || cfg.AI.Provider.Model != "deepseek-chat" || cfg.AI.MaxSearchRounds != 5 || cfg.AI.Enabled {
+		t.Errorf("AI defaults = %+v", cfg.AI)
+	}
 }
 
 func TestLoadConfigAllowsPartialAuthFields(t *testing.T) {
