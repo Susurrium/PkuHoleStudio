@@ -38,7 +38,8 @@ func (d *Database) SearchFullText(query models.FullTextQuery) (models.FullTextPa
 		query.Offset = 0
 	}
 	parsed := parsePostSearchQuery(query.Query)
-	if parsed.pid == nil && len(parsed.keywords) == 0 {
+	hasFilters := query.HasMedia != nil || len(query.Sources) > 0 || len(query.TagIDs) > 0 || query.From > 0 || query.To > 0
+	if parsed.pid == nil && len(parsed.keywords) == 0 && !hasFilters {
 		return models.FullTextPage{Hits: []models.FullTextHit{}}, nil
 	}
 
@@ -163,6 +164,25 @@ func (d *Database) buildSearchPage(query models.FullTextQuery, posts []postMatch
 		}
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
+		if strings.TrimSpace(query.Query) == "" {
+			switch query.Sort {
+			case "asc":
+				return hits[i].Post.Pid < hits[j].Post.Pid
+			case "reply":
+				if hits[i].Post.Reply != hits[j].Post.Reply {
+					return hits[i].Post.Reply > hits[j].Post.Reply
+				}
+			case "likenum":
+				if hits[i].Post.Likenum != hits[j].Post.Likenum {
+					return hits[i].Post.Likenum > hits[j].Post.Likenum
+				}
+			case "praise_num":
+				if hits[i].Post.PraiseNum != hits[j].Post.PraiseNum {
+					return hits[i].Post.PraiseNum > hits[j].Post.PraiseNum
+				}
+			}
+			return hits[i].Post.Pid > hits[j].Post.Pid
+		}
 		if hits[i].Score == hits[j].Score {
 			return hits[i].Post.Pid > hits[j].Post.Pid
 		}

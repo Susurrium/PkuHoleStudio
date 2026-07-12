@@ -9,6 +9,7 @@ type FullTextQuery struct {
 	Sources  []string
 	HasMedia *bool
 	TagIDs   []uint
+	Sort     string
 }
 
 type CommentSearchHit struct {

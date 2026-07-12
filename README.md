@@ -1,265 +1,143 @@
 # PkuHoleStudio
 
-本地优先的北京大学树洞资料库、全文检索与 AI 工作台。
+本地优先的北大树洞资料库、全文搜索与 AI 研究工作台。
 
-PkuHoleStudio 基于 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来。当前基线保留原有 TUI、Crawler、REST API、SQLite/PostgreSQL 支持与命令兼容性；后续功能通过共享 Service 层增量加入 Web、归档和 AI，不改变 PkuHoleToolkit 的独立项目定位。
+PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
 
-> 上游锚点：`PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`（本仓库标签 `upstream-pkuholetui-f9d6221`）。
+上游锚点为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`，本仓库标签为 `upstream-pkuholetui-f9d6221`。
 
-![](doc/assets/dashboard.png)
-![](doc/assets/main.png)
+## 当前能力
 
-## 功能概述
+- TUI 在线/离线浏览，以及原有点赞、关注、发帖和回复能力。
+- SQLite 本地资料库；保留 PostgreSQL 基础兼容。
+- SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
+- 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
+- PkuHoleToolkit 旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入。
+- React Web：总览、帖子、详情、搜索、导入、设置，以及 AI 功能入口。
+- `/api/v1` 游标 API；旧版 API 路由继续保留。
 
-- **数据采集**: 支持一次性抓取、无限循环、断点续爬、持续监控四种模式
-- **TUI 交互界面**: 基于 Terminal UI 的可视化操作，支持帖子浏览、搜索、标签筛选、评论查看，以及在线模式下的点赞/关注/发帖/评论
-- **REST API 服务**: 提供标准化的数据查询接口（Gin 框架）
-- **图片下载**: 支持从帖子和评论中下载缺失图片
-- **数据存储**: 支持 SQLite 和 PostgreSQL 双数据库
-- **认证管理**: 支持 Cookie / OAuth / SSO / TOTP 多方式登录
+AI Provider 与本地检索 Agent 正在下一阶段接入。实时树洞搜索将保持显式、默认关闭。
 
-## 项目结构
+## 构建
 
-```
-.
-├── cmd/
-│   ├── main.go          # 程序入口
-│   ├── root.go          # 根命令 & TUI / Daemon 逻辑
-│   ├── crawler.go       # 爬虫子命令 & 图片下载子命令
-│   ├── server.go        # API 服务器子命令 (build tag: withserver)
-│   └── server_stub.go   # server 空壳 (build tag: !withserver)
-├── internal/
-│   ├── client/          # 树洞 API 客户端（登录、请求、Cookie 管理）
-│   ├── config/          # 配置管理（账号、数据库、CORS）
-│   ├── crawler/         # 核心爬虫逻辑（TUI 和 Daemon 共用）
-│   ├── db/              # 数据库操作（SQLite / PostgreSQL）
-│   ├── models/          # 数据模型（Post, Comment）
-│   └── tui/             # Terminal UI 界面
-│       ├── model.go     # 状态模型
-│       ├── update.go    # 消息处理与命令
-│       ├── view.go      # 视图渲染
-│       ├── styles.go    # 样式定义
-│       └── pages/       # 各页面组件
-├── server/
-│   ├── router.go        # Gin 路由注册
-│   ├── handles/         # API 处理器
-│   └── utils/           # 工具函数
-├── web/                 # 前端静态资源
-└── data/
-    ├── config.json      # 账号与数据库配置文件（启动时自动创建）
-    ├── cookies.json     # 登录凭据（自动生成）
-    └── crawler.log      # 运行日志
-```
-
-## 安装与构建
-
-### 完整版本（包含 TUI + 数据采集 + API 服务器）
+要求 Go 1.26、Node.js 24、npm 11。SQLite 使用 `go-sqlite3`，因此需要可用的 CGO C 编译器。
 
 ```bash
-go mod tidy
-go build -tags "withserver,sqlite_fts5" -o treehole ./cmd/
+cd web
+npm ci
+npm test
+npm run build
+
+cd ..
+go test -tags sqlite_fts5 ./...
+go build -tags sqlite_fts5 -o treehole ./cmd
 ```
 
-### 精简版本（仅 TUI + 数据采集，不包含 API 服务器）
+`server` 与 Web 资源始终参与正式构建，不再需要 `withserver` build tag。省略 `sqlite_fts5` 时程序仍可构建，但本地搜索会回退到兼容 LIKE 模式。
+
+## 使用
 
 ```bash
-go mod tidy
-go build -tags sqlite_fts5 -o treehole ./cmd/
+# 默认 TUI
+./treehole
+
+# 原有采集命令
+./treehole crawler --max-pages 10
+
+# API-only 兼容入口
+./treehole server --host 127.0.0.1 --port 8081
+
+# API + 内嵌 React；默认打开浏览器
+./treehole web --host 127.0.0.1 --port 8080 --open=true
+
+# 修复 FTS 索引
+./treehole rebuild-search-index
 ```
 
-说明：
-- 使用 `-tags withserver` 编译时会打包 Gin 框架和所有 API 路由
-- 默认编译（无 tag）会跳过 server 子命令，减少二进制体积和依赖
-- 正式构建使用 `sqlite_fts5`，以启用本地 trigram/BM25 全文索引；未带该 tag 的开发构建会自动回退到 LIKE 搜索
+Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。
 
-## 配置
+前端开发：
 
-编辑 `data/config.json` 填写登录信息与数据库配置；首次启动若文件不存在，会自动生成默认配置：
+```bash
+# 终端一：API
+go run -tags sqlite_fts5 ./cmd server --host 127.0.0.1 --port 8080
+
+# 终端二：Vite，自动代理 /api/v1
+cd web
+npm run dev
+```
+
+## API v1
+
+所有新接口位于 `/api/v1`：
+
+```text
+GET  /health
+GET  /capabilities
+GET  /posts
+GET  /posts/:pid
+GET  /posts/:pid/comments
+GET  /search
+GET  /media/:id
+
+GET  /jobs
+POST /jobs
+GET  /jobs/:id
+GET  /jobs/:id/events
+POST /jobs/:id/pause|resume|cancel|retry
+
+POST /imports
+GET  /imports/:id
+```
+
+错误统一返回：
 
 ```json
 {
-  "username": "你的学号（可选；无可用 cookie 时用于重新登录）",
-  "password": "你的密码（可选；需与 username 配套）",
-  "secret_key": "TOTP密钥（可选；遇到令牌验证时自动填写）",
-  "database": {
-    "type": "sqlite3",
-    "db_file": "./treehole.db"
+  "error": {
+    "code": "invalid_input",
+    "message": "cursor must be between 0 and 100",
+    "details": { "field": "cursor" }
   }
 }
 ```
 
-说明：
-- 程序会优先复用 `data/cookies.json` 中的现有登录态。
-- 若 cookie 失效，且配置了 `username` + `password`，则会自动尝试 OAuth / SSO 登录。
-- TUI 遇到“短信验证”时会弹出验证码输入框；遇到“令牌验证”但未配置 `secret_key` 时会弹出动态口令输入框。
-- crawler 为非交互模式；遇到短信验证，或遇到令牌验证但没有可用 `secret_key` 时，会直接退出并提示原因。
+任务事件接口使用 SSE。客户端可发送 `Last-Event-ID`，服务端会先从数据库补发缺失事件，再继续实时推送。
 
-支持两种数据库后端：
+## 目录
 
-| 类型 | 配置项 |
-|------|--------|
-| SQLite | `"type": "sqlite3"`, `"db_file": "./treehole.db"` |
-| PostgreSQL | `"type": "postgres"`, `"host"`, `"port"`, `"user"`, `"password"`, `"name"` |
+```text
+cmd/                 Cobra 命令、TUI/server/web 入口
+internal/app/        应用组合根
+internal/service/    TUI、Web 和任务共享的 Service 层
+internal/db/         Repository、迁移、FTS 与持久任务存储
+internal/jobs/       单写任务调度器和事件流
+internal/archive/    Toolkit v1/v2 解析、预检和导入
+server/              Gin 旧路由、API v1 与 SPA 托管
+web/                 React + TypeScript + Vite 客户端和测试
+```
 
-## 使用方式
-
-### TUI 模式（默认）
+## 测试
 
 ```bash
-./treehole
+go test ./...
+go test -tags sqlite_fts5 ./...
 
-# 把 TUI 的真实终端输出和最新屏幕快照写到目录里
-./treehole --tui-capture-dir ./.treehole-tui
+cd web
+npm test
+npm run e2e
 ```
 
-TUI 主题会默认根据当前终端背景自动选择深色或浅色。也可以手动覆盖：
+Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
 
-```bash
-TREEHOLE_THEME=dark ./treehole
-TREEHOLE_THEME=light ./treehole
-TREEHOLE_THEME=auto ./treehole
-TREEHOLE_TUI_CAPTURE_DIR=./.treehole-tui ./treehole
-```
+## 安全与隐私
 
-如果开启了 TUI 捕获，会在指定目录生成：
-- `raw-output.ansi`：Bubble Tea 实际写到终端的原始 ANSI 字节流，包含 alt-screen、光标控制和颜色。
-- `current-frame.ansi`：最近一次 `View()` 渲染出的完整屏幕内容，保留 ANSI 颜色，适合直接读取当前画面。
-- `current-frame.txt`：去掉 ANSI 控制序列后的纯文本快照，便于脚本或调试读取。
+- Web 默认仅绑定本机回环地址。
+- 归档上传采用随机暂存文件、大小限制、ZIP 路径/CRC/展开体积校验。
+- `referenced` 归档内容作为上下文保存，但默认不出现在普通资料库列表和搜索中。
+- API 不回显任务中的本地暂存路径。
+- AI 与实时在线搜索默认未启用；未来启用时仍由独立开关控制。
 
-界面包含多个页面（`Tab` 切换），初始进入 Dashboard 总览页：
-- **同步**: 采集启停控制、模式选择、统计信息
-- **帖子**: 帖子列表浏览、搜索、标签筛选、评论查看，以及在线模式下的交互动作
-- **课表**: 查看课程安排
-- **成绩**: 查看成绩与 GPA
+## License
 
-TUI 现在支持两种数据模式：
-- **在线模式**：直接调用树洞官方 API，支持读取帖子/评论、标签筛选，以及点赞/关注/发帖/评论
-- **离线模式**：回退到本地数据库，只支持浏览；写操作会明确显示为不可用
-
-当在线能力不可用时：
-- **登录失败 / 会话失效**：会提示用户选择“重新登录”或“进入离线模式”
-- **网络错误 / 服务不可达**：会提示用户进入离线模式
-
-快捷键：
-
-TUI 内置了上下文相关的帮助面板（按 `h` 查看当前页面可用快捷键），底部状态栏也会显示 `h: 帮助 | Ctrl+Q: 退出`。以下列出界面中**未直接展示**的快捷键：
-
-Home 页（爬虫控制，仅在停止状态下可用）：
-
-| 按键 | 功能 |
-|------|------|
-| `+` `-` | 调整当前模式参数（监控页数 / 每请求帖子数等） |
-| `[` `]` | 调整缩略图起始 ID（步长 100） |
-| `i` | 切换是否下载图片 |
-| `j` | 切换是否保存原始 JSON |
-| `w` | 切换是否转换为 WebP 格式 |
-
-Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子列表（帮助面板中未标注此行为）。
-
-配置编辑器支持 Vim 风格操作（`i`/`a`/`o`/`O` 进入编辑模式，`x` 删除字符，`0`/`$`/`g`/`G` 跳转，`Ctrl+S` 保存）。
-
-### 数据采集模式 (`crawler` 子命令)
-
-```bash
-# 一次性抓取：从第1页开始，抓100页，每页间隔1秒
-./treehole crawler --max-pages 100 --page-interval 1
-
-# 从第5页开始，抓取50页
-./treehole crawler --start-page 5 --max-pages 50
-
-# 无限循环抓取：从第1页开始一直往后爬
-./treehole crawler --page-interval 1
-
-# 断点续采：根据数据库已有帖子数自动计算起始页
-./treehole crawler --resume --max-pages 50
-
-# 监控模式：循环抓取前10页，每页间隔2秒，每轮间隔60秒
-./treehole crawler --loop-pages 10 --page-interval 2 --loop-interval 60
-
-# 下载帖子中的图片
-./treehole crawler --max-pages 50 --fetch-images
-
-# 保存原始 API 响应到 JSON 文件
-./treehole crawler --max-pages 50 --save-json
-
-# 补下载数据库中缺失的图片
-./treehole crawler fetch-images
-```
-
-采集参数：
-
-| 参数 | 简写 | 说明 | 默认值 |
-|------|------|------|--------|
-| `--db-path` | | 数据库文件路径 | `./treehole.db` |
-| `--start-page` | | 起始页码 | `1` |
-| `--max-pages` | | 每轮最大页数（0=无限） | `0` |
-| `--page-interval` | | 页与页之间的间隔（秒） | `1` |
-| `--loop-interval` | | 轮与轮之间的间隔（秒） | `60` |
-| `--loop-pages` | `-k` | 循环爬取前 N 页（触发监控模式） | `0` |
-| `--resume` | | 断点续爬 | `false` |
-| `--posts-per-request` | | 每次 API 请求最大帖子数 | `200` |
-| `--comments-per-post` | | 每个帖子最大评论数 | `200` |
-| `--fetch-images` | | 下载帖子中的图片 | `false` |
-| `--save-json` | | 保存原始 API 响应 | `false` |
-
-### 运行模式对比
-
-| 模式 | 命令 | 适用场景 |
-|------|------|---------|
-| TUI | `./treehole` | 交互式浏览、搜索、管理 |
-| 一次性抓取 | `crawler --max-pages 100` | 首次全量数据采集 |
-| 无限循环 | `crawler` | 持续增量采集 |
-| 断点续爬 | `crawler --resume` | 中断后继续 |
-| 监控模式 | `crawler --loop-pages 10` | 同步最新数据（循环前 N 页） |
-
-### REST API 服务 (`server` 子命令)
-
-```bash
-./treehole server --port 8081 --host 0.0.0.0
-```
-
-启动后访问：
-- 帖子列表: `GET http://localhost:8081/pku_hole?begin=0&limit=25`
-- 帖子详情: `GET http://localhost:8081/post/:pid`
-- 帖子评论: `GET http://localhost:8081/post/:pid/comments?begin=0&limit=25`
-- 搜索: `GET http://localhost:8081/search?q=keyword&begin=0&limit=25`
-- 健康检查: `GET http://localhost:8081/health`
-
-### 后台运行
-
-使用 `nohup` 在后台运行采集：
-
-```bash
-# 后台监控模式
-nohup ./treehole crawler --loop-pages 10 --page-interval 2 --loop-interval 60 &
-
-# 后台无限抓取
-nohup ./treehole crawler --page-interval 1 &
-
-# 按 Ctrl+C 或 kill 发送 SIGINT/SIGTERM 可退出
-```
-
-## 日志
-
-所有运行日志写入 `crawler.log`，格式为：
-
-```
-[2026/04/02 12:00:00.000000] [Daemon] 开始第 1 轮抓取
-[2026/04/02 12:00:01.000000] [Daemon] 第 1 页完成: +100帖子 +50评论 | 总计: 1000帖子 500评论
-[2026/04/02 12:00:01.000000] [Auth] Cookie 登录成功
-```
-
-日志标签：
-- `[Crawler]` — 数据采集相关
-- `[Auth]` — 登录认证相关
-- `[Posts]` — 帖子加载相关
-- `[Daemon]` — 后台模式相关
-
-## 技术栈
-
-- **Go 1.26** — 主语言
-- **GORM** — ORM 框架（SQLite / PostgreSQL）
-- **Bubbletea** — TUI 框架
-- **Gin** — Web API 框架
-- **Cobra** — CLI 命令框架
-- **SQLite / PostgreSQL** — 数据库
+沿用上游项目的许可证；详见 [LICENSE](LICENSE)。
