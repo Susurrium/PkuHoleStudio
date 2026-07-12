@@ -131,6 +131,11 @@ func writeMarkdownBundle(ctx context.Context, output io.Writer, records []Export
 		if _, err := fmt.Fprintf(index, "- [#%d](posts/%d.md)\n", record.Post.Pid, record.Post.Pid); err != nil {
 			return err
 		}
+	}
+	for _, record := range records {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		entry, err := archiveWriter.Create(fmt.Sprintf("posts/%d.md", record.Post.Pid))
 		if err != nil {
 			return err
