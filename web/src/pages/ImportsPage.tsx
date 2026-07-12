@@ -63,6 +63,12 @@ function ToolkitBridgePanel() {
   const confirm = useMutation({ mutationFn: () => api.confirmBridgePairing(token), onSuccess: (value) => { client.setQueryData(['bridge-pairing', token], value); client.invalidateQueries({ queryKey: ['jobs'] }) } })
   const cancel = useMutation({ mutationFn: () => api.cancelBridgePairing(token), onSuccess: () => { setToken(''); pairing.reset(); client.removeQueries({ queryKey: ['bridge-pairing', token] }) } })
   const current = status.data ?? pairing.data
+  const importedJob = useQuery({
+    queryKey: ['job', current?.job?.id],
+    queryFn: () => api.job(current!.job!.id),
+    enabled: Boolean(current?.job?.id),
+    refetchInterval: (query) => query.state.data && ['completed', 'partial', 'failed', 'cancelled'].includes(query.state.data.status) ? false : 1_000,
+  })
   const waiting = current?.status === 'waiting_upload' || current?.status === 'uploading'
   return <section className="panel mb-6 p-5 md:p-7">
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -74,7 +80,7 @@ function ToolkitBridgePanel() {
       <div className="mt-2 flex flex-col gap-2 sm:flex-row"><code className="min-w-0 flex-1 break-all rounded-xl bg-ink px-4 py-3 text-sm text-white">{current.code ?? `${location.port}:${current.token}`}</code><button className="button-secondary shrink-0" onClick={() => navigator.clipboard.writeText(current.code ?? `${location.port}:${current.token}`)}><Copy size={15} />复制</button></div>
       {waiting && <p className="mt-3 text-sm text-ink-soft">现在打开树洞网页 → Toolkit“归档/迁移” → 完成一次导出 → 粘贴配对码 → “发送到 Studio”。本页会自动显示预检结果。</p>}
       {current.status === 'awaiting_confirmation' && current.preflight && <div className="mt-4"><PreflightBanner preflight={current.preflight} /><p className="mt-3 text-sm text-ink-soft">已收到 <strong>{current.filename}</strong>。核对后确认，才会创建本地导入任务。</p><div className="mt-3 flex gap-2"><button className="button-primary" disabled={confirm.isPending} onClick={() => confirm.mutate()}>{confirm.isPending ? '正在创建任务…' : '确认导入'}</button><button className="button-secondary" disabled={cancel.isPending} onClick={() => cancel.mutate()}>取消并删除暂存文件</button></div></div>}
-      {current.status === 'queued' && <div className="mt-4"><p className="text-sm font-semibold text-teal">归档已进入本地导入队列。</p>{current.job && <div className="mt-3"><JobRow job={current.job} /></div>}</div>}
+      {current.status === 'queued' && <div className="mt-4"><p className="text-sm font-semibold text-teal">归档已进入本地导入队列。</p>{current.job && <div className="mt-3"><JobRow job={importedJob.data ?? current.job} /></div>}</div>}
       {(pairing.error || status.error || confirm.error || cancel.error) && <div className="mt-4"><ErrorState error={pairing.error || status.error || confirm.error || cancel.error} /></div>}
     </div>}
   </section>
