@@ -95,7 +95,7 @@ func (c *Client) bootstrapSessionWithPassword(cfg *config.Config, password strin
 	token, ok := oauthResult["token"].(string)
 	if !ok || token == "" {
 		result.Status.FailureKind = SessionFailureLogin
-		result.Status.Message = "OAuth 登录未返回 token，请输入密码后重试"
+		result.Status.Message = oauthFailureMessage(oauthResult)
 		result.Challenge = AuthChallengePassword
 		result.ChallengeReason = result.Status.Message
 		return result
@@ -127,6 +127,40 @@ func (c *Client) bootstrapSessionWithPassword(cfg *config.Config, password strin
 	submit := c.ContinueAuthChallenge(AuthChallengeOTP, code)
 	submit.LoginAttempted = true
 	return submit
+}
+
+func oauthFailureMessage(result map[string]interface{}) string {
+	for _, key := range []string{"message", "msg", "error_description"} {
+		if message := authMessageValue(result[key]); message != "" {
+			return message
+		}
+	}
+	for _, key := range []string{"errors", "error"} {
+		if message := authMessageValue(result[key]); message != "" {
+			return message
+		}
+	}
+	return "OAuth 登录未返回 token，请检查学号格式和密码后重试"
+}
+
+func authMessageValue(value interface{}) string {
+	switch current := value.(type) {
+	case string:
+		return strings.TrimSpace(current)
+	case map[string]interface{}:
+		for _, key := range []string{"message", "msg", "error_description", "error"} {
+			if message := authMessageValue(current[key]); message != "" {
+				return message
+			}
+		}
+	case []interface{}:
+		for _, item := range current {
+			if message := authMessageValue(item); message != "" {
+				return message
+			}
+		}
+	}
+	return ""
 }
 
 func (c *Client) ContinueAuthChallenge(kind AuthChallengeKind, code string) AuthBootstrapResult {

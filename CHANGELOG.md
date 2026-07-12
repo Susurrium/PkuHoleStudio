@@ -8,6 +8,7 @@
 - 关注、指定 PID 和公共时间线同步会在同一事务内记录帖子来源。
 - 增加本地 archive v2 与逐洞 Markdown ZIP 导出，并验证 archive v2 导入闭环。
 - 修复多帖子 Markdown 导出在写入第二条索引时出现 `zip: write to closed file` 的问题。
+- Web 登录自动识别学校邮箱并取 `@` 前账号，同时展示 IAAA 返回的具体失败原因。
 
 ## v0.1.0-alpha.2
 
