@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -63,6 +64,10 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/search", apiSearch(dependencies))
 	group.GET("/search/history", apiSearchHistory(dependencies))
 	group.GET("/media/:id", apiMedia(dependencies))
+	group.GET("/session", apiSession(dependencies))
+	group.POST("/session/probe", apiProbeSession(dependencies))
+	group.POST("/session/login", apiLoginSession(dependencies))
+	group.POST("/session/challenge", apiContinueSession(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -83,6 +88,92 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/ai/sessions/:id/messages", apiCreateAIMessage(dependencies))
 	group.GET("/ai/sessions/:id/events", apiAIEvents(dependencies))
 	group.POST("/ai/sessions/:id/cancel", apiAICancel(dependencies))
+}
+
+func apiSession(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.CachedStatus(c.Request.Context()))
+	}
+}
+
+func apiProbeSession(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.Probe(c.Request.Context()))
+	}
+}
+
+func apiLoginSession(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		if !requireLoopback(c) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		body.Username = strings.TrimSpace(body.Username)
+		if body.Username == "" || body.Password == "" || len(body.Username) > 128 || len(body.Password) > 512 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "username and password are required", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.Login(c.Request.Context(), body.Username, body.Password))
+	}
+}
+
+func apiContinueSession(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Challenge string `json:"challenge"`
+		Code      string `json:"code"`
+	}
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		if !requireLoopback(c) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		body.Challenge = strings.TrimSpace(body.Challenge)
+		body.Code = strings.TrimSpace(body.Code)
+		if (body.Challenge != "sms" && body.Challenge != "otp") || body.Code == "" || len(body.Code) > 32 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "a supported challenge and verification code are required", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.Continue(c.Request.Context(), body.Challenge, body.Code))
+	}
+}
+
+func requireLoopback(c *gin.Context) bool {
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err != nil {
+		host = c.Request.RemoteAddr
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil || !ip.IsLoopback() {
+		apiFailure(c, http.StatusForbidden, "local_access_required", "login endpoints are only available from this computer", nil)
+		return false
+	}
+	return true
 }
 
 type aiAPIService interface {
@@ -126,7 +217,7 @@ func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 		apiRespond(c, http.StatusOK, gin.H{
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
 			"archive_import": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
-			"ai": aiConfigured, "live_search": liveSearch,
+			"ai": aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
 		})
 	}
 }

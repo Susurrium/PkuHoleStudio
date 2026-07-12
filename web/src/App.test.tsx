@@ -91,6 +91,26 @@ describe('PkuHoleStudio Web', () => {
 		expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
 	})
 
+	it('creates a native PID sync job after an online session is verified', async () => {
+		let createdBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
+			if (path.includes('/jobs') && init?.method === 'POST') {
+				createdBody = String(init.body)
+				return json({ id: 'sync-1', type: 'sync_pids', status: 'queued', completed_items: 0, failed_items: 0, total_items: 2, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }, 202)
+			}
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.type(await screen.findByPlaceholderText('1234567, 2345678'), '123456, 234567')
+		await user.click(screen.getByRole('button', { name: '同步 2 个 PID' }))
+		await waitFor(() => expect(createdBody).not.toBe(''))
+		expect(JSON.parse(createdBody)).toEqual({ type: 'sync_pids', payload: { pids: [123456, 234567] } })
+	})
+
 	it('renders AI search trace, streamed delta, and a source link', async () => {
 		const session = { id: 'session-1', title: 'Research', mode: 'local', provider: 'fake', model: 'fake-model', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

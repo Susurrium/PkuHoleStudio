@@ -67,6 +67,7 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 		Media:      service.NewMediaService(dataDir, nil),
 		Archive:    archive.NewImporter(database),
 		AI:         aiService,
+		Auth:       authStub{},
 		Jobs:       manager,
 		Repository: database,
 		DataDir:    dataDir,
@@ -81,25 +82,44 @@ func setupTestEnv(t *testing.T) (*db.Database, *gin.Engine, func()) {
 	return database, r, cleanup
 }
 
+type authStub struct{}
+
+func (authStub) CachedStatus(context.Context) service.AuthStatus {
+	return service.AuthStatus{HasSession: true, Message: "尚未检测在线登录状态"}
+}
+func (authStub) Probe(context.Context) service.AuthStatus {
+	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
+}
+func (authStub) Login(context.Context, string, string) service.AuthStatus {
+	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
+}
+func (authStub) Continue(context.Context, string, string) service.AuthStatus {
+	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
+}
+
 func TestRouterRegistration(t *testing.T) {
 	_, r, cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	routes := r.Routes()
 	expectedPaths := map[string]bool{
-		"/health":             false,
-		"/help":               false,
-		"/posts":              false,
-		"/post/:pid":          false,
-		"/comment":            false,
-		"/comments/:pid":      false,
-		"/media/image":        false,
-		"/api/v1/health":      false,
-		"/api/v1/posts":       false,
-		"/api/v1/search":      false,
-		"/api/v1/jobs":        false,
-		"/api/v1/imports":     false,
-		"/api/v1/ai/sessions": false,
+		"/health":                   false,
+		"/help":                     false,
+		"/posts":                    false,
+		"/post/:pid":                false,
+		"/comment":                  false,
+		"/comments/:pid":            false,
+		"/api/v1/session":           false,
+		"/api/v1/session/probe":     false,
+		"/api/v1/session/login":     false,
+		"/api/v1/session/challenge": false,
+		"/media/image":              false,
+		"/api/v1/health":            false,
+		"/api/v1/posts":             false,
+		"/api/v1/search":            false,
+		"/api/v1/jobs":              false,
+		"/api/v1/imports":           false,
+		"/api/v1/ai/sessions":       false,
 	}
 
 	for _, route := range routes {

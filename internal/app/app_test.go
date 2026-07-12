@@ -75,7 +75,7 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 	if application.DataDir != dataDir {
 		t.Errorf("DataDir = %q, want %q", application.DataDir, dataDir)
 	}
-	if application.Posts == nil || application.Search == nil || application.Sync == nil || application.Media == nil {
+	if application.Posts == nil || application.Search == nil || application.Sync == nil || application.Media == nil || application.Auth == nil {
 		t.Fatal("Open() did not compose every concrete service")
 	}
 	if got := application.Ownership(); got != (Ownership{Jobs: true}) {

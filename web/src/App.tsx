@@ -7,6 +7,7 @@ import { SearchPage } from './pages/SearchPage'
 import { ImportsPage } from './pages/ImportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AIPage } from './pages/AIPage'
+import { SyncPage } from './pages/SyncPage'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="posts/:pid" element={<PostDetailPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="imports" element={<ImportsPage />} />
+        <Route path="sync" element={<SyncPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="ai" element={<AIPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
