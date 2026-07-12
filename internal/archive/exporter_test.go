@@ -39,6 +39,9 @@ func TestExporterWritesPerPostMarkdownBundle(t *testing.T) {
 	store := &fakeExportStore{fakeArchiveStore: &fakeArchiveStore{}, records: []ExportRecord{{
 		Post:     models.Post{Pid: 123456, Text: "main text"},
 		Comments: []models.Comment{{Cid: 1001, Pid: 123456, NameTag: "Alice", Text: "reply text"}},
+	}, {
+		Post:     models.Post{Pid: 234567, Text: "second post"},
+		Comments: []models.Comment{{Cid: 2001, Pid: 234567, NameTag: "Bob", Text: "second reply"}},
 	}}}
 	var output bytes.Buffer
 	_, err := NewImporter(store).Export(context.Background(), &output, ExportRequest{Format: ExportFormatMarkdown, IncludeComments: true})
@@ -62,7 +65,7 @@ func TestExporterWritesPerPostMarkdownBundle(t *testing.T) {
 		}
 		entries[file.Name] = string(content)
 	}
-	if !strings.Contains(entries["index.md"], "[#123456](posts/123456.md)") || !strings.Contains(entries["posts/123456.md"], "reply text") {
+	if !strings.Contains(entries["index.md"], "[#123456](posts/123456.md)") || !strings.Contains(entries["index.md"], "[#234567](posts/234567.md)") || !strings.Contains(entries["posts/123456.md"], "reply text") || !strings.Contains(entries["posts/234567.md"], "second reply") {
 		t.Fatalf("markdown entries = %#v", entries)
 	}
 }
