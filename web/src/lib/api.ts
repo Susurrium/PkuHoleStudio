@@ -1,4 +1,4 @@
-import type { Capabilities, CommentPage, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
+import type { AIProvider, AISession, AISessionDetail, Capabilities, CommentPage, Health, ImportCreated, Job, PostDetail, PostPage, SearchHistory } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -44,9 +44,15 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, payload }),
   }),
   jobAction: (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => request<Job>(`/jobs/${id}/${action}`, { method: 'POST' }),
-  importArchive: (file: File) => {
+	importArchive: (file: File) => {
     const body = new FormData()
     body.append('file', file)
     return request<ImportCreated>('/imports', { method: 'POST', body })
-  },
+	},
+	aiProviders: () => request<AIProvider[]>('/ai/providers'),
+	aiSessions: () => request<AISession[]>('/ai/sessions?limit=50'),
+	createAISession: (mode: AISession['mode'], title: string) => request<AISession>('/ai/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, title }) }),
+	aiSession: (id: string) => request<AISessionDetail>(`/ai/sessions/${id}`),
+	startAIMessage: (id: string, body: { prompt: string; pids?: number[]; course?: string; teachers?: string[] }) => request<{ session_id: string; status: string }>(`/ai/sessions/${id}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+	cancelAI: (id: string) => request<{ status: string }>(`/ai/sessions/${id}/cancel`, { method: 'POST' }),
 }

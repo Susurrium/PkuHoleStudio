@@ -67,3 +67,9 @@ export interface ArchivePreflight {
 
 export interface ImportCreated { job: Job; preflight: ArchivePreflight }
 export interface SearchHistory { id: number; query: string; filters?: string; created_at: string }
+
+export interface AIProvider { name: string; base_url: string; model: string; configured: boolean }
+export interface AISession { id: string; title: string; mode: 'selected' | 'local' | 'course'; provider: string; model: string; created_at: string; updated_at: string }
+export interface AISource { message_id?: string; ordinal?: number; pid: number; cid?: number; snippet?: string }
+export interface AIMessage { id: string; session_id: string; role: 'user' | 'assistant'; content: string; model?: string; mode?: string; trace?: string; created_at: string; sources: AISource[] }
+export interface AISessionDetail { session: AISession; messages: AIMessage[] }
