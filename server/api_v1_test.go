@@ -209,6 +209,10 @@ func TestAPIV1RejectsUnknownJSONFieldsAndMissingSearchQuery(t *testing.T) {
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_input"`) {
 		t.Fatalf("missing q response = %d %s", response.Code, response.Body.String())
 	}
+	response = performRequest(router, http.MethodGet, "/api/v1/posts?source=live&label=bad", nil, "")
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"field":"label"`) {
+		t.Fatalf("invalid label response = %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestRemoveStagedImportFileCannotEscapeStagingDirectory(t *testing.T) {

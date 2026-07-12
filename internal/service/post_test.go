@@ -171,6 +171,22 @@ func TestPostServiceLocalDetailIncludesMediaCatalog(t *testing.T) {
 	}
 }
 
+func TestPostServiceLiveDetailDescribesRemotePostAndCommentMedia(t *testing.T) {
+	remote := &fakeRemote{
+		posts:    []models.Post{{Pid: 123456, Type: "image", MediaIds: "10,11"}},
+		comments: []models.Comment{{Cid: 7, Pid: 123456, MediaIds: "12"}},
+	}
+	detail, err := NewPostService(nil, remote).Get(context.Background(), 123456, CommentQuery{Source: SourceLive})
+	if err != nil || len(detail.Media) != 3 {
+		t.Fatalf("Get() = %+v, %v", detail, err)
+	}
+	for _, item := range detail.Media {
+		if item.Status != "remote" {
+			t.Fatalf("media = %+v", item)
+		}
+	}
+}
+
 func TestPostServiceRejectsLocalFollowAndCancellation(t *testing.T) {
 	service := NewPostService(&fakeRepository{}, nil)
 	if _, err := service.List(context.Background(), PostQuery{Query: ":follow"}); err == nil {

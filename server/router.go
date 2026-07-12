@@ -15,6 +15,7 @@ type Dependencies struct {
 	Posts      *service.PostService
 	Search     *service.SearchService
 	Media      *service.MediaService
+	Dashboard  *service.DashboardService
 	Archive    service.ArchiveService
 	AI         service.AIService
 	Auth       service.AuthService

@@ -60,11 +60,14 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/health", apiHealth(dependencies))
 	group.GET("/capabilities", apiCapabilities(dependencies))
 	group.GET("/posts", apiPosts(dependencies))
+	group.GET("/posts/hot", apiHotPosts(dependencies))
 	group.GET("/posts/:pid", apiPost(dependencies))
 	group.GET("/posts/:pid/comments", apiComments(dependencies))
+	group.GET("/tags", apiTags(dependencies))
 	group.GET("/search", apiSearch(dependencies))
 	group.GET("/search/history", apiSearchHistory(dependencies))
 	group.GET("/media/:id", apiMedia(dependencies))
+	group.GET("/remote-media/:id", apiRemoteMedia(dependencies))
 	group.GET("/session", apiSession(dependencies))
 	group.POST("/session/probe", apiProbeSession(dependencies))
 	group.POST("/session/login", apiLoginSession(dependencies))
@@ -645,6 +648,40 @@ func apiPosts(dependencies Dependencies) gin.HandlerFunc {
 	}
 }
 
+func apiHotPosts(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Dashboard == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "dashboard service is unavailable", nil)
+			return
+		}
+		items, err := dependencies.Dashboard.HotPosts(c.Request.Context(), 5, 12*time.Hour)
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "hot_posts_unavailable", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, items)
+	}
+}
+
+func apiTags(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Posts == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "post service is unavailable", nil)
+			return
+		}
+		if normalizedAPISource(c.Query("source")) != service.SourceLive {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "tags are available for the live source", gin.H{"field": "source"})
+			return
+		}
+		items, err := dependencies.Posts.ListTags(c.Request.Context(), service.SourceLive)
+		if err != nil {
+			apiFailure(c, http.StatusServiceUnavailable, "online_unavailable", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, items)
+	}
+}
+
 func apiPost(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pid, ok := positiveInt32Param(c, "pid")
@@ -763,6 +800,41 @@ func apiMedia(dependencies Dependencies) gin.HandlerFunc {
 		}
 		if err != nil {
 			apiFailure(c, http.StatusInternalServerError, "media_failed", err.Error(), nil)
+			return
+		}
+		if file.ContentType != "" {
+			c.Header("Content-Type", file.ContentType)
+		}
+		c.Header("Cache-Control", "private, max-age=3600")
+		c.File(file.Path)
+	}
+}
+
+func apiRemoteMedia(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Media == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "media service is unavailable", nil)
+			return
+		}
+		pidValue, err := strconv.ParseInt(c.Query("pid"), 10, 32)
+		if err != nil || pidValue <= 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "pid must be a positive integer", gin.H{"field": "pid"})
+			return
+		}
+		remoteID := strings.TrimSpace(c.Param("id"))
+		if remoteID == "_" {
+			remoteID = ""
+		} else if _, err := strconv.ParseUint(remoteID, 10, 64); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "remote media id must be numeric", gin.H{"field": "id"})
+			return
+		}
+		request := service.MediaRequest{ID: remoteID, PID: int32(pidValue), Thumbnail: c.Query("thumbnail") == "true"}
+		file, locateErr := dependencies.Media.Locate(c.Request.Context(), request)
+		if locateErr != nil {
+			file, locateErr = dependencies.Media.Download(c.Request.Context(), request)
+		}
+		if locateErr != nil {
+			apiFailure(c, http.StatusBadGateway, "media_failed", locateErr.Error(), nil)
 			return
 		}
 		if file.ContentType != "" {
@@ -1044,6 +1116,14 @@ func parsePostQuery(c *gin.Context) (service.PostQuery, bool) {
 		return service.PostQuery{}, false
 	}
 	query := service.PostQuery{Cursor: cursor, Limit: limit, Query: c.Query("q"), Source: normalizedAPISource(c.Query("source")), Sort: c.Query("sort"), From: from, To: to}
+	if raw := strings.TrimSpace(c.Query("label")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "label must be a positive integer", gin.H{"field": "label"})
+			return service.PostQuery{}, false
+		}
+		query.Label = value
+	}
 	if raw, exists := c.GetQuery("has_media"); exists {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {

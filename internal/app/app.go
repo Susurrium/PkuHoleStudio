@@ -53,14 +53,15 @@ type App struct {
 	Repository *db.Database
 	Client     *client.Client
 
-	Posts   *service.PostService
-	Search  *service.SearchService
-	Sync    *service.SyncService
-	Media   *service.MediaService
-	Archive service.ArchiveService
-	AI      service.AIService
-	Auth    service.AuthService
-	Jobs    *jobs.Manager
+	Posts     *service.PostService
+	Search    *service.SearchService
+	Sync      *service.SyncService
+	Media     *service.MediaService
+	Dashboard *service.DashboardService
+	Archive   service.ArchiveService
+	AI        service.AIService
+	Auth      service.AuthService
+	Jobs      *jobs.Manager
 
 	DataDir string
 
@@ -157,6 +158,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		service.NewTreeholeMediaRemote(application.Client),
 		application.Repository,
 	)
+	application.Dashboard = service.NewDashboardService()
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}

@@ -19,6 +19,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - Studio 可独立导入和导出带图片的 archive v2 或逐洞 Markdown ZIP；旧 v2 继续兼容，图片按 SHA-256 校验和去重。
 - Toolkit 仅作为独立、可选的浏览器导出工具；也可用 5 分钟有效的一次性配对码把归档发送给 Studio，核心导入导出流程不依赖它。
 - 帖子详情展示帖子/评论图片、缺失媒体状态，以及明确、推断、评论引用的前向和反向关系。
+- Web 资料库可在本地与在线树洞之间切换，支持关注、远程标签、在线详情和远程图片；只有明确点击保存或启动同步时才写入资料库。
 - React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
 - OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
 - `/api/v1` 游标 API；旧版 API 路由继续保留。
