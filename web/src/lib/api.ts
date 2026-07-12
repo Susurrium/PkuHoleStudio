@@ -1,4 +1,4 @@
-import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
+import type { AIProvider, AISession, AISessionDetail, AuthStatus, BridgePairing, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPost, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, Post, PostDetail, PostPage, ReferenceGraph, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -61,6 +61,9 @@ export const api = {
 	setPostTags: (pid: number, tagIDs: number[]) => request<LocalTag[]>(`/posts/${pid}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_ids: tagIDs }) }),
 	postNote: (pid: number) => request<Note>(`/posts/${pid}/note`),
 	savePostNote: (pid: number, content: string) => request<Note>(`/posts/${pid}/note`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }),
+	commentNote: (cid: number) => request<Note>(`/comments/${cid}/note`),
+	saveCommentNote: (cid: number, content: string) => request<Note>(`/comments/${cid}/note`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }),
+	referenceGraph: (pid: number, depth: 1 | 2) => request<ReferenceGraph>(`/posts/${pid}/references?depth=${depth}`),
   jobs: () => request<Job[]>('/jobs?limit=50'),
   job: (id: string) => request<Job>(`/jobs/${id}`),
   createJob: (type: string, payload: unknown = {}) => request<Job>('/jobs', {

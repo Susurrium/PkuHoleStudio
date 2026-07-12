@@ -64,6 +64,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/posts/hot", apiHotPosts(dependencies))
 	group.GET("/posts/:pid", apiPost(dependencies))
 	group.GET("/posts/:pid/comments", apiComments(dependencies))
+	group.GET("/posts/:pid/references", apiPostReferenceGraph(dependencies))
 	group.POST("/posts/:pid/comments", apiCreateComment(dependencies))
 	group.POST("/posts/:pid/praise", apiPostToggle(dependencies, "praise"))
 	group.POST("/posts/:pid/follow", apiPostToggle(dependencies, "follow"))
@@ -94,6 +95,8 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.PUT("/posts/:pid/tags", apiSetPostTags(dependencies))
 	group.GET("/posts/:pid/note", apiPostNote(dependencies))
 	group.PUT("/posts/:pid/note", apiSavePostNote(dependencies))
+	group.GET("/comments/:cid/note", apiCommentNote(dependencies))
+	group.PUT("/comments/:cid/note", apiSaveCommentNote(dependencies))
 	group.GET("/settings", apiSettings(dependencies))
 	group.PUT("/settings", apiUpdateSettings(dependencies))
 
@@ -472,6 +475,34 @@ func apiPostNote(dependencies Dependencies) gin.HandlerFunc {
 	}
 }
 
+func apiPostReferenceGraph(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Posts == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "post service is unavailable", nil)
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		depth := 1
+		if raw := strings.TrimSpace(c.Query("depth")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 || parsed > 2 {
+				apiFailure(c, http.StatusBadRequest, "invalid_input", "depth must be 1 or 2", nil)
+				return
+			}
+			depth = parsed
+		}
+		graph, err := dependencies.Posts.ReferenceGraph(c.Request.Context(), pid, depth)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, graph)
+	}
+}
+
 func apiSavePostNote(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
 		Content string `json:"content"`
@@ -489,6 +520,53 @@ func apiSavePostNote(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		row, err := dependencies.Library.SaveNote(c.Request.Context(), "post", int64(pid), body.Content)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiCommentNote(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		cid, ok := positiveInt32Param(c, "cid")
+		if !ok {
+			return
+		}
+		row, err := dependencies.Library.Note(c.Request.Context(), "comment", int64(cid))
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		if row == nil {
+			apiRespond(c, http.StatusOK, gin.H{"owner_type": "comment", "owner_id": cid, "content": ""})
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiSaveCommentNote(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		Content string `json:"content"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		cid, ok := positiveInt32Param(c, "cid")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.SaveNote(c.Request.Context(), "comment", int64(cid), body.Content)
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
 			return

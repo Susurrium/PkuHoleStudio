@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -184,6 +185,79 @@ func liveMedia(post *models.Post, comments []models.Comment) []models.Media {
 
 func (s *PostService) Detail(ctx context.Context, pid int32, query CommentQuery) (PostDetail, error) {
 	return s.Get(ctx, pid, query)
+}
+
+// ReferenceGraph expands a bounded local neighborhood around a post. It is
+// intentionally capped so a dense archive cannot make a browser request scan
+// the complete reference table.
+func (s *PostService) ReferenceGraph(ctx context.Context, root int32, depth int) (ReferenceGraph, error) {
+	if err := contextError(ctx); err != nil {
+		return ReferenceGraph{}, err
+	}
+	if root <= 0 {
+		return ReferenceGraph{}, errors.New("pid must be positive")
+	}
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > 2 {
+		depth = 2
+	}
+	if s == nil || s.repository == nil {
+		return ReferenceGraph{}, errRepositoryUnavailable
+	}
+	references, ok := s.repository.(ReferenceRepository)
+	if !ok {
+		return ReferenceGraph{Root: root, Nodes: []ReferenceNode{{PID: root}}, Edges: []Reference{}}, nil
+	}
+	const maxNodes = 100
+	seenNodes := map[int32]bool{root: true}
+	frontier := []int32{root}
+	edges := make([]Reference, 0)
+	seenEdges := make(map[string]bool)
+	for level := 0; level < depth && len(frontier) > 0 && len(seenNodes) < maxNodes; level++ {
+		next := make([]int32, 0)
+		for _, pid := range frontier {
+			rows, err := references.GetReferencesByPID(pid)
+			if err != nil {
+				return ReferenceGraph{}, err
+			}
+			for _, row := range rows {
+				key := fmt.Sprintf("%s:%d:%v:%d:%v", row.Kind, row.SourcePID, row.SourceCID, row.TargetPID, row.TargetCID)
+				if !seenEdges[key] {
+					seenEdges[key] = true
+					edges = append(edges, Reference{Kind: row.Kind, SourcePID: row.SourcePID, SourceCID: row.SourceCID, TargetPID: row.TargetPID, TargetCID: row.TargetCID})
+				}
+				for _, related := range []int32{row.SourcePID, row.TargetPID} {
+					if related <= 0 || seenNodes[related] || len(seenNodes) >= maxNodes {
+						continue
+					}
+					seenNodes[related] = true
+					next = append(next, related)
+				}
+			}
+		}
+		frontier = next
+	}
+	nodes := make([]ReferenceNode, 0, len(seenNodes))
+	for pid := range seenNodes {
+		node := ReferenceNode{PID: pid}
+		if post, err := s.repository.GetPostByPid(pid); err == nil && post != nil {
+			node.Text = post.Text
+			node.Timestamp = post.Timestamp
+		}
+		nodes = append(nodes, node)
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].PID == root {
+			return true
+		}
+		if nodes[j].PID == root {
+			return false
+		}
+		return nodes[i].PID < nodes[j].PID
+	})
+	return ReferenceGraph{Root: root, Nodes: nodes, Edges: edges}, nil
 }
 
 func (s *PostService) Comments(ctx context.Context, pid int32, query CommentQuery) (CommentPage, error) {
