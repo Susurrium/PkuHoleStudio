@@ -58,6 +58,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/posts/:pid", apiPost(dependencies))
 	group.GET("/posts/:pid/comments", apiComments(dependencies))
 	group.GET("/search", apiSearch(dependencies))
+	group.GET("/search/history", apiSearchHistory(dependencies))
 	group.GET("/media/:id", apiMedia(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
@@ -203,7 +204,30 @@ func apiSearch(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusInternalServerError, "search_failed", err.Error(), nil)
 			return
 		}
+		if dependencies.Repository != nil && query.Source == service.SourceLocal {
+			filters, _ := json.Marshal(query)
+			_ = dependencies.Repository.RecordSearch(query.Query, string(filters))
+		}
 		apiRespond(c, http.StatusOK, page)
+	}
+}
+
+func apiSearchHistory(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Repository == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "search history is unavailable", nil)
+			return
+		}
+		limit, ok := boundedIntQuery(c, "limit", 12, 1, 100)
+		if !ok {
+			return
+		}
+		rows, err := dependencies.Repository.ListSearchHistory(limit)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
 	}
 }
 
