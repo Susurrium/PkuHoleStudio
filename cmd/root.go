@@ -54,9 +54,10 @@ var (
 
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "treehole",
-		Short: "PkuHoleStudio local archive and Treehole client",
-		Long:  `PkuHoleStudio：兼容 PKUHoleTUI 的本地资料库、TUI、采集与 API 工具。`,
+		Use:     "treehole",
+		Version: version,
+		Short:   "PkuHoleStudio local archive and Treehole client",
+		Long:    `PkuHoleStudio：兼容 PKUHoleTUI 的本地资料库、TUI、采集与 API 工具。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI()
 		},

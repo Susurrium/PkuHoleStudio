@@ -108,7 +108,7 @@ jobs:
           goarch="$(go env GOARCH)"
           name="treehole-${goos}-${goarch}"
           mkdir -p dist
-          go build -tags sqlite_fts5 -ldflags="-s -w" -o "dist/${name}" ./cmd
+          go build -tags sqlite_fts5 -ldflags="-s -w -X main.version=${RELEASE_TAG}" -o "dist/${name}" ./cmd
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
       - name: Build Windows
         if: runner.os == 'Windows'
@@ -119,7 +119,7 @@ jobs:
           goarch="$(go env GOARCH)"
           name="treehole-${goos}-${goarch}"
           mkdir -p dist
-          go build -tags sqlite_fts5 -ldflags="-s -w" -o "dist/${name}.exe" ./cmd
+          go build -tags sqlite_fts5 -ldflags="-s -w -X main.version=${RELEASE_TAG}" -o "dist/${name}.exe" ./cmd
       - name: Archive Windows
         if: runner.os == 'Windows'
         shell: pwsh

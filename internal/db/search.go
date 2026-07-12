@@ -64,25 +64,40 @@ func (d *Database) SearchFullText(query models.FullTextQuery) (models.FullTextPa
 func (d *Database) searchFTS(query models.FullTextQuery, parsed postSearchQuery) ([]postMatchRow, []commentMatchRow, error) {
 	expression := ftsExpression(parsed.keywords)
 	filter, args := searchFilterSQL(query, parsed.pid, "p")
+	candidates := searchCandidateLimit(query)
 	postArgs := append([]any{expression}, args...)
-	postSQL := `SELECT CAST(posts_fts.pid AS INTEGER) AS pid,
+	postArgs = append(postArgs, searchRankingPool(candidates), expression, candidates)
+	postSQL := `WITH candidate_rows AS MATERIALIZED (
+		SELECT posts_fts.rowid
+		FROM posts_fts JOIN posts p ON p.pid = CAST(posts_fts.pid AS INTEGER)
+		WHERE posts_fts MATCH ?` + filter + `
+		ORDER BY posts_fts.rowid DESC LIMIT ?
+	)
+	SELECT CAST(posts_fts.pid AS INTEGER) AS pid,
 		bm25(posts_fts) AS score,
 		snippet(posts_fts, 1, '<mark>', '</mark>', '…', 24) AS snippet
-		FROM posts_fts JOIN posts p ON p.pid = CAST(posts_fts.pid AS INTEGER)
-		WHERE posts_fts MATCH ?` + filter
+		FROM posts_fts JOIN candidate_rows ON candidate_rows.rowid = posts_fts.rowid
+		WHERE posts_fts MATCH ? ORDER BY score ASC, pid DESC LIMIT ?`
 	var posts []postMatchRow
 	if err := d.db.Raw(postSQL, postArgs...).Scan(&posts).Error; err != nil {
 		return nil, nil, err
 	}
 
+	commentLimit := min(candidates*10, 10_000)
 	commentArgs := append([]any{expression}, args...)
-	commentSQL := `SELECT CAST(comments_fts.cid AS INTEGER) AS cid,
+	commentArgs = append(commentArgs, searchRankingPool(commentLimit), expression, commentLimit)
+	commentSQL := `WITH candidate_rows AS MATERIALIZED (
+		SELECT comments_fts.rowid
+		FROM comments_fts JOIN posts p ON p.pid = CAST(comments_fts.pid AS INTEGER)
+		WHERE comments_fts MATCH ?` + filter + `
+		ORDER BY comments_fts.rowid DESC LIMIT ?
+	)
+	SELECT CAST(comments_fts.cid AS INTEGER) AS cid,
 		CAST(comments_fts.pid AS INTEGER) AS pid,
 		bm25(comments_fts) AS score,
 		snippet(comments_fts, 2, '<mark>', '</mark>', '…', 24) AS snippet
-		FROM comments_fts
-		JOIN posts p ON p.pid = CAST(comments_fts.pid AS INTEGER)
-		WHERE comments_fts MATCH ?` + filter + ` ORDER BY score ASC, cid ASC`
+		FROM comments_fts JOIN candidate_rows ON candidate_rows.rowid = comments_fts.rowid
+		WHERE comments_fts MATCH ? ORDER BY score ASC, cid ASC LIMIT ?`
 	var comments []commentMatchRow
 	if err := d.db.Raw(commentSQL, commentArgs...).Scan(&comments).Error; err != nil {
 		return nil, nil, err
@@ -93,8 +108,10 @@ func (d *Database) searchFTS(query models.FullTextQuery, parsed postSearchQuery)
 func (d *Database) searchLike(query models.FullTextQuery, parsed postSearchQuery) ([]postMatchRow, []commentMatchRow, error) {
 	filter, filterArgs := searchFilterSQL(query, parsed.pid, "p")
 	postWhere, postArgs := likeKeywordSQL(parsed.keywords, "p.text")
-	postSQL := `SELECT p.pid, 0.0 AS score, p.text AS snippet FROM posts p WHERE 1=1` + filter + postWhere
+	candidates := searchCandidateLimit(query)
+	postSQL := `SELECT p.pid, 0.0 AS score, p.text AS snippet FROM posts p WHERE 1=1` + filter + postWhere + ` ORDER BY p.pid DESC LIMIT ?`
 	args := append(append([]any{}, filterArgs...), postArgs...)
+	args = append(args, candidates)
 	var posts []postMatchRow
 	if err := d.db.Raw(postSQL, args...).Scan(&posts).Error; err != nil {
 		return nil, nil, err
@@ -102,8 +119,9 @@ func (d *Database) searchLike(query models.FullTextQuery, parsed postSearchQuery
 
 	commentWhere, commentArgs := likeCommentKeywordSQL(parsed.keywords)
 	commentSQL := `SELECT c.cid, c.pid, 0.0 AS score, c.text AS snippet
-		FROM comments c JOIN posts p ON p.pid = c.pid WHERE 1=1` + filter + commentWhere + ` ORDER BY c.cid ASC`
+		FROM comments c JOIN posts p ON p.pid = c.pid WHERE 1=1` + filter + commentWhere + ` ORDER BY c.cid ASC LIMIT ?`
 	args = append(append([]any{}, filterArgs...), commentArgs...)
+	args = append(args, min(candidates*10, 10_000))
 	var comments []commentMatchRow
 	if len(parsed.keywords) > 0 {
 		if err := d.db.Raw(commentSQL, args...).Scan(&comments).Error; err != nil {
@@ -111,6 +129,28 @@ func (d *Database) searchLike(query models.FullTextQuery, parsed postSearchQuery
 		}
 	}
 	return posts, comments, nil
+}
+
+func searchCandidateLimit(query models.FullTextQuery) int {
+	limit := query.Offset + query.Limit + 1
+	if limit < 26 {
+		limit = 26
+	}
+	if limit > 10_000 {
+		limit = 10_000
+	}
+	return limit
+}
+
+func searchRankingPool(resultLimit int) int {
+	pool := resultLimit * 20
+	if pool < 500 {
+		pool = 500
+	}
+	if pool > 5_000 {
+		pool = 5_000
+	}
+	return pool
 }
 
 func (d *Database) buildSearchPage(query models.FullTextQuery, posts []postMatchRow, comments []commentMatchRow) (models.FullTextPage, error) {
