@@ -60,10 +60,29 @@ func runServer() error {
 }
 
 func newServerEngine(application *app.App) *gin.Engine {
+	r := newBaseServerEngine()
+	server.Init(r, serverDependencies(application))
+	return r
+}
+
+func newWebServerEngine(application *app.App) (*gin.Engine, error) {
+	r := newBaseServerEngine()
+	if err := server.AttachSPA(r); err != nil {
+		return nil, err
+	}
+	server.Init(r, serverDependencies(application))
+	return r, nil
+}
+
+func newBaseServerEngine() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	server.Init(r, server.Dependencies{
+	return r
+}
+
+func serverDependencies(application *app.App) server.Dependencies {
+	return server.Dependencies{
 		Posts:         application.Posts,
 		Search:        application.Search,
 		Media:         application.Media,
@@ -78,6 +97,5 @@ func newServerEngine(application *app.App) *gin.Engine {
 		Jobs:          application.Jobs,
 		Repository:    application.Repository,
 		DataDir:       application.DataDir,
-	})
-	return r
+	}
 }

@@ -114,6 +114,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/jobs/:id/retry", apiJobAction(dependencies, "retry"))
 
 	group.POST("/imports", apiCreateImport(dependencies))
+	group.GET("/imports", apiImports(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
 	group.POST("/exports", apiCreateExport(dependencies))
 	group.GET("/exports/jobs", apiExportJobs(dependencies))
@@ -2043,6 +2044,35 @@ func apiImport(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, toPublicJob(job))
+	}
+}
+
+func apiImports(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Jobs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
+			return
+		}
+		limit, ok := boundedIntQuery(c, "limit", 50, 1, 200)
+		if !ok {
+			return
+		}
+		rows, err := dependencies.Jobs.List(c.Request.Context(), 200)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		result := make([]publicJob, 0, limit)
+		for _, row := range rows {
+			if row.Type != jobs.TypeImportArchive {
+				continue
+			}
+			result = append(result, toPublicJob(row))
+			if len(result) == limit {
+				break
+			}
+		}
+		apiRespond(c, http.StatusOK, result)
 	}
 }
 

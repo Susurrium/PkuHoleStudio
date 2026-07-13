@@ -9,7 +9,6 @@ import (
 	"runtime"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/app"
-	"github.com/Susurrium/PkuHoleStudio/server"
 
 	"github.com/spf13/cobra"
 )
@@ -40,8 +39,8 @@ func runWeb(ctx context.Context) error {
 		return err
 	}
 	defer application.Close()
-	router := newServerEngine(application)
-	if err := server.AttachSPA(router); err != nil {
+	router, err := newWebServerEngine(application)
+	if err != nil {
 		return fmt.Errorf("attach embedded Web client: %w", err)
 	}
 	address := net.JoinHostPort(webHost, webPort)

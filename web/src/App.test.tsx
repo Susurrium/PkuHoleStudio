@@ -49,10 +49,16 @@ describe('PkuHoleStudio Web', () => {
   })
 
 	it('uploads an archive and displays its preflight report', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => json({
-      job: { id: 'job-1', type: 'import_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
-      preflight: { format: 'legacy-v1', status: 'completed', hash: 'abc', run_id: 'legacy-abc', counts: { items: 1, valid_items: 1, comments: 0 }, issues: [] },
-    })))
+		const job = { id: 'job-1', type: 'import_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }
+		const preflight = { format: 'legacy-v1', status: 'completed', hash: 'abc', run_id: 'legacy-abc', counts: { items: 1, valid_items: 1, comments: 0 }, issues: [] }
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.includes('/imports?')) return json([])
+			if (path.endsWith('/exports/jobs')) return json([])
+			if (path.endsWith('/jobs/job-1')) return json(job)
+			if (path.endsWith('/imports') && init?.method === 'POST') return json({ job, preflight }, 202)
+			throw new Error(`unexpected request ${path}`)
+		}))
     const user = userEvent.setup()
     const { container } = renderApp('/imports')
     const input = container.querySelector('input[type=file]') as HTMLInputElement
@@ -68,7 +74,13 @@ describe('PkuHoleStudio Web', () => {
 				preflight: { format: 'v2', status: 'failed', hash: 'bad', run_id: 'run-bad', counts: { items: 3, valid_items: 0, skipped_items: 3 }, issues: [{ severity: 'error', code: 'invalid_hole', message: 'bad field' }] },
 			},
 		} }
-		vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(failure), { status: 422, headers: { 'Content-Type': 'application/json' } }))))
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.includes('/imports?')) return json([])
+			if (path.endsWith('/exports/jobs')) return json([])
+			if (path.endsWith('/imports') && init?.method === 'POST') return Promise.resolve(new Response(JSON.stringify(failure), { status: 422, headers: { 'Content-Type': 'application/json' } }))
+			throw new Error(`unexpected request ${path}`)
+		}))
 		const user = userEvent.setup()
 		const { container } = renderApp('/imports')
 		const input = container.querySelector('input[type=file]') as HTMLInputElement
@@ -84,6 +96,7 @@ describe('PkuHoleStudio Web', () => {
 		let rows: unknown[] = []
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
 			const path = String(input)
+			if (path.includes('/imports?')) return json([])
 			if (path.endsWith('/exports/jobs') && init?.method === 'POST') { rows = [job]; return json(job, 202) }
 			if (path.endsWith('/exports/jobs')) return json(rows)
 			throw new Error(`unexpected request ${path}`)
@@ -93,6 +106,22 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(await screen.findByRole('button', { name: '创建 archive v2 任务' }))
 		expect(await screen.findByText('export-1')).toBeInTheDocument()
 		expect(screen.getByText('queued')).toBeInTheDocument()
+	})
+
+	it('restores completed import history and report after a page refresh', async () => {
+		const report = { format: 'v2', status: 'completed', hash: 'hash', run_id: 'run', counts: { items: 3, valid_items: 3, comments: 226 }, issues: [] }
+		const job = { id: 'import-finished', type: 'import_archive', status: 'completed', checkpoint: report, completed_items: 1, failed_items: 0, total_items: 1, attempts: 1, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:01Z' }
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/imports?')) return json([job])
+			if (path.endsWith('/exports/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/imports')
+		expect(await screen.findByText('import-finished')).toBeInTheDocument()
+		await userEvent.setup().click(screen.getByText('查看最终导入报告'))
+		expect(screen.getByText('226')).toBeInTheDocument()
+		expect(screen.getByText('comments')).toBeInTheDocument()
 	})
 
 	it('shows provider guidance when AI is not configured', async () => {

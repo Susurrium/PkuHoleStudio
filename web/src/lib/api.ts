@@ -85,6 +85,7 @@ export const api = {
     body.append('file', file)
     return request<ImportCreated>('/imports', { method: 'POST', body })
 	},
+	importJobs: () => request<Job[]>('/imports?limit=50'),
 	createBridgePairing: () => request<BridgePairing>('/bridge/pairings', { method: 'POST' }),
 	bridgePairing: (token: string) => request<BridgePairing>(`/bridge/pairings/${token}`),
 	confirmBridgePairing: (token: string) => request<BridgePairing>(`/bridge/pairings/${token}/confirm`, { method: 'POST' }),

@@ -2,7 +2,7 @@ import { ChangeEvent, DragEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Copy, Download, FileArchive, FileText, Link2, UploadCloud, XCircle } from 'lucide-react'
 import { APIError, api } from '../lib/api'
-import type { ArchivePreflight, ImportCreated } from '../lib/types'
+import type { ArchivePreflight, ImportCreated, Job } from '../lib/types'
 import { PageHeader } from '../components/PageHeader'
 import { ErrorState } from '../components/States'
 import { JobRow } from '../components/JobRow'
@@ -11,14 +11,21 @@ export function ImportsPage() {
   const client = useQueryClient()
   const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<ImportCreated | null>(null)
+	const imports = useQuery({ queryKey: ['import-jobs'], queryFn: api.importJobs, refetchInterval: (query) => Array.isArray(query.state.data) && query.state.data.some((job) => job.status === 'queued' || job.status === 'running' || job.status === 'paused') ? 1_000 : 5_000 })
   const upload = useMutation({
     mutationFn: api.importArchive,
-    onSuccess: (value) => { setResult(value); client.invalidateQueries({ queryKey: ['jobs'] }) },
+    onSuccess: (value) => { setResult(value); client.invalidateQueries({ queryKey: ['jobs'] }); client.invalidateQueries({ queryKey: ['import-jobs'] }) },
     onError: (error) => {
       const preflight = preflightFromError(error)
       if (preflight) setResult({ preflight })
     },
   })
+	const activeImport = useQuery({
+		queryKey: ['import-job', result?.job?.id],
+		queryFn: () => api.job(result!.job!.id),
+		enabled: Boolean(result?.job?.id),
+		refetchInterval: (query) => query.state.data && ['completed', 'partial', 'failed', 'cancelled'].includes(query.state.data.status) ? false : 1_000,
+	})
   function pick(files?: FileList | null) { const next = files?.[0] ?? null; setFile(next); setResult(null); upload.reset() }
   function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
   return <>
@@ -41,12 +48,24 @@ export function ImportsPage() {
           <PreflightBanner preflight={result.preflight} />
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{Object.entries(result.preflight.counts).filter(([, value]) => typeof value === 'number').map(([key, value]) => <div key={key} className="rounded-xl border border-line bg-white/50 p-3"><p className="text-xl font-semibold">{value}</p><p className="mt-1 font-mono text-[10px] text-ink-soft">{key}</p></div>)}</div>
           {result.preflight.issues.length > 0 && <div className="mt-4 max-h-56 space-y-2 overflow-auto">{result.preflight.issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="rounded-lg border border-coral/20 bg-coral-soft/30 p-3 text-xs"><p className="font-semibold text-coral">{issue.code}</p><p className="mt-1 leading-5 text-ink-soft">{issue.message}</p></div>)}</div>}
-          {result.job && <div className="mt-5"><JobRow job={result.job} /></div>}
+          {result.job && <div className="mt-5"><JobRow job={activeImport.data ?? result.job} /></div>}
         </div>}
       </section>
     </div>
+		<ImportHistoryPanel jobs={imports.data ?? []} loading={imports.isLoading} error={imports.error} />
     <ExportPanel />
   </>
+}
+
+function ImportHistoryPanel({ jobs, loading, error }: { jobs: Job[]; loading: boolean; error: unknown }) {
+	return <section className="panel mt-7 p-5 md:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow">IMPORT HISTORY</p><h2 className="mt-1 text-xl font-semibold">导入历史</h2></div><span className="badge">{jobs.length} 条</span></div>{loading ? <p className="mt-5 text-sm text-ink-soft">正在恢复导入历史…</p> : error ? <div className="mt-5"><ErrorState error={error} /></div> : <div className="mt-5 grid gap-3">{jobs.length ? jobs.map((job) => { const report = preflightFromCheckpoint(job.checkpoint); return <div key={job.id} className="rounded-xl border border-line bg-white/45 p-3"><JobRow job={job} />{report && <details className="mt-3 rounded-xl border border-line bg-paper/40 p-3"><summary className="cursor-pointer text-sm font-semibold">查看最终导入报告{report.status === 'duplicate' ? ' · 重复归档' : ''}</summary><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{Object.entries(report.counts).filter(([, value]) => typeof value === 'number').map(([key, value]) => <div key={key} className="rounded-lg bg-white/60 p-2"><p className="font-semibold">{value}</p><p className="font-mono text-[9px] text-ink-soft">{key}</p></div>)}</div>{report.issues.length > 0 && <div className="mt-3 space-y-2">{report.issues.map((issue, index) => <p key={`${issue.code}-${index}`} className="text-xs text-coral">{issue.code}：{issue.message}</p>)}</div>}</details>}</div> }) : <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-ink-soft">还没有导入任务。</p>}</div>}</section>
+}
+
+function preflightFromCheckpoint(checkpoint: unknown): ArchivePreflight | undefined {
+	if (!checkpoint || typeof checkpoint !== 'object') return undefined
+	const value = checkpoint as Partial<ArchivePreflight>
+	if (typeof value.format !== 'string' || typeof value.status !== 'string' || !value.counts || !Array.isArray(value.issues)) return undefined
+	return value as ArchivePreflight
 }
 
 function ToolkitBridgePanel() {

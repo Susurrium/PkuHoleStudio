@@ -237,6 +237,10 @@ func TestAPIV1ArchiveUploadPreflightAndQueue(t *testing.T) {
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"format":"legacy-v1"`) || !strings.Contains(response.Body.String(), `"type":"import_archive"`) {
 		t.Fatalf("import response = %d %s", response.Code, response.Body.String())
 	}
+	history := performRequest(router, http.MethodGet, "/api/v1/imports?limit=50", nil, "")
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"type":"import_archive"`) || strings.Contains(history.Body.String(), "staging") {
+		t.Fatalf("import history = %d %s", history.Code, history.Body.String())
+	}
 }
 
 func TestAPIV1ToolkitBridgeRequiresPairingAndLocalConfirmation(t *testing.T) {
