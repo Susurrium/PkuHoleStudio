@@ -11,7 +11,10 @@ New-Item -ItemType Directory -Force E:\code\PkuHoleStudio-alpha3-test
 Set-Location E:\code\PkuHoleStudio
 $env:Path='C:\Program Files\Go\bin;C:\msys64\ucrt64\bin;'+$env:Path
 $env:CGO_ENABLED='1'
-go build -tags sqlite_fts5 -ldflags='-s -w -X main.version=v0.1.0-alpha.3' -o E:\code\PkuHoleStudio-alpha3-test\treehole.exe .\cmd
+$Output='E:\code\PkuHoleStudio-alpha3-test\treehole.exe'
+$Flags='-s -w -X main.version=v0.1.0-alpha.3'
+go test -tags sqlite_fts5 ./...
+go build -tags sqlite_fts5 -ldflags $Flags -o $Output .\cmd
 Set-Location E:\code\PkuHoleStudio-alpha3-test
 .\treehole.exe --version
 ```
