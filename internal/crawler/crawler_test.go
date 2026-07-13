@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -13,6 +14,48 @@ import (
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 )
+
+func TestSaveRawResponsesToManagedFileAndDrainAfterCommit(t *testing.T) {
+	rawSaveMu.Lock()
+	rawResponsesMu.Lock()
+	rawResponses = []map[string]interface{}{{"page": float64(1)}, {"page": float64(2)}}
+	rawResponsesMu.Unlock()
+	rawSaveMu.Unlock()
+	t.Cleanup(func() {
+		rawResponsesMu.Lock()
+		rawResponses = nil
+		rawResponsesMu.Unlock()
+	})
+	path := filepath.Join(t.TempDir(), "raw", "responses.json")
+	count, size, err := SaveRawResponsesTo(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || size <= 0 || RawResponses() != 0 {
+		t.Fatalf("save result count=%d size=%d remaining=%d", count, size, RawResponses())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"page": 1`)) || !bytes.Contains(data, []byte(`"page": 2`)) {
+		t.Fatalf("saved raw JSON = %s", data)
+	}
+}
+
+func TestSaveRawResponsesToRejectsEmptyCache(t *testing.T) {
+	rawResponsesMu.Lock()
+	rawResponses = nil
+	rawResponsesMu.Unlock()
+	path := filepath.Join(t.TempDir(), "responses.json")
+	_, _, err := SaveRawResponsesTo(path)
+	if !errors.Is(err, ErrNoRawResponses) {
+		t.Fatalf("SaveRawResponsesTo() error = %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("empty cache created a file: %v", statErr)
+	}
+}
 
 func TestGetJSONStringFromInterface(t *testing.T) {
 	tests := []struct {

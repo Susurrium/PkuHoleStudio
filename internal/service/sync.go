@@ -30,11 +30,17 @@ type ThumbnailResult struct {
 	Skipped    int
 }
 
+type RawJSONResult struct {
+	Responses int   `json:"responses"`
+	Bytes     int64 `json:"bytes"`
+}
+
 type syncRunner interface {
 	FetchPage(page int, options CrawlOptions) (SyncResult, error)
 	FetchImages(convertWebP bool) error
 	FetchThumbnails(startID, endID int, convertWebP bool) (ThumbnailResult, error)
 	SaveRawResponses() error
+	SaveRawResponsesTo(path string) (RawJSONResult, error)
 	RawResponseCount() int
 }
 
@@ -109,6 +115,23 @@ func (s *SyncService) SaveRawResponses(ctx context.Context) error {
 	return s.runner.SaveRawResponses()
 }
 
+func (s *SyncService) SaveRawResponsesTo(ctx context.Context, path string) (RawJSONResult, error) {
+	if err := contextError(ctx); err != nil {
+		return RawJSONResult{}, err
+	}
+	if s == nil || s.runner == nil {
+		return RawJSONResult{}, errors.New("sync service is not configured")
+	}
+	result, err := s.runner.SaveRawResponsesTo(path)
+	if err != nil {
+		return RawJSONResult{}, err
+	}
+	if err := contextError(ctx); err != nil {
+		return RawJSONResult{}, err
+	}
+	return result, nil
+}
+
 func (s *SyncService) RawResponseCount() int {
 	if s == nil || s.runner == nil {
 		return 0
@@ -152,7 +175,11 @@ func (r *legacySyncRunner) FetchThumbnails(startID, endID int, convertWebP bool)
 }
 
 func (r *legacySyncRunner) SaveRawResponses() error { return crawler.SaveRawResponsesToFile() }
-func (r *legacySyncRunner) RawResponseCount() int   { return crawler.RawResponses() }
+func (r *legacySyncRunner) SaveRawResponsesTo(path string) (RawJSONResult, error) {
+	count, size, err := crawler.SaveRawResponsesTo(path)
+	return RawJSONResult{Responses: count, Bytes: size}, err
+}
+func (r *legacySyncRunner) RawResponseCount() int { return crawler.RawResponses() }
 
 func contextError(ctx context.Context) error {
 	if ctx == nil {

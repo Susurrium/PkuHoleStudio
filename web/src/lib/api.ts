@@ -38,7 +38,7 @@ export const api = {
 	search: (params: Record<string, string | number | boolean | undefined | null>) => request<PostPage>(`/search${queryString(params)}`),
 	searchHistory: () => request<SearchHistory[]>('/search/history?limit=12'),
   post: (pid: string | number, source: 'local' | 'live' = 'local') => request<PostDetail>(`/posts/${pid}${queryString({ source })}`),
-  comments: (pid: string | number, cursor = 0, source: 'local' | 'live' = 'local') => request<CommentPage>(`/posts/${pid}/comments${queryString({ cursor, source })}`),
+  comments: (pid: string | number, cursor = 0, source: 'local' | 'live' = 'local', limit = 50) => request<CommentPage>(`/posts/${pid}/comments${queryString({ cursor, source, limit })}`),
 	tags: () => request<Tag[]>('/tags?source=live'),
 	uploadMedia: (file: File) => { const body = new FormData(); body.append('file', file); return request<UploadedMedia>('/media/uploads', { method: 'POST', body }) },
 	createPost: (text: string, mediaIDs: string[]) => request<Post>('/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, media_ids: mediaIDs }) }),
@@ -101,6 +101,7 @@ export const api = {
 	},
 	createExportJob: (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean) => request<Job>('/exports/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments }) }),
 	exportJobs: () => request<Job[]>('/exports/jobs'),
+	regenerateExportJob: (id: string) => request<Job>(`/exports/${id}/regenerate`, { method: 'POST' }),
 	downloadExportJob: async (id: string): Promise<ExportDownload> => {
 		const response = await fetch(`/api/v1/exports/${id}/download`)
 		if (!response.ok) {
@@ -109,6 +110,16 @@ export const api = {
 		}
 		const disposition = response.headers.get('content-disposition') ?? ''
 		return { blob: await response.blob(), filename: disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `${id}.zip` }
+	},
+	rawJSONJobs: () => request<Job[]>('/raw-json/jobs'),
+	downloadRawJSONJob: async (id: string): Promise<ExportDownload> => {
+		const response = await fetch(`/api/v1/raw-json/${id}/download`)
+		if (!response.ok) {
+			const failure = await response.json().catch(() => null) as ErrorEnvelope | null
+			throw new APIError(response.status, failure?.error?.code ?? 'raw_json_download_failed', failure?.error?.message ?? `下载失败 (${response.status})`, failure?.error?.details)
+		}
+		const disposition = response.headers.get('content-disposition') ?? ''
+		return { blob: await response.blob(), filename: disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? `${id}.json` }
 	},
 	aiProviders: () => request<AIProvider[]>('/ai/providers'),
 	aiSessions: () => request<AISession[]>('/ai/sessions?limit=50'),

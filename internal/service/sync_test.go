@@ -23,6 +23,7 @@ type fakeSyncRunner struct {
 	images      bool
 	thumbs      bool
 	rawCount    int
+	rawPath     string
 	err         error
 }
 
@@ -43,7 +44,11 @@ func (f *fakeSyncRunner) FetchThumbnails(int, int, bool) (ThumbnailResult, error
 }
 
 func (f *fakeSyncRunner) SaveRawResponses() error { return f.err }
-func (f *fakeSyncRunner) RawResponseCount() int   { return f.rawCount }
+func (f *fakeSyncRunner) SaveRawResponsesTo(path string) (RawJSONResult, error) {
+	f.rawPath = path
+	return RawJSONResult{Responses: 2, Bytes: 128}, f.err
+}
+func (f *fakeSyncRunner) RawResponseCount() int { return f.rawCount }
 
 func TestSyncServiceDelegatesCrawlerOperations(t *testing.T) {
 	runner := &fakeSyncRunner{rawCount: 7}
@@ -69,6 +74,10 @@ func TestSyncServiceDelegatesCrawlerOperations(t *testing.T) {
 	}
 	if svc.RawResponseCount() != 7 {
 		t.Fatalf("RawResponseCount() = %d", svc.RawResponseCount())
+	}
+	raw, err := svc.SaveRawResponsesTo(context.Background(), "managed.json")
+	if err != nil || runner.rawPath != "managed.json" || raw.Responses != 2 || raw.Bytes != 128 {
+		t.Fatalf("SaveRawResponsesTo() result=%+v path=%q err=%v", raw, runner.rawPath, err)
 	}
 }
 

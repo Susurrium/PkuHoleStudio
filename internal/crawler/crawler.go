@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -27,9 +28,12 @@ import (
 var (
 	rawResponses   []map[string]interface{}
 	rawResponsesMu sync.Mutex
+	rawSaveMu      sync.Mutex
 	imageDir       = "data/images"
 	thumbnailDir   = "data/thumbnails"
 )
+
+var ErrNoRawResponses = errors.New("没有已缓存的原始响应；请先在顺序采集中启用原始 JSON 缓存")
 
 func ensureDir(dir string) {
 	_ = os.MkdirAll(dir, 0755)
@@ -80,35 +84,71 @@ func RawResponses() int {
 	return len(rawResponses)
 }
 
-// SaveRawResponsesToFile 将所有收集的原始响应保存到JSON文件
+// SaveRawResponsesToFile keeps the legacy TUI/CLI behavior of writing to the
+// current directory. Web jobs use SaveRawResponsesTo with a managed path.
 func SaveRawResponsesToFile() error {
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("raw_responses_%s.json", timestamp)
+	_, _, err := SaveRawResponsesTo(filename)
+	return err
+}
+
+// SaveRawResponsesTo atomically drains the cached responses into path. The
+// cache is only cleared after the file has been committed successfully.
+func SaveRawResponsesTo(path string) (count int, size int64, err error) {
+	rawSaveMu.Lock()
+	defer rawSaveMu.Unlock()
+	if strings.TrimSpace(path) == "" {
+		return 0, 0, errors.New("原始响应保存路径不能为空")
+	}
 	rawResponsesMu.Lock()
 	if len(rawResponses) == 0 {
 		rawResponsesMu.Unlock()
-		return nil
+		return 0, 0, ErrNoRawResponses
 	}
 	responsesCopy := make([]map[string]interface{}, len(rawResponses))
 	copy(responsesCopy, rawResponses)
-	rawResponses = nil
 	rawResponsesMu.Unlock()
-
-	// 生成带时间戳的文件名
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := fmt.Sprintf("raw_responses_%s.json", timestamp)
 
 	data, err := json.MarshalIndent(responsesCopy, "", "  ")
 	if err != nil {
-		return fmt.Errorf("序列化原始响应失败: %w", err)
+		return 0, 0, fmt.Errorf("序列化原始响应失败: %w", err)
 	}
-
-	err = os.WriteFile(filename, data, 0644)
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return 0, 0, fmt.Errorf("创建原始响应目录失败: %w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".raw-*.tmp")
 	if err != nil {
-		return fmt.Errorf("写入JSON文件失败: %w", err)
+		return 0, 0, fmt.Errorf("创建原始响应临时文件失败: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return 0, 0, err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return 0, 0, fmt.Errorf("写入原始响应失败: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return 0, 0, fmt.Errorf("关闭原始响应文件失败: %w", err)
+	}
+	_ = os.Remove(path)
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return 0, 0, fmt.Errorf("提交原始响应文件失败: %w", err)
 	}
 
-	log.Printf("[Crawler] 原始响应已保存到文件: %s (%d 个响应)", filename, len(responsesCopy))
-
-	return nil
+	rawResponsesMu.Lock()
+	if len(rawResponses) >= len(responsesCopy) {
+		rawResponses = append([]map[string]interface{}(nil), rawResponses[len(responsesCopy):]...)
+	} else {
+		rawResponses = nil
+	}
+	rawResponsesMu.Unlock()
+	log.Printf("[Crawler] 原始响应已保存到文件: %s (%d 个响应)", filepath.Base(path), len(responsesCopy))
+	return len(responsesCopy), int64(len(data)), nil
 }
 
 // TempPost 用于匹配API响应的临时帖子结构体

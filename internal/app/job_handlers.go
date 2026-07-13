@@ -64,6 +64,13 @@ type exportArchiveCheckpoint struct {
 	Report    archive.ExportReport `json:"report"`
 }
 
+type rawJSONCheckpoint struct {
+	Filename  string    `json:"filename"`
+	Responses int       `json:"responses"`
+	Bytes     int64     `json:"bytes"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 func registerJobHandlers(application *App) error {
 	if application == nil || application.Jobs == nil {
 		return nil
@@ -96,18 +103,29 @@ func registerJobHandlers(application *App) error {
 	return nil
 }
 
-func (a *App) handleSaveRawJSON(ctx context.Context, execution *jobs.Execution, _ jobs.Job) error {
+func (a *App) handleSaveRawJSON(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
 	if a.Sync == nil {
 		return fmt.Errorf("sync service is not configured")
 	}
 	if err := execution.SetTotal(ctx, 1); err != nil {
 		return err
 	}
-	if err := a.Sync.SaveRawResponses(ctx); err != nil {
+	directory := filepath.Join(a.DataDir, "raw")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	filename := job.ID + ".json"
+	result, err := a.Sync.SaveRawResponsesTo(ctx, filepath.Join(directory, filename))
+	if err != nil {
 		_ = execution.ItemFailed(ctx, "raw_json", err)
 		return err
 	}
-	return execution.ItemSucceeded(ctx, "raw_json", map[string]any{"saved": true})
+	checkpoint := rawJSONCheckpoint{Filename: filename, Responses: result.Responses, Bytes: result.Bytes, ExpiresAt: time.Now().UTC().Add(30 * 24 * time.Hour)}
+	if err := execution.Checkpoint(ctx, checkpoint); err != nil {
+		_ = os.Remove(filepath.Join(directory, filename))
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "raw_json", checkpoint)
 }
 
 func (a *App) handleFetchImages(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
@@ -533,7 +551,7 @@ func (a *App) handleCleanupStaging(ctx context.Context, execution *jobs.Executio
 	if payload.RetentionDays <= 0 || payload.RetentionDays > 365 {
 		payload.RetentionDays = 7
 	}
-	if err := execution.SetTotal(ctx, 2); err != nil {
+	if err := execution.SetTotal(ctx, 3); err != nil {
 		return err
 	}
 	if err := cleanupExpiredImportStaging(ctx, a.DataDir, a.Jobs, time.Duration(payload.RetentionDays)*24*time.Hour); err != nil {
@@ -547,7 +565,14 @@ func (a *App) handleCleanupStaging(ctx context.Context, execution *jobs.Executio
 		_ = execution.ItemFailed(ctx, "exports", err)
 		return err
 	}
-	return execution.ItemSucceeded(ctx, "exports", map[string]any{"retention_days": 30})
+	if err := execution.ItemSucceeded(ctx, "exports", map[string]any{"retention_days": 30}); err != nil {
+		return err
+	}
+	if err := cleanupExpiredRawJSON(ctx, a.DataDir, 30*24*time.Hour); err != nil {
+		_ = execution.ItemFailed(ctx, "raw_json", err)
+		return err
+	}
+	return execution.ItemSucceeded(ctx, "raw_json", map[string]any{"retention_days": 30})
 }
 
 func decodePIDPayload(raw json.RawMessage) (pidJobPayload, error) {

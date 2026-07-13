@@ -13,8 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
+	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 	"github.com/gin-gonic/gin"
@@ -351,6 +353,101 @@ func TestAPIV1CreatesAndListsPersistentExportJobs(t *testing.T) {
 	invalid := performRequest(router, http.MethodPost, "/api/v1/exports/jobs", strings.NewReader(`{"format":"bad"}`), "application/json")
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid export = %d %s", invalid.Code, invalid.Body.String())
+	}
+}
+
+func TestAPIV1RegeneratesFinishedExportAsNewJob(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	now := time.Now().UTC()
+	payload := json.RawMessage(`{"format":"treehole-v2","pids":[8133824,8133824],"include_comments":true}`)
+	if err := database.CreateJob(context.Background(), jobs.Job{
+		ID: "finished-export", Type: jobs.TypeExportArchive, Status: jobs.StatusCompleted,
+		Payload: payload, TotalItems: 1, CompletedItems: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response := performRequest(router, http.MethodPost, "/api/v1/exports/finished-export/regenerate", nil, "")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("regenerate export = %d %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Data publicJob `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.ID == "" || envelope.Data.ID == "finished-export" || envelope.Data.Status != jobs.StatusQueued {
+		t.Fatalf("regenerated job = %+v", envelope.Data)
+	}
+	regenerated, err := database.GetJob(context.Background(), envelope.Data.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request exportJobRequest
+	if err := json.Unmarshal(regenerated.Payload, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Format != archive.ExportFormatTreeholeV2 || !request.IncludeComments || len(request.PIDs) != 1 || request.PIDs[0] != 8133824 {
+		t.Fatalf("regenerated payload = %+v", request)
+	}
+	original, err := database.GetJob(context.Background(), "finished-export")
+	if err != nil || original.Status != jobs.StatusCompleted {
+		t.Fatalf("original export was mutated: %+v, %v", original, err)
+	}
+}
+
+func TestAPIV1RejectsRegeneratingActiveExport(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	now := time.Now().UTC()
+	if err := database.CreateJob(context.Background(), jobs.Job{
+		ID: "active-export", Type: jobs.TypeExportArchive, Status: jobs.StatusRunning,
+		Payload: json.RawMessage(`{"format":"markdown","include_comments":true}`), TotalItems: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response := performRequest(router, http.MethodPost, "/api/v1/exports/active-export/regenerate", nil, "")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"code":"export_not_terminal"`) {
+		t.Fatalf("regenerate active export = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAPIV1ListsAndDownloadsManagedRawJSON(t *testing.T) {
+	database, _, cleanup := setupTestEnv(t)
+	defer cleanup()
+	manager, err := jobs.NewManager(context.Background(), database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	dataDir := t.TempDir()
+	directory := filepath.Join(dataDir, "raw")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	filename := "raw-finished.json"
+	content := []byte(`[{"code":20000}]`)
+	if err := os.WriteFile(filepath.Join(directory, filename), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, _ := json.Marshal(rawJSONJobCheckpoint{Filename: filename, Responses: 1, Bytes: int64(len(content)), ExpiresAt: time.Now().UTC().Add(time.Hour)})
+	now := time.Now().UTC()
+	if err := database.CreateJob(context.Background(), jobs.Job{
+		ID: "raw-finished", Type: jobs.TypeSaveRawJSON, Status: jobs.StatusCompleted,
+		Checkpoint: checkpoint, TotalItems: 1, CompletedItems: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	registerAPIV1(router.Group("/api/v1"), Dependencies{Jobs: manager, DataDir: dataDir})
+	history := performRequest(router, http.MethodGet, "/api/v1/raw-json/jobs", nil, "")
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"id":"raw-finished"`) {
+		t.Fatalf("raw JSON history = %d %s", history.Code, history.Body.String())
+	}
+	download := performRequest(router, http.MethodGet, "/api/v1/raw-json/raw-finished/download", nil, "")
+	if download.Code != http.StatusOK || !bytes.Equal(download.Body.Bytes(), content) || !strings.Contains(download.Header().Get("Content-Disposition"), filename) {
+		t.Fatalf("raw JSON download = %d %v %s", download.Code, download.Header(), download.Body.String())
 	}
 }
 
