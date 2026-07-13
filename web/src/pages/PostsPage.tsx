@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import { PageHeader } from '../components/PageHeader'
 import { PostCard } from '../components/PostCard'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import { LocalTagFilter, parseLocalTagIDs } from '../components/LocalTagFilter'
 
 export function PostsPage() {
 	const [params, setParams] = useSearchParams()
@@ -16,6 +17,8 @@ export function PostsPage() {
 	const hasMedia = params.get('media') || ''
 	const followed = source === 'live' && params.get('followed') === 'true'
 	const label = source === 'live' ? params.get('label') || '' : ''
+	const localTagIDs = source === 'local' ? parseLocalTagIDs(params.get('tag')) : []
+	const localTagsKey = localTagIDs.join(',')
 	const setParam = (name: string, value: string) => {
 		const next = new URLSearchParams(params)
 		if (value) next.set(name, value); else next.delete(name)
@@ -31,9 +34,9 @@ export function PostsPage() {
 		onSuccess: () => { setDraft(''); setFiles([]); query.refetch() },
 	})
 	const query = useInfiniteQuery({
-		queryKey: ['posts', source, sort, hasMedia, followed, label],
+		queryKey: ['posts', source, sort, hasMedia, followed, label, localTagsKey],
 		initialPageParam: 0,
-		queryFn: ({ pageParam }) => api.posts({ cursor: pageParam, limit: 20, source, sort, has_media: hasMedia || undefined, q: followed ? ':follow' : undefined, label: label || undefined }),
+		queryFn: ({ pageParam }) => api.posts({ cursor: pageParam, limit: 20, source, sort, has_media: hasMedia || undefined, q: followed ? ':follow' : undefined, label: label || undefined, tag: localTagsKey || undefined }),
 		getNextPageParam: (lastPage) => lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined,
 		enabled: canRead,
 	})
@@ -51,6 +54,7 @@ export function PostsPage() {
 		{source === 'live' ? <label><span className="mb-1.5 block text-xs font-medium text-ink-soft">在线筛选</span><select className="field" value={followed ? 'followed' : label ? `label:${label}` : ''} onChange={(event) => { const value = event.target.value; const next = new URLSearchParams(params); next.delete('followed'); next.delete('label'); if (value === 'followed') next.set('followed', 'true'); else if (value.startsWith('label:')) next.set('label', value.slice(6)); setParams(next, { replace: true }) }}><option value="">公共时间线</option><option value="followed">我关注的洞</option>{tags.data?.filter((tag) => tag.label || tag.name).map((tag) => <option key={tag.id} value={`label:${tag.id}`}>{tag.label || tag.name}</option>)}</select></label> : <div />}
       <div className="flex items-end"><a className="button-secondary w-full" href="/search"><Search size={16} />转到搜索</a></div>
     </div>
+		{source === 'local' && <section className="panel mb-6 p-4"><p className="mb-2 text-xs font-medium text-ink-soft">本地标签（选择多个时需同时拥有全部标签）</p><LocalTagFilter selected={localTagIDs} onChange={(ids) => setParam('tag', ids.join(','))} /></section>}
 		{canRead && (query.isLoading && !displayed.length ? <LoadingState /> : query.error ? <ErrorState error={query.error} /> : displayed.length ? <div className="grid gap-4 xl:grid-cols-2">{displayed.map((post) => <PostCard key={post.pid} post={post} source={source} />)}</div> : <EmptyState title="没有符合条件的帖子" description="尝试调整筛选，或先从归档导入、同步一些内容。" action={<Filter size={18} />} />)}
 	{query.hasNextPage && <div className="mt-6 flex justify-center"><button className="button-secondary" disabled={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{query.isFetchingNextPage ? '读取中…' : '加载下一页'}</button></div>}
   </>
