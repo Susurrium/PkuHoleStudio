@@ -68,3 +68,36 @@ func TestCleanupExpiredExportsKeepsFreshAndUnrelatedFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupExpiredRawJSONKeepsFreshAndUnrelatedFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	directory := filepath.Join(dataDir, "raw")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldJSON := filepath.Join(directory, "old.json")
+	freshJSON := filepath.Join(directory, "fresh.json")
+	unrelated := filepath.Join(directory, "keep.txt")
+	for _, path := range []string{oldJSON, freshJSON, unrelated} {
+		if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-31 * 24 * time.Hour)
+	for _, path := range []string{oldJSON, unrelated} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cleanupExpiredRawJSON(context.Background(), dataDir, 30*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldJSON); !os.IsNotExist(err) {
+		t.Fatalf("expired raw JSON still exists: %v", err)
+	}
+	for _, path := range []string{freshJSON, unrelated} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("file %s was unexpectedly removed: %v", path, err)
+		}
+	}
+}

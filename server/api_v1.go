@@ -119,6 +119,9 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/exports/jobs", apiExportJobs(dependencies))
 	group.POST("/exports/jobs", apiCreateExportJob(dependencies))
 	group.GET("/exports/:id/download", apiDownloadExport(dependencies))
+	group.POST("/exports/:id/regenerate", apiRegenerateExport(dependencies))
+	group.GET("/raw-json/jobs", apiRawJSONJobs(dependencies))
+	group.GET("/raw-json/:id/download", apiDownloadRawJSON(dependencies))
 	group.POST("/bridge/pairings", apiCreateBridgePairing(dependencies))
 	group.GET("/bridge/pairings/:token", apiBridgePairing(dependencies))
 	group.POST("/bridge/pairings/:token/archive", apiUploadBridgeArchive(dependencies))
@@ -862,12 +865,39 @@ type exportJobCheckpoint struct {
 	Report    archive.ExportReport `json:"report"`
 }
 
-func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
-	type request struct {
-		Format          archive.ExportFormat `json:"format"`
-		PIDs            []int32              `json:"pids"`
-		IncludeComments bool                 `json:"include_comments"`
+type exportJobRequest struct {
+	Format          archive.ExportFormat `json:"format"`
+	PIDs            []int32              `json:"pids"`
+	IncludeComments bool                 `json:"include_comments"`
+}
+
+func normalizeExportJobRequest(body exportJobRequest) (exportJobRequest, error) {
+	if body.Format == "" {
+		body.Format = archive.ExportFormatTreeholeV2
 	}
+	if body.Format != archive.ExportFormatTreeholeV2 && body.Format != archive.ExportFormatMarkdown {
+		return exportJobRequest{}, errors.New("format must be treehole-v2 or markdown")
+	}
+	if len(body.PIDs) > 2000 {
+		return exportJobRequest{}, errors.New("at most 2000 PIDs may be exported")
+	}
+	seen := make(map[int32]struct{}, len(body.PIDs))
+	selected := make([]int32, 0, len(body.PIDs))
+	for _, pid := range body.PIDs {
+		if pid <= 0 {
+			return exportJobRequest{}, errors.New("PIDs must be positive")
+		}
+		if _, exists := seen[pid]; exists {
+			continue
+		}
+		seen[pid] = struct{}{}
+		selected = append(selected, pid)
+	}
+	body.PIDs = selected
+	return body, nil
+}
+
+func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requireStudioBrowser(c) {
 			return
@@ -876,26 +906,51 @@ func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "persistent archive export is unavailable", nil)
 			return
 		}
-		var body request
+		var body exportJobRequest
 		if !decodeAPIJSON(c, &body) {
 			return
 		}
-		if body.Format == "" {
-			body.Format = archive.ExportFormatTreeholeV2
-		}
-		if body.Format != archive.ExportFormatTreeholeV2 && body.Format != archive.ExportFormatMarkdown {
-			apiFailure(c, http.StatusBadRequest, "invalid_input", "format must be treehole-v2 or markdown", nil)
+		body, err := normalizeExportJobRequest(body)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
 			return
 		}
-		if len(body.PIDs) > 2000 {
-			apiFailure(c, http.StatusBadRequest, "invalid_input", "at most 2000 PIDs may be exported", nil)
+		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: 1})
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "job_create_failed", err.Error(), nil)
 			return
 		}
-		for _, pid := range body.PIDs {
-			if pid <= 0 {
-				apiFailure(c, http.StatusBadRequest, "invalid_input", "PIDs must be positive", nil)
-				return
-			}
+		apiRespond(c, http.StatusAccepted, toPublicJob(job))
+	}
+}
+
+func apiRegenerateExport(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Jobs == nil || dependencies.Archive == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "persistent archive export is unavailable", nil)
+			return
+		}
+		original, err := dependencies.Jobs.Get(c.Request.Context(), c.Param("id"))
+		if err != nil || original.Type != jobs.TypeExportArchive {
+			apiFailure(c, http.StatusNotFound, "export_not_found", "export job was not found", nil)
+			return
+		}
+		if !original.Status.Terminal() {
+			apiFailure(c, http.StatusConflict, "export_not_terminal", "only a finished export can be regenerated", gin.H{"status": original.Status})
+			return
+		}
+		var body exportJobRequest
+		if err := json.Unmarshal(original.Payload, &body); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "export_invalid", "original export parameters are invalid", nil)
+			return
+		}
+		body, err = normalizeExportJobRequest(body)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "export_invalid", err.Error(), nil)
+			return
 		}
 		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: 1})
 		if err != nil {
@@ -952,14 +1007,81 @@ func apiDownloadExport(dependencies Dependencies) gin.HandlerFunc {
 		}
 		if !checkpoint.ExpiresAt.IsZero() && time.Now().UTC().After(checkpoint.ExpiresAt) {
 			_ = os.Remove(filepath.Join(dependencies.DataDir, "exports", checkpoint.Filename))
-			apiFailure(c, http.StatusGone, "export_expired", "export file has expired; retry the job to regenerate it", nil)
+			apiFailure(c, http.StatusGone, "export_expired", "export file has expired; regenerate it from the export history", nil)
 			return
 		}
 		path := filepath.Join(dependencies.DataDir, "exports", checkpoint.Filename)
 		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-			apiFailure(c, http.StatusGone, "export_missing", "export file is no longer available; retry the job", nil)
+			apiFailure(c, http.StatusGone, "export_missing", "export file is no longer available; regenerate it from the export history", nil)
 			return
 		}
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, checkpoint.Filename))
+		c.File(path)
+	}
+}
+
+type rawJSONJobCheckpoint struct {
+	Filename  string    `json:"filename"`
+	Responses int       `json:"responses"`
+	Bytes     int64     `json:"bytes"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func apiRawJSONJobs(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Jobs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
+			return
+		}
+		rows, err := dependencies.Jobs.List(c.Request.Context(), 200)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		result := make([]publicJob, 0)
+		for _, row := range rows {
+			if row.Type == jobs.TypeSaveRawJSON {
+				result = append(result, toPublicJob(row))
+			}
+		}
+		apiRespond(c, http.StatusOK, result)
+	}
+}
+
+func apiDownloadRawJSON(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Jobs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
+			return
+		}
+		job, err := dependencies.Jobs.Get(c.Request.Context(), c.Param("id"))
+		if err != nil || job.Type != jobs.TypeSaveRawJSON {
+			apiFailure(c, http.StatusNotFound, "raw_json_not_found", "raw JSON job was not found", nil)
+			return
+		}
+		if job.Status != jobs.StatusCompleted {
+			apiFailure(c, http.StatusConflict, "raw_json_not_ready", "raw JSON job is not completed", gin.H{"status": job.Status})
+			return
+		}
+		var checkpoint rawJSONJobCheckpoint
+		if json.Unmarshal(job.Checkpoint, &checkpoint) != nil || checkpoint.Filename == "" || filepath.Base(checkpoint.Filename) != checkpoint.Filename || !strings.HasSuffix(checkpoint.Filename, ".json") {
+			apiFailure(c, http.StatusInternalServerError, "raw_json_invalid", "raw JSON checkpoint is invalid", nil)
+			return
+		}
+		path := filepath.Join(dependencies.DataDir, "raw", checkpoint.Filename)
+		if !checkpoint.ExpiresAt.IsZero() && time.Now().UTC().After(checkpoint.ExpiresAt) {
+			_ = os.Remove(path)
+			apiFailure(c, http.StatusGone, "raw_json_expired", "raw JSON file has expired; collect and save a new set of responses", nil)
+			return
+		}
+		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+			apiFailure(c, http.StatusGone, "raw_json_missing", "raw JSON file is no longer available", nil)
+			return
+		}
+		c.Header("Content-Type", "application/json; charset=utf-8")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, checkpoint.Filename))
 		c.File(path)
 	}

@@ -229,6 +229,10 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		application.Close()
 		return nil, fmt.Errorf("cleanup expired exports: %w", err)
 	}
+	if err := cleanupExpiredRawJSON(ctx, application.DataDir, 30*24*time.Hour); err != nil {
+		application.Close()
+		return nil, fmt.Errorf("cleanup expired raw JSON: %w", err)
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, err

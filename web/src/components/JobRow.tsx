@@ -5,6 +5,7 @@ const labels: Record<string, string> = {
   sync_followed: '同步关注', sync_pids: '同步指定 PID', sync_latest: '同步最新时间线',
   repair_comments: '补全评论', repair_media: '补全媒体', import_archive: '导入归档', rebuild_search_index: '重建搜索索引', rebuild_references: '重建引用关系',
   sync_pages: '顺序采集', monitor_latest: '持续监控', repair_thumbnails: '补全缩略图', cleanup_staging: '清理暂存文件',
+	save_raw_json: '保存原始 JSON', fetch_images: '补全旧版图片', export_archive: '导出归档',
 }
 
 export function JobRow({ job, onAction, busy }: { job: Job; onAction?: (action: 'pause' | 'resume' | 'cancel' | 'retry') => void; busy?: boolean }) {

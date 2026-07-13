@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, ListRestart, Radio, RefreshCw, SearchCheck, ShieldCheck } from 'lucide-react'
+import { Download, KeyRound, ListRestart, Radio, RefreshCw, SearchCheck, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api'
 import type { AuthStatus, Job } from '../lib/types'
 import { JobRow } from '../components/JobRow'
@@ -95,5 +95,6 @@ function PIDSyncCard({ disabled, onSubmit }: { disabled: boolean; onSubmit: (pid
 function SyncJob({ job }: { job: Job }) {
   const client = useQueryClient()
   const action = useMutation({ mutationFn: (value: 'pause' | 'resume' | 'cancel' | 'retry') => api.jobAction(job.id, value), onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }) })
-  return <JobRow job={job} busy={action.isPending} onAction={(value) => action.mutate(value)} />
+	const download = useMutation({ mutationFn: () => api.downloadRawJSONJob(job.id), onSuccess: ({ blob, filename }) => { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url) } })
+  return <div><JobRow job={job} busy={action.isPending} onAction={(value) => action.mutate(value)} />{job.type === 'save_raw_json' && job.status === 'completed' && <div className="mt-2 flex justify-end"><button className="button-secondary" disabled={download.isPending} onClick={() => download.mutate()}><Download size={14} />下载原始 JSON</button></div>}{download.error && <p className="mt-2 text-xs text-coral">{download.error.message}</p>}</div>
 }
