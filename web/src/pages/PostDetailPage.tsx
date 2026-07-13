@@ -12,6 +12,16 @@ export function PostDetailPage() {
   const [searchParams] = useSearchParams()
   const source = searchParams.get('source') === 'live' ? 'live' : 'local'
   const detail = useQuery({ queryKey: ['post', pid, source], queryFn: () => api.post(pid, source), enabled: /^\d+$/.test(pid) })
+	const [additionalComments, setAdditionalComments] = useState<Comment[]>([])
+	const [pagination, setPagination] = useState<{ cursor?: number; hasMore: boolean } | null>(null)
+	useEffect(() => { setAdditionalComments([]); setPagination(null) }, [pid, source, detail.dataUpdatedAt])
+	const loadMoreComments = useMutation({
+		mutationFn: (cursor: number) => api.comments(pid, cursor, source, 50),
+		onSuccess: (page) => {
+			setAdditionalComments((current) => dedupeComments([...current, ...page.items]))
+			setPagination({ cursor: page.next_cursor, hasMore: page.has_more })
+		},
+	})
 	const saveLocal = useMutation({ mutationFn: () => api.createJob('sync_pids', { pids: [Number(pid)] }) })
 	const [replyText, setReplyText] = useState('')
 	const [quoteCID, setQuoteCID] = useState<number | undefined>()
@@ -20,7 +30,10 @@ export function PostDetailPage() {
 	const interact = useMutation({ mutationFn: (action: 'praise' | 'follow') => api.togglePost(Number(pid), action), onSuccess: () => detail.refetch() })
   if (detail.isLoading) return <LoadingState label={`正在读取 #${pid}…`} />
   if (detail.error || !detail.data) return <ErrorState error={detail.error ?? new Error('帖子不存在')} />
-  const { post, comments, references, media = [] } = detail.data
+	const { post, comments: initialComments, references, media = [] } = detail.data
+	const comments = dedupeComments([...initialComments, ...additionalComments])
+	const nextCommentCursor = pagination?.cursor ?? detail.data.next_comment_cursor
+	const hasMoreComments = pagination?.hasMore ?? detail.data.has_more_comments
 	const postMedia = media.filter((item) => item.owner_type === 'post' && item.owner_id === post.pid)
   return <>
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link to={`/posts${source === 'live' ? '?source=live' : ''}`} className="inline-flex items-center gap-2 text-sm font-medium text-ink-soft hover:text-teal"><ArrowLeft size={16} />返回{source === 'live' ? '在线树洞' : '资料库'}</Link>{source === 'live' && <button className="button-secondary" disabled={saveLocal.isPending || saveLocal.isSuccess} onClick={() => saveLocal.mutate()}><Download size={15} />{saveLocal.isPending ? '正在创建任务…' : saveLocal.isSuccess ? '已加入同步队列' : '保存到本地资料库'}</button>}</div>
@@ -32,7 +45,7 @@ export function PostDetailPage() {
 		{source === 'local' && <LocalMetadata pid={post.pid} />}
 		{source === 'live' && <section className="panel mt-6 p-5"><div className="flex items-center justify-between"><div><p className="eyebrow">REPLY</p><h2 className="mt-1 text-lg font-semibold">回复此洞</h2></div>{quoteCID && <button className="badge" onClick={() => setQuoteCID(undefined)}>引用 C{quoteCID} ×</button>}</div><textarea className="field mt-4 min-h-24" value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quoteCID ? `回复并引用 C${quoteCID}…` : '写下回复…'} /><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="button-secondary cursor-pointer"><ImagePlus size={16} />选择图片<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><div className="flex items-center gap-3"><span className="text-xs text-ink-soft">{replyFiles.length ? `${replyFiles.length} 张图片` : submitReply.error ? String(submitReply.error) : ''}</span><button className="button-primary" disabled={submitReply.isPending || (!replyText.trim() && !replyFiles.length)} onClick={() => submitReply.mutate()}><Send size={15} />{submitReply.isPending ? '正在发送…' : '发送回复'}</button></div></div></section>}
     <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_300px]">
-      <div><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}</span></div><div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} quote={() => { setQuoteCID(comment.cid); document.querySelector('textarea')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无本地评论</p>}</div></div>
+      <div><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}{post.reply ? ` / ${post.reply}` : ''}</span></div><div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} quote={() => { setQuoteCID(comment.cid); document.querySelector('textarea')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无{source === 'local' ? '本地' : '在线'}评论</p>}</div>{hasMoreComments && nextCommentCursor !== undefined && <button className="button-secondary mt-4 w-full" disabled={loadMoreComments.isPending} onClick={() => loadMoreComments.mutate(nextCommentCursor)}>{loadMoreComments.isPending ? '正在加载更多评论…' : '加载更多评论'}</button>}{loadMoreComments.error && <p className="mt-3 text-sm text-coral">加载评论失败：{loadMoreComments.error.message}</p>}</div>
       <aside><h2 className="mb-4 text-xl font-semibold">引用关系</h2>{source === 'live' ? <div className="panel p-4"><p className="py-5 text-center text-xs leading-5 text-ink-soft">引用图谱来自本地资料库；同步此洞后即可建立关系。</p></div> : <ReferenceGraphPanel pid={post.pid} fallback={references} />}</aside>
     </section>
   </>
@@ -44,7 +57,18 @@ function CommentCard({ comment, source, media, pid, quote }: { comment: Comment;
 	const [content, setContent] = useState('')
 	useEffect(() => setContent(note.data?.content ?? ''), [note.data])
 	const save = useMutation({ mutationFn: () => api.saveCommentNote(comment.cid, content), onSuccess: () => note.refetch() })
-	return <article id={`comment-${comment.cid}`} className="panel p-5"><div className="flex items-center justify-between gap-3"><div><span className="font-mono text-xs text-teal">C{comment.cid}</span><span className="ml-2 text-xs font-medium text-ink-soft">{comment.name_tag || '匿名'}</span>{comment.is_lz ? <span className="ml-2 badge !py-0.5">洞主</span> : null}</div><div className="flex items-center gap-2"><time className="text-[11px] text-ink-soft">{formatTime(comment.timestamp)}</time>{source === 'local' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={() => setShowNote((value) => !value)}><StickyNote size={12} />笔记</button>}{source === 'live' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={quote}><Reply size={12} />引用</button>}</div></div>{comment.quote && <blockquote className="mt-3 rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">引用 C{comment.quote.cid}：{comment.quote.text}</blockquote>}<p className="mt-3 whitespace-pre-wrap text-sm leading-7">{comment.text}</p><MediaGallery items={media.filter((item) => item.owner_type === 'comment' && item.owner_id === comment.cid)} pid={pid} />{showNote && <div className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><textarea className="field min-h-20" value={content} maxLength={100000} onChange={(event) => setContent(event.target.value)} placeholder="只保存在本机的评论笔记…" /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-ink-soft">{save.error ? String(save.error) : save.isSuccess ? '已保存' : ''}</span><button className="button-secondary" disabled={save.isPending || note.isLoading} onClick={() => save.mutate()}>保存评论笔记</button></div></div>}</article>
+	const items = media.filter((item) => item.owner_type === 'comment' && item.owner_id === comment.cid)
+	const commentMedia = items.length || source === 'local' ? items : remoteCommentMedia(comment)
+	return <article id={`comment-${comment.cid}`} className="panel p-5"><div className="flex items-center justify-between gap-3"><div><span className="font-mono text-xs text-teal">C{comment.cid}</span><span className="ml-2 text-xs font-medium text-ink-soft">{comment.name_tag || '匿名'}</span>{comment.is_lz ? <span className="ml-2 badge !py-0.5">洞主</span> : null}</div><div className="flex items-center gap-2"><time className="text-[11px] text-ink-soft">{formatTime(comment.timestamp)}</time>{source === 'local' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={() => setShowNote((value) => !value)}><StickyNote size={12} />笔记</button>}{source === 'live' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={quote}><Reply size={12} />引用</button>}</div></div>{comment.quote && <blockquote className="mt-3 rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">引用 C{comment.quote.cid}：{comment.quote.text}</blockquote>}<p className="mt-3 whitespace-pre-wrap text-sm leading-7">{comment.text}</p><MediaGallery items={commentMedia} pid={pid} />{showNote && <div className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><textarea className="field min-h-20" value={content} maxLength={100000} onChange={(event) => setContent(event.target.value)} placeholder="只保存在本机的评论笔记…" /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-ink-soft">{save.error ? String(save.error) : save.isSuccess ? '已保存' : ''}</span><button className="button-secondary" disabled={save.isPending || note.isLoading} onClick={() => save.mutate()}>保存评论笔记</button></div></div>}</article>
+}
+
+function dedupeComments(items: Comment[]) {
+	const seen = new Set<number>()
+	return items.filter((item) => item.cid > 0 && !seen.has(item.cid) && Boolean(seen.add(item.cid)))
+}
+
+function remoteCommentMedia(comment: Comment): Media[] {
+	return (comment.media_ids ?? '').split(/[;,\s]+/).map((value) => value.trim()).filter(Boolean).map((remoteID, index) => ({ id: -(comment.cid * 100 + index + 1), owner_type: 'comment', owner_id: comment.cid, remote_id: remoteID, variant: 'original', status: 'remote' }))
 }
 
 function ReferenceGraphPanel({ pid, fallback }: { pid: number; fallback: import('../lib/types').Reference[] }) {
