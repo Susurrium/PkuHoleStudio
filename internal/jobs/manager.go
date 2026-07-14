@@ -23,6 +23,7 @@ type Manager struct {
 	controlMu   sync.Mutex
 	handlers    map[Type]Handler
 	active      map[string]*activeRun
+	pending     map[string]struct{}
 	subscribers map[string]map[uint64]chan Event
 	nextSubID   uint64
 	closed      bool
@@ -51,6 +52,7 @@ func NewManager(ctx context.Context, store Store) (*Manager, error) {
 		queue:       make(chan string, 256),
 		handlers:    make(map[Type]Handler),
 		active:      make(map[string]*activeRun),
+		pending:     make(map[string]struct{}),
 		subscribers: make(map[string]map[uint64]chan Event),
 	}
 
@@ -71,8 +73,9 @@ func NewManager(ctx context.Context, store Store) (*Manager, error) {
 		cancel()
 		return nil, fmt.Errorf("list queued jobs: %w", err)
 	}
-	m.wg.Add(1)
+	m.wg.Add(2)
 	go m.worker()
+	go m.scheduler()
 	for _, job := range queued {
 		if job.Status == StatusQueued {
 			m.enqueue(job.ID)
@@ -348,9 +351,43 @@ func (m *Manager) worker() {
 		case <-m.ctx.Done():
 			return
 		case id := <-m.queue:
+			m.mu.Lock()
+			delete(m.pending, id)
+			m.mu.Unlock()
 			m.execute(id)
 		}
 	}
+}
+
+// scheduler periodically reconciles the in-memory wake-up queue with the
+// durable job store. The queue is only a notification mechanism: queued jobs
+// must remain runnable even if a process restart, a full channel, or a failed
+// event append causes an individual notification to be missed.
+func (m *Manager) scheduler() {
+	defer m.wg.Done()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			_ = m.reconcileQueued()
+		}
+	}
+}
+
+func (m *Manager) reconcileQueued() error {
+	queued, err := m.store.ListJobs(m.ctx, 0)
+	if err != nil {
+		return err
+	}
+	for _, job := range queued {
+		if job.Status == StatusQueued {
+			m.enqueue(job.ID)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) execute(id string) {
@@ -461,9 +498,37 @@ func (m *Manager) emit(ctx context.Context, jobID, eventType string, data any) (
 }
 
 func (m *Manager) enqueue(id string) {
+	if id == "" {
+		return
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
+	if _, exists := m.pending[id]; exists {
+		m.mu.Unlock()
+		return
+	}
+	if _, active := m.active[id]; active {
+		m.mu.Unlock()
+		return
+	}
+	m.pending[id] = struct{}{}
+	m.mu.Unlock()
+
 	select {
 	case m.queue <- id:
 	case <-m.ctx.Done():
+		m.mu.Lock()
+		delete(m.pending, id)
+		m.mu.Unlock()
+	default:
+		// A periodic durable-store reconciliation retries this wake-up. Do not
+		// block an HTTP request merely because the in-memory queue is full.
+		m.mu.Lock()
+		delete(m.pending, id)
+		m.mu.Unlock()
 	}
 }
 
