@@ -77,8 +77,9 @@ export const api = {
   jobAction: (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => request<Job>(`/jobs/${id}/${action}`, { method: 'POST' }),
 	session: () => request<AuthStatus>('/session'),
 	probeSession: () => request<AuthStatus>('/session/probe', { method: 'POST' }),
+	reloadSession: () => request<AuthStatus>('/session/reload', { method: 'POST' }),
 	loginSession: (username: string, password: string) => request<AuthStatus>('/session/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }),
-	sendSessionSMS: (username: string) => request<AuthStatus>('/session/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) }),
+	sendSessionSMS: (stage: 'iaaa' | 'treehole', username: string) => request<AuthStatus>('/session/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, username: stage === 'iaaa' ? username : undefined }) }),
 	continueSession: (stage: 'iaaa' | 'treehole' | '', challenge: 'sms' | 'otp', username: string, password: string, code: string) => request<AuthStatus>('/session/challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage, challenge, username: stage === 'iaaa' ? username : undefined, password: stage === 'iaaa' ? password : undefined, code }) }),
 	logoutSession: () => request<AuthStatus>('/session/logout', { method: 'POST' }),
 	importArchive: (file: File) => {
@@ -101,7 +102,7 @@ export const api = {
 		const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? (format === 'markdown' ? 'pkuhole-studio-markdown.zip' : 'pkuhole-studio.treehole.zip')
 		return { blob: await response.blob(), filename }
 	},
-	createExportJob: (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean) => request<Job>('/exports/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments }) }),
+	createExportJob: (format: 'treehole-v2' | 'markdown', pids: number[], includeComments: boolean, captureLive = false, includeMedia = false) => request<Job>('/exports/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format, pids: pids.length ? pids : undefined, include_comments: includeComments, capture_live: captureLive, include_media: captureLive && includeMedia }) }),
 	exportJobs: () => request<Job[]>('/exports/jobs'),
 	regenerateExportJob: (id: string) => request<Job>(`/exports/${id}/regenerate`, { method: 'POST' }),
 	downloadExportJob: async (id: string): Promise<ExportDownload> => {

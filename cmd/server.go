@@ -34,7 +34,7 @@ func newServerCmd() *cobra.Command {
 }
 
 func runServer() error {
-	application, err := app.Open(context.Background(), app.Options{})
+	application, err := openApplication(context.Background())
 	if err != nil {
 		return err
 	}

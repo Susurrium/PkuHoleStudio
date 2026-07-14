@@ -92,11 +92,14 @@ func (authStub) CachedStatus(context.Context) service.AuthStatus {
 func (authStub) Probe(context.Context) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
 }
+func (authStub) Reload(context.Context) service.AuthStatus {
+	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
+}
 func (authStub) Login(context.Context, string, string) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}
 }
-func (authStub) SendSMS(context.Context, string) service.AuthStatus {
-	return service.AuthStatus{Checked: true, Challenge: "sms", ChallengeStage: "iaaa"}
+func (authStub) SendSMS(_ context.Context, stage, _ string) service.AuthStatus {
+	return service.AuthStatus{Checked: true, Challenge: "sms", ChallengeStage: stage}
 }
 func (authStub) Continue(context.Context, string, string, string, string, string) service.AuthStatus {
 	return service.AuthStatus{Checked: true, HasSession: true, CanReadOnline: true}

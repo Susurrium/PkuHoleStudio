@@ -93,7 +93,7 @@ func newFetchThumbnailsCmd() *cobra.Command {
 }
 
 func openCrawlerApplication(ctx context.Context) (*app.App, error) {
-	application, err := app.Open(ctx, app.Options{})
+	application, err := openApplication(ctx)
 	if err != nil {
 		return nil, err
 	}

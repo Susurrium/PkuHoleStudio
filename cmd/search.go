@@ -1,17 +1,13 @@
 package main
 
-import (
-	"github.com/Susurrium/PkuHoleStudio/internal/app"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 func newRebuildSearchIndexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rebuild-search-index",
 		Short: "Rebuild the local SQLite FTS5 search index",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			application, err := app.Open(cmd.Context(), app.Options{})
+			application, err := openApplication(cmd.Context())
 			if err != nil {
 				return err
 			}

@@ -15,8 +15,8 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整
 - SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
 - 持久化同步/导入任务，支持暂停、恢复、取消、失败重试和 SSE 事件重放。
 - Studio 原生支持旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
-- 原生 Web 同步中心：自动检测已有本机会话、关注/指定 PID/公共时间线同步；账号密码登录仅作为备用方式。
-- Studio 可独立导入和导出带图片的 archive v2 或逐洞 Markdown ZIP；旧 v2 继续兼容，图片按 SHA-256 校验和去重。
+- 原生 Web 同步中心：自动检测或重新载入 TUI 保存的本机会话，支持关注/指定 PID/公共时间线同步；账号密码登录保留为备用方式。
+- Studio 可对指定 PID 直接执行“在线更新正文与全部评论 → 下载图片 → 生成归档”，并独立导入和导出带图片的 archive v2 或逐洞 Markdown ZIP；旧 v2 继续兼容，图片按 SHA-256 校验和去重。
 - Toolkit 仅作为独立、可选的浏览器导出工具；也可用 5 分钟有效的一次性配对码把归档发送给 Studio，核心导入导出流程不依赖它。
 - 帖子详情展示帖子/评论图片、缺失媒体状态，以及明确、推断、评论引用的前向和反向关系；本地引用图可按一层或两层展开并跳转。
 - Web 资料库可在本地与在线树洞之间切换，支持关注、远程标签、在线详情和远程图片；只有明确点击保存或启动同步时才写入资料库。
@@ -70,13 +70,17 @@ go build -tags sqlite_fts5 -o treehole ./cmd
 # API + 内嵌 React；默认打开浏览器
 ./treehole web --host 127.0.0.1 --port 8080 --open=true
 
+# 明确让 TUI 和 Web 共用同一运行资料与数据库（两个命令使用完全相同的路径）
+./treehole --data-dir D:/PkuHoleStudio/profile --db-path D:/PkuHoleStudio/profile/studio.db
+./treehole --data-dir D:/PkuHoleStudio/profile --db-path D:/PkuHoleStudio/profile/studio.db web
+
 # 修复 FTS 索引
 ./treehole rebuild-search-index
 ```
 
-Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。
+Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。`--data-dir` 和 `--db-path` 是所有子命令共享的持久参数；同时运行 TUI 与 Web 时，Web 独占持久任务执行器，TUI 不会争抢队列。
 
-推荐先在浏览器正常登录树洞，由 Toolkit 导出并在 Studio“归档导入”页使用一次性配对码发送；这条链路不需要 Studio 读取浏览器 Cookie。若本机已有 `data/cookies.json`，同步中心会优先自动验证并复用。Studio 内账号密码登录保留为备用方式：密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。
+若 TUI 已能正常登录，请让 TUI 与 Web 使用同一 `--data-dir`，然后在 Web“同步中心”点击“载入 TUI 已登录会话”；Web 会重新读取共享的 `cookies.json`，不需要再次输入密码或验证码。也可直接在 Web 登录，IAAA 与树洞二次短信验证会调用各自正确的端点。密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。浏览器树洞页面的 HttpOnly Cookie 不会被 Studio 网页读取；Toolkit 只作为独立的简易归档导出/迁移工具，不是 Studio 同步、导入或导出的依赖。
 
 启用 DeepSeek 或其他 OpenAI-compatible Provider：
 
@@ -127,7 +131,9 @@ GET  /media/:id
 
 GET  /session
 POST /session/probe
+POST /session/reload
 POST /session/login
+POST /session/sms
 POST /session/challenge
 
 GET  /jobs
@@ -139,6 +145,7 @@ POST /jobs/:id/pause|resume|cancel|retry
 POST /imports
 GET  /imports/:id
 POST /exports
+POST /exports/jobs
 
 GET  /ai/providers
 GET  /ai/sessions

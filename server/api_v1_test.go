@@ -359,6 +359,14 @@ func TestAPIV1CreatesAndListsPersistentExportJobs(t *testing.T) {
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid export = %d %s", invalid.Code, invalid.Body.String())
 	}
+	missingPID := performRequest(router, http.MethodPost, "/api/v1/exports/jobs", strings.NewReader(`{"format":"treehole-v2","capture_live":true,"include_media":true}`), "application/json")
+	if missingPID.Code != http.StatusBadRequest {
+		t.Fatalf("capture export without PID = %d %s", missingPID.Code, missingPID.Body.String())
+	}
+	capture := performRequest(router, http.MethodPost, "/api/v1/exports/jobs", strings.NewReader(`{"format":"treehole-v2","pids":[8328353],"include_comments":true,"capture_live":true,"include_media":true}`), "application/json")
+	if capture.Code != http.StatusAccepted || !strings.Contains(capture.Body.String(), `"total_items":2`) {
+		t.Fatalf("capture export = %d %s", capture.Code, capture.Body.String())
+	}
 }
 
 func TestAPIV1RegeneratesFinishedExportAsNewJob(t *testing.T) {
@@ -516,13 +524,22 @@ func TestAPIV1SessionStatusAndLocalLogin(t *testing.T) {
 		t.Fatalf("local login response = %d %s", login.Code, login.Body.String())
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/sms", strings.NewReader(`{"username":"student"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/sms", strings.NewReader(`{"stage":"iaaa","username":"student"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.RemoteAddr = "127.0.0.1:54321"
 	sms := httptest.NewRecorder()
 	router.ServeHTTP(sms, request)
 	if sms.Code != http.StatusOK || !strings.Contains(sms.Body.String(), `"challenge_stage":"iaaa"`) {
 		t.Fatalf("send sms response = %d %s", sms.Code, sms.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/sms", strings.NewReader(`{"stage":"treehole"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:54321"
+	treeholeSMS := httptest.NewRecorder()
+	router.ServeHTTP(treeholeSMS, request)
+	if treeholeSMS.Code != http.StatusOK || !strings.Contains(treeholeSMS.Body.String(), `"challenge_stage":"treehole"`) {
+		t.Fatalf("send treehole sms response = %d %s", treeholeSMS.Code, treeholeSMS.Body.String())
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/session/challenge", strings.NewReader(`{"stage":"iaaa","challenge":"sms","username":"student","password":"secret","code":"654321"}`))

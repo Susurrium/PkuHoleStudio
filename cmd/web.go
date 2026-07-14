@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/Susurrium/PkuHoleStudio/internal/app"
-
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +32,7 @@ func newWebCmd() *cobra.Command {
 }
 
 func runWeb(ctx context.Context) error {
-	application, err := app.Open(ctx, app.Options{})
+	application, err := openApplication(ctx)
 	if err != nil {
 		return err
 	}

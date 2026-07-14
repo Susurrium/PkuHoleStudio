@@ -17,6 +17,7 @@ import (
 
 	aipkg "github.com/Susurrium/PkuHoleStudio/internal/ai"
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
@@ -76,6 +77,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.GET("/remote-media/:id", apiRemoteMedia(dependencies))
 	group.GET("/session", apiSession(dependencies))
 	group.POST("/session/probe", apiProbeSession(dependencies))
+	group.POST("/session/reload", apiReloadSession(dependencies))
 	group.POST("/session/login", apiLoginSession(dependencies))
 	group.POST("/session/sms", apiSendSessionSMS(dependencies))
 	group.POST("/session/challenge", apiContinueSession(dependencies))
@@ -825,6 +827,7 @@ func apiCancelBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 func apiSendSessionSMS(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
+		Stage    string `json:"stage"`
 	}
 	return func(c *gin.Context) {
 		if dependencies.Auth == nil {
@@ -838,11 +841,16 @@ func apiSendSessionSMS(dependencies Dependencies) gin.HandlerFunc {
 		if !decodeAPIJSON(c, &body) {
 			return
 		}
-		if strings.TrimSpace(body.Username) == "" || len(body.Username) > 128 {
+		stage := strings.TrimSpace(body.Stage)
+		if stage != string(client.AuthChallengeStageIAAA) && stage != string(client.AuthChallengeStageTreehole) {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "stage must be iaaa or treehole", nil)
+			return
+		}
+		if stage == string(client.AuthChallengeStageIAAA) && (strings.TrimSpace(body.Username) == "" || len(body.Username) > 128) {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", "username is required", nil)
 			return
 		}
-		apiRespond(c, http.StatusOK, dependencies.Auth.SendSMS(c.Request.Context(), body.Username))
+		apiRespond(c, http.StatusOK, dependencies.Auth.SendSMS(c.Request.Context(), stage, body.Username))
 	}
 }
 
@@ -929,6 +937,8 @@ type exportJobRequest struct {
 	Format          archive.ExportFormat `json:"format"`
 	PIDs            []int32              `json:"pids"`
 	IncludeComments bool                 `json:"include_comments"`
+	CaptureLive     bool                 `json:"capture_live,omitempty"`
+	IncludeMedia    bool                 `json:"include_media,omitempty"`
 }
 
 func normalizeExportJobRequest(body exportJobRequest) (exportJobRequest, error) {
@@ -954,6 +964,12 @@ func normalizeExportJobRequest(body exportJobRequest) (exportJobRequest, error) 
 		selected = append(selected, pid)
 	}
 	body.PIDs = selected
+	if body.CaptureLive && len(body.PIDs) == 0 {
+		return exportJobRequest{}, errors.New("capture_live requires at least one PID")
+	}
+	if !body.CaptureLive {
+		body.IncludeMedia = false
+	}
 	return body, nil
 }
 
@@ -975,7 +991,11 @@ func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
 			return
 		}
-		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: 1})
+		totalItems := 1
+		if body.CaptureLive {
+			totalItems += len(body.PIDs)
+		}
+		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: totalItems})
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "job_create_failed", err.Error(), nil)
 			return
@@ -1012,7 +1032,11 @@ func apiRegenerateExport(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusInternalServerError, "export_invalid", err.Error(), nil)
 			return
 		}
-		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: 1})
+		totalItems := 1
+		if body.CaptureLive {
+			totalItems += len(body.PIDs)
+		}
+		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: jobs.TypeExportArchive, Payload: body, TotalItems: totalItems})
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "job_create_failed", err.Error(), nil)
 			return
@@ -1164,6 +1188,19 @@ func apiProbeSession(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, dependencies.Auth.Probe(c.Request.Context()))
+	}
+}
+
+func apiReloadSession(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Auth == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "online authentication is unavailable", nil)
+			return
+		}
+		if !requireLoopback(c) {
+			return
+		}
+		apiRespond(c, http.StatusOK, dependencies.Auth.Reload(c.Request.Context()))
 	}
 }
 

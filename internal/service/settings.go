@@ -13,6 +13,7 @@ import (
 )
 
 type SettingsView struct {
+	DataDir            string               `json:"data_dir,omitempty"`
 	DatabaseType       string               `json:"database_type"`
 	DatabaseFile       string               `json:"database_file,omitempty"`
 	AIEnabled          bool                 `json:"ai_enabled"`
@@ -72,13 +73,18 @@ type SettingsUpdate struct {
 type SettingsService struct {
 	mu          sync.Mutex
 	config      *config.Config
+	dataDir     string
 	save        func(*config.Config) error
 	onAIChanged func(config.AIConfig) error
 	runtimeInfo func() (string, string)
 }
 
-func NewSettingsService(current *config.Config) *SettingsService {
-	return &SettingsService{config: current, save: config.SaveConfig}
+func NewSettingsService(current *config.Config, dataDirs ...string) *SettingsService {
+	dataDir := ""
+	if len(dataDirs) > 0 {
+		dataDir = strings.TrimSpace(dataDirs[0])
+	}
+	return &SettingsService{config: current, dataDir: dataDir, save: config.SaveConfig}
 }
 
 func (s *SettingsService) SetAIRuntimeHooks(onChanged func(config.AIConfig) error, runtimeInfo func() (string, string)) {
@@ -307,6 +313,7 @@ func (s *SettingsService) commitLocked(next config.Config) (SettingsView, error)
 
 func (s *SettingsService) viewLocked(restartRequired bool) SettingsView {
 	view := settingsView(s.config, restartRequired)
+	view.DataDir = s.dataDir
 	if s.runtimeInfo != nil {
 		view.AIRuntimeProvider, view.AIRuntimeModel = s.runtimeInfo()
 	}

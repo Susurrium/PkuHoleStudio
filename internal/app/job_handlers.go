@@ -24,7 +24,9 @@ type syncPagesPayload struct {
 }
 
 type pidJobPayload struct {
-	PIDs []int32 `json:"pids"`
+	PIDs            []int32 `json:"pids"`
+	IncludeComments bool    `json:"include_comments,omitempty"`
+	IncludeMedia    bool    `json:"include_media,omitempty"`
 }
 
 type mediaJobPayload struct {
@@ -56,6 +58,16 @@ type exportArchivePayload struct {
 	Format          archive.ExportFormat `json:"format"`
 	PIDs            []int32              `json:"pids,omitempty"`
 	IncludeComments bool                 `json:"include_comments"`
+	CaptureLive     bool                 `json:"capture_live,omitempty"`
+	IncludeMedia    bool                 `json:"include_media,omitempty"`
+}
+
+type capturePIDResult struct {
+	PID          int32 `json:"pid"`
+	Comments     int   `json:"comments"`
+	Media        int   `json:"media"`
+	MissingMedia int   `json:"missing_media"`
+	CommentPages int   `json:"comment_pages"`
 }
 
 type exportArchiveCheckpoint struct {
@@ -166,8 +178,35 @@ func (a *App) handleExportArchive(ctx context.Context, execution *jobs.Execution
 			return fmt.Errorf("invalid PID %d", pid)
 		}
 	}
-	if err := execution.SetTotal(ctx, 1); err != nil {
+	totalItems := 1
+	if payload.CaptureLive {
+		if len(payload.PIDs) == 0 {
+			return fmt.Errorf("capture_live requires at least one PID")
+		}
+		totalItems += len(payload.PIDs)
+	}
+	if err := execution.SetTotal(ctx, totalItems); err != nil {
 		return err
+	}
+	completed := completedItemKeys(ctx, execution)
+	if payload.CaptureLive {
+		for _, pid := range payload.PIDs {
+			key := "capture:" + strconv.FormatInt(int64(pid), 10)
+			if completed[key] {
+				continue
+			}
+			result, err := a.capturePID(ctx, pid, payload.IncludeComments, payload.IncludeMedia)
+			if err != nil {
+				_ = execution.ItemFailed(ctx, key, err)
+				return err
+			}
+			if err := execution.ItemSucceeded(ctx, key, result); err != nil {
+				return err
+			}
+		}
+		if _, err := a.Repository.RebuildReferences(ctx); err != nil {
+			return fmt.Errorf("rebuild references after capture: %w", err)
+		}
 	}
 	directory := filepath.Join(a.DataDir, "exports")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -375,20 +414,78 @@ func (a *App) handleSyncPIDs(ctx context.Context, execution *jobs.Execution, job
 		if completed[key] {
 			continue
 		}
-		post, err := a.Posts.RefreshPost(ctx, pid, service.SourceLive)
+		result, err := a.capturePID(ctx, pid, payload.IncludeComments, payload.IncludeMedia)
 		if err != nil {
 			_ = execution.ItemFailed(ctx, key, err)
 			return err
 		}
-		if err := a.Repository.SaveCrawlResultWithSource([]models.Post{*post}, nil, "explicit", "treehole-live"); err != nil {
-			_ = execution.ItemFailed(ctx, key, err)
-			return err
-		}
-		if err := execution.ItemSucceeded(ctx, key, map[string]any{"pid": pid}); err != nil {
+		if err := execution.ItemSucceeded(ctx, key, result); err != nil {
 			return err
 		}
 	}
-	return nil
+	_, err = a.Repository.RebuildReferences(ctx)
+	return err
+}
+
+func (a *App) capturePID(ctx context.Context, pid int32, includeComments, includeMedia bool) (capturePIDResult, error) {
+	result := capturePIDResult{PID: pid}
+	if a.Posts == nil || a.Repository == nil {
+		return result, fmt.Errorf("post capture is not configured")
+	}
+	post, err := a.Posts.RefreshPost(ctx, pid, service.SourceLive)
+	if err != nil {
+		return result, err
+	}
+	if err := a.Repository.SaveCrawlResultWithSource([]models.Post{*post}, nil, "explicit", "treehole-live"); err != nil {
+		return result, err
+	}
+	if includeComments {
+		var cursor int32
+		for pageNumber := 1; pageNumber <= 10_000; pageNumber++ {
+			page, err := a.Posts.Comments(ctx, pid, service.CommentQuery{Cursor: cursor, Limit: 100, Sort: "asc", Source: service.SourceLive})
+			if err != nil {
+				return result, fmt.Errorf("capture comments for PID %d page %d: %w", pid, pageNumber, err)
+			}
+			if len(page.Items) > 0 {
+				if err := a.Repository.SaveCrawlResult(nil, page.Items); err != nil {
+					return result, err
+				}
+				result.Comments += len(page.Items)
+			}
+			result.CommentPages++
+			if !page.HasMore {
+				break
+			}
+			if page.NextCursor <= cursor {
+				return result, fmt.Errorf("comment pagination for PID %d did not advance", pid)
+			}
+			cursor = page.NextCursor
+		}
+	}
+	if includeMedia {
+		if a.Media == nil {
+			return result, fmt.Errorf("media capture is not configured")
+		}
+		rows, err := a.Repository.GetMediaByPID(pid)
+		if err != nil {
+			return result, err
+		}
+		for _, row := range rows {
+			if row.Status == "available" && strings.TrimSpace(row.Path) != "" {
+				result.Media++
+				continue
+			}
+			if _, err := a.Media.Repair(ctx, models.MediaRepairCandidate{Media: row, PID: pid}); err != nil {
+				if ctx.Err() != nil {
+					return result, ctx.Err()
+				}
+				result.MissingMedia++
+				continue
+			}
+			result.Media++
+		}
+	}
+	return result, nil
 }
 
 func (a *App) handleRepairComments(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {

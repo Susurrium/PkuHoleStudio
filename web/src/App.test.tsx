@@ -42,7 +42,7 @@ describe('PkuHoleStudio Web', () => {
     }))
     const user = userEvent.setup()
     renderApp('/search')
-    await user.type(screen.getByPlaceholderText('课程名、教师、关键词或 #PID'), 'alpha')
+    await user.type(screen.getByPlaceholderText('课程名、教师、关键词或 PID'), 'alpha')
     await user.click(screen.getByRole('button', { name: '搜索资料库' }))
     expect(await screen.findByText('alpha result')).toBeInTheDocument()
     expect(screen.getByText('#123456')).toBeInTheDocument()
@@ -219,7 +219,58 @@ describe('PkuHoleStudio Web', () => {
 		await user.type(await screen.findByPlaceholderText('1234567, 2345678'), '123456, 234567')
 		await user.click(screen.getByRole('button', { name: '同步 2 个 PID' }))
 		await waitFor(() => expect(createdBody).not.toBe(''))
-		expect(JSON.parse(createdBody)).toEqual({ type: 'sync_pids', payload: { pids: [123456, 234567] } })
+		expect(JSON.parse(createdBody)).toEqual({ type: 'sync_pids', payload: { pids: [123456, 234567], include_comments: true, include_media: true } })
+	})
+
+	it('reloads a session saved by the TUI without asking for credentials', async () => {
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session/reload') && init?.method === 'POST') return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true, message: '在线会话可用' })
+			if (path.endsWith('/session')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false })
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.click(await screen.findByRole('button', { name: '载入 TUI 已登录会话' }))
+		expect(await screen.findByText('在线读取已就绪')).toBeInTheDocument()
+	})
+
+	it('starts offline reference maintenance from its dedicated page', async () => {
+		let createdBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.includes('/jobs') && init?.method === 'POST') {
+				createdBody = String(init.body)
+				return json({ id: 'maint-1', type: 'rebuild_references', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }, 202)
+			}
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/maintenance')
+		await user.click(await screen.findByRole('button', { name: '开始重建引用关系' }))
+		await waitFor(() => expect(JSON.parse(createdBody)).toEqual({ type: 'rebuild_references', payload: {} }))
+	})
+
+	it('creates a Studio-native live capture and image export job', async () => {
+		let createdBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.includes('/imports?')) return json([])
+			if (path.endsWith('/exports/jobs') && init?.method === 'POST') {
+				createdBody = String(init.body)
+				return json({ id: 'capture-export', type: 'export_archive', status: 'queued', completed_items: 0, failed_items: 0, total_items: 2, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }, 202)
+			}
+			if (path.endsWith('/exports/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/imports')
+		await user.type(await screen.findByPlaceholderText('留空导出全部；或输入 1234567, 2345678'), '8328353')
+		await user.click(screen.getByLabelText('导出前在线更新指定 PID'))
+		await user.click(screen.getByRole('button', { name: '创建 archive v2 任务' }))
+		await waitFor(() => expect(JSON.parse(createdBody)).toEqual({ format: 'treehole-v2', pids: [8328353], include_comments: true, capture_live: true, include_media: true }))
 	})
 
 	it('completes an IAAA SMS challenge with the original credentials', async () => {
@@ -237,7 +288,7 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-  await user.click(await screen.findByRole('button', { name: '在 Studio 中登录' }))
+		await user.click(await screen.findByRole('button', { name: '改为在 Web 中登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
@@ -245,6 +296,26 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(screen.getByRole('button', { name: '继续登录' }))
 		await waitFor(() => expect(challengeBody).not.toBe(''))
 		expect(JSON.parse(challengeBody)).toEqual({ stage: 'iaaa', challenge: 'sms', username: '1234567890', password: 'secret', code: '654321' })
+	})
+
+	it('uses the Treehole SMS endpoint for a Treehole-stage challenge', async () => {
+		let smsBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false })
+			if (path.endsWith('/session/login')) return json({ checked: true, has_session: true, can_read_online: false, can_write_online: false, challenge: 'sms', challenge_stage: 'treehole', message: '需要短信验证' })
+			if (path.endsWith('/session/sms')) { smsBody = String(init?.body); return json({ checked: true, has_session: true, can_read_online: false, can_write_online: false, challenge: 'sms', challenge_stage: 'treehole', message: '短信已发送' }) }
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.click(await screen.findByRole('button', { name: '改为在 Web 中登录' }))
+		await user.type(screen.getByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
+		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
+		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		await user.click(await screen.findByRole('button', { name: '发送树洞短信验证码' }))
+		await waitFor(() => expect(JSON.parse(smsBody)).toEqual({ stage: 'treehole' }))
 	})
 
 	it('renders AI search trace, streamed delta, and a source link', async () => {

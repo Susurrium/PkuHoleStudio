@@ -29,6 +29,29 @@ func TestDetectAuthChallenge(t *testing.T) {
 	}
 }
 
+func TestReloadSessionCookiesPicksUpAnotherFrontendLogin(t *testing.T) {
+	config.SetRuntimeDataDir(t.TempDir())
+	t.Cleanup(func() { config.SetRuntimeDataDir("") })
+	webClient, err := NewClient("web-device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuiClient, err := NewClient("tui-device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuiClient.SetPkuToken("shared-session-token")
+	if err := tuiClient.SaveCookies(); err != nil {
+		t.Fatal(err)
+	}
+	if err := webClient.ReloadSessionCookies(); err != nil {
+		t.Fatal(err)
+	}
+	if webClient.GetAuthorization() != "shared-session-token" {
+		t.Fatalf("authorization = %q", webClient.GetAuthorization())
+	}
+}
+
 func TestParseAuthAPIResponse(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusOK,

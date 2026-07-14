@@ -19,23 +19,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	if err := config.EnsureRuntimeFiles(); err != nil {
-		log.Printf("[Init] 初始化 data 目录失败: %v", err)
-		return
-	}
-	logPath, err := config.LogPath()
-	if err != nil {
-		log.Printf("[Init] 解析日志路径失败: %v", err)
-		return
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		log.SetOutput(logFile)
-		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	}
-}
-
 var (
 	dbPath          string
 	startPage       int
@@ -50,6 +33,7 @@ var (
 	fetchImages     bool
 	convertWebp     bool
 	tuiCaptureDir   string
+	dataDir         string
 )
 
 func NewRootCmd() *cobra.Command {
@@ -58,12 +42,16 @@ func NewRootCmd() *cobra.Command {
 		Version: version,
 		Short:   "PkuHoleStudio local archive and Treehole client",
 		Long:    `PkuHoleStudio：兼容 PKUHoleTUI 的本地资料库、TUI、采集与 API 工具。`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return prepareRuntime()
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI()
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "./treehole.db", "database file path")
+	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", "data", "shared profile directory for config, cookies, logs, media, and jobs")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "", "override the SQLite database file path")
 	rootCmd.PersistentFlags().StringVar(&tuiCaptureDir, "tui-capture-dir", "", "write TUI raw ANSI output and latest frame snapshots to this directory")
 
 	serverCmd := newServerCmd()
@@ -77,8 +65,41 @@ func NewRootCmd() *cobra.Command {
 	return rootCmd
 }
 
+func prepareRuntime() error {
+	config.SetRuntimeDataDir(dataDir)
+	if err := config.EnsureRuntimeFiles(); err != nil {
+		return fmt.Errorf("初始化运行目录失败: %w", err)
+	}
+	logPath, err := config.LogPath()
+	if err != nil {
+		return fmt.Errorf("解析日志路径失败: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("打开日志文件失败: %w", err)
+	}
+	log.SetOutput(logFile)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	return nil
+}
+
+func openApplication(ctx context.Context, overrides ...app.Options) (*app.App, error) {
+	resolvedDataDir, err := config.RuntimeDataDir()
+	if err != nil {
+		return nil, err
+	}
+	options := app.Options{DataDir: resolvedDataDir, DatabasePath: dbPath}
+	if len(overrides) > 0 {
+		options.DisableJobs = overrides[0].DisableJobs
+	}
+	return app.Open(ctx, options)
+}
+
 func runTUI() error {
-	application, err := app.Open(context.Background(), app.Options{})
+	// The Web process owns persistent background jobs. A concurrently running
+	// TUI remains a reader/writer of the same services and database, but does
+	// not compete for queued jobs.
+	application, err := openApplication(context.Background(), app.Options{DisableJobs: true})
 	if err != nil {
 		return err
 	}
@@ -157,7 +178,7 @@ func runDaemon() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	application, err := app.Open(ctx, app.Options{})
+	application, err := openApplication(ctx)
 	if err != nil {
 		return err
 	}

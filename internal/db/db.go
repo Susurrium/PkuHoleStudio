@@ -41,6 +41,12 @@ type postSearchQuery struct {
 
 func parsePostSearchQuery(raw string) postSearchQuery {
 	var q postSearchQuery
+	trimmed := strings.TrimSpace(raw)
+	if pid, err := strconv.ParseInt(trimmed, 10, 32); err == nil && pid > 0 {
+		p := int32(pid)
+		q.pid = &p
+		return q
+	}
 	for _, token := range strings.Fields(raw) {
 		if strings.HasPrefix(token, "#") && len(token) > 1 {
 			if pid, err := strconv.ParseInt(token[1:], 10, 32); err == nil {

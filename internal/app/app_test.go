@@ -94,6 +94,46 @@ func TestOpenUsesInjectedDependencies(t *testing.T) {
 	}
 }
 
+func TestOpenHonorsDatabasePathOverride(t *testing.T) {
+	originalPath := filepath.Join(t.TempDir(), "configured.db")
+	overridePath := filepath.Join(t.TempDir(), "selected", "studio.db")
+	if err := os.MkdirAll(filepath.Dir(overridePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := sqliteConfig(originalPath)
+	application, err := Open(context.Background(), Options{
+		Config:       cfg,
+		Client:       &client.Client{},
+		DataDir:      t.TempDir(),
+		DatabasePath: overridePath,
+	})
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer application.Close()
+	if application.Config.Database.DBFile != overridePath {
+		t.Fatalf("database override = %q, want %q", application.Config.Database.DBFile, overridePath)
+	}
+	if cfg.Database.DBFile != originalPath {
+		t.Fatalf("Open() mutated caller config: %q", cfg.Database.DBFile)
+	}
+	if _, err := os.Stat(overridePath); err != nil {
+		t.Fatalf("override database was not opened: %v", err)
+	}
+}
+
+func TestOpenCanDisableJobExecutionForSecondaryFrontend(t *testing.T) {
+	cfg := sqliteConfig(filepath.Join(t.TempDir(), "shared.db"))
+	application, err := Open(context.Background(), Options{Config: cfg, Client: &client.Client{}, DataDir: t.TempDir(), DisableJobs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+	if application.Jobs != nil || application.Ownership().Jobs {
+		t.Fatalf("secondary frontend unexpectedly owns jobs: %+v", application.Ownership())
+	}
+}
+
 func TestOpenRejectsCancelledContextBeforeInitialization(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "must-not-be-created.db")
 	ctx, cancel := context.WithCancel(context.Background())
