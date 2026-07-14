@@ -34,7 +34,7 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
   await expect(page.getByText('预检完成 · v2')).toBeVisible()
 
   await page.getByRole('link', { name: '全文搜索' }).click()
-  await page.getByPlaceholder('课程名、教师、关键词或 #PID').fill('数据结构')
+  await page.getByRole('textbox', { name: '搜索关键词' }).fill('数据结构')
   await page.getByRole('button', { name: '搜索资料库' }).click()
   await page.getByText('数据结构课程体验').click()
   await expect(page.getByText('作业量适中')).toBeVisible()

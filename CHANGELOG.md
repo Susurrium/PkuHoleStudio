@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (v0.1.0-alpha.3)
+## v0.1.0-alpha.3 - 2026-07-14
 
 - Web 与 TUI 可通过同一 `--data-dir`、`--db-path` 明确共享配置、Cookie 和数据库；设置页显示实际运行资料目录，TUI 作为次要前端时不再争抢 Web 的持久任务。
 - Web 登录与已验证可用的 TUI 客户端流程对齐：区分 IAAA/树洞短信端点，并可在 Web 运行期间重新载入 TUI 刚保存的本机会话。
