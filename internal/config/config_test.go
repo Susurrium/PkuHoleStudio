@@ -376,3 +376,30 @@ func TestNormalizeAIProvidersMigratesLegacyProviderAndSelectsActive(t *testing.T
 		t.Fatalf("active provider mirror = %+v", ai.Provider)
 	}
 }
+
+func TestRuntimeDataDirControlsSharedProfilePaths(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "studio-profile")
+	SetRuntimeDataDir(profile)
+	t.Cleanup(func() { SetRuntimeDataDir("") })
+
+	dataDir, err := RuntimeDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dataDir != filepath.Clean(profile) {
+		t.Fatalf("RuntimeDataDir() = %q, want %q", dataDir, profile)
+	}
+	cookies, err := CookiesPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cookies != filepath.Join(profile, cookiesFileName) {
+		t.Fatalf("CookiesPath() = %q", cookies)
+	}
+	if err := EnsureRuntimeFiles(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(profile); err != nil || !info.IsDir() {
+		t.Fatalf("profile directory was not created: %v", err)
+	}
+}

@@ -18,7 +18,7 @@ export function SettingsPage() {
   return <>
     <PageHeader eyebrow="LOCAL CONFIG" title="设置与能力" description="查看本机资料库与服务能力，并安全配置 OpenAI-compatible 模型。API key 只写入本机配置文件，网页不会回显。" />
     <div className="grid gap-5 lg:grid-cols-2">
-      <SettingCard icon={Database} title="资料库" items={[['Schema', `v${capabilities.data.schema_version}`], ['全文搜索', capabilities.data.fts5 ? 'FTS5 trigram' : 'LIKE 兼容模式'], ['归档导入', capabilities.data.archive_import ? '可用' : '不可用'], ['归档导出', capabilities.data.archive_export ? '可用' : '不可用']]} />
+		<SettingCard icon={Database} title="资料库" items={[['运行资料目录', settings.data.data_dir || '未提供'], ['数据库文件', settings.data.database_file || settings.data.database_type], ['Schema', `v${capabilities.data.schema_version}`], ['全文搜索', capabilities.data.fts5 ? 'FTS5 trigram' : 'LIKE 兼容模式'], ['归档导入 / 导出', capabilities.data.archive_import && capabilities.data.archive_export ? '可用' : '部分不可用']]} />
 		<SettingCard icon={Server} title="本机服务" items={[['API', capabilities.data.api_version], ['任务管理', capabilities.data.jobs ? '持久化可用' : '不可用'], ['原生同步', capabilities.data.online_sync ? '可用' : '不可用'], ['访问范围', '由启动参数决定']]} />
 		<ProviderManager initial={settings.data} refresh={refreshAI} />
 		<AISettingsForm initial={settings.data} runtimeConfigured={provider?.configured ?? false} refresh={refreshAI} />
@@ -69,5 +69,5 @@ function TagManager({ tags, refresh }: { tags: import('../lib/types').LocalTag[]
 }
 
 function SettingCard({ icon: Icon, title, items }: { icon: typeof Database; title: string; items: [string, string][] }) {
-  return <section className="panel p-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-teal-soft text-teal"><Icon size={19} /></div><h2 className="text-lg font-semibold">{title}</h2></div><dl className="mt-5 divide-y divide-line/70">{items.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 py-3 text-sm"><dt className="text-ink-soft">{label}</dt><dd className="inline-flex items-center gap-1.5 font-medium"><Check size={13} className="text-teal" />{value}</dd></div>)}</dl></section>
+  return <section className="panel p-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-teal-soft text-teal"><Icon size={19} /></div><h2 className="text-lg font-semibold">{title}</h2></div><dl className="mt-5 divide-y divide-line/70">{items.map(([label, value]) => <div key={label} className="flex items-start justify-between gap-4 py-3 text-sm"><dt className="shrink-0 text-ink-soft">{label}</dt><dd className="inline-flex min-w-0 items-start gap-1.5 break-all text-right font-medium"><Check size={13} className="mt-0.5 shrink-0 text-teal" />{value}</dd></div>)}</dl></section>
 }

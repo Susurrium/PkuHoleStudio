@@ -11,6 +11,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { LogsPage } from './pages/LogsPage'
 import { CampusPage } from './pages/CampusPage'
 import { SyncPage } from './pages/SyncPage'
+import { MaintenancePage } from './pages/MaintenancePage'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="search" element={<SearchPage />} />
         <Route path="imports" element={<ImportsPage />} />
         <Route path="sync" element={<SyncPage />} />
+        <Route path="maintenance" element={<MaintenancePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="ai" element={<AIPage />} />
 				<Route path="notifications" element={<NotificationsPage />} />

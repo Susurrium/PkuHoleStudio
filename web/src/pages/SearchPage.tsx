@@ -20,9 +20,9 @@ export function SearchPage() {
 	function updateTags(ids: number[]) { const next = new URLSearchParams(params); next.delete('cursor'); if (ids.length) next.set('tag', ids.join(',')); else next.delete('tag'); setParams(next, { replace: true }) }
   function submit(event: FormEvent) { event.preventDefault(); const value = draft.trim(); const next = new URLSearchParams(params); next.delete('cursor'); if (value) next.set('q', value); else next.delete('q'); setParams(next) }
   return <>
-    <PageHeader eyebrow="FULL TEXT" title="全文搜索" description="输入多个词时默认按 AND 匹配；输入 #123456 可精确定位 PID。评论命中会聚合回所属帖子。" />
+    <PageHeader eyebrow="FULL TEXT" title="全文搜索" description="输入多个词时默认按 AND 匹配；直接输入 123456 或 #123456 都可精确定位 PID。评论命中会聚合回所属帖子。" />
     <form className="panel flex flex-col gap-3 p-4 sm:flex-row" onSubmit={submit}>
-      <label className="relative flex-1"><span className="sr-only">搜索关键词</span><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" size={17} /><input className="field !pl-10" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="课程名、教师、关键词或 #PID" /></label>
+      <label className="relative flex-1"><span className="sr-only">搜索关键词</span><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" size={17} /><input className="field !pl-10" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="课程名、教师、关键词或 PID" /></label>
       <button className="button-primary sm:min-w-28" type="submit">搜索资料库</button>
     </form>
 		<section className="panel mt-4 p-4"><p className="mb-2 text-xs font-medium text-ink-soft">按本地标签缩小结果（选择多个时需同时拥有全部标签）</p><LocalTagFilter selected={tagIDs} onChange={updateTags} /></section>

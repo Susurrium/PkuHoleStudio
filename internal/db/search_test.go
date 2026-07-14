@@ -39,6 +39,10 @@ func TestSearchFullTextPostCommentPIDAndFilters(t *testing.T) {
 	if len(pidPage.Hits[0].CommentMatches) != 0 {
 		t.Fatalf("PID-only search returned unrelated comment matches: %+v", pidPage.Hits[0].CommentMatches)
 	}
+	barePIDPage, err := database.SearchFullText(models.FullTextQuery{Query: "12345", Limit: 10})
+	if err != nil || len(barePIDPage.Hits) != 1 || barePIDPage.Hits[0].Post.Pid != 12345 {
+		t.Fatalf("bare PID hits = %+v, error = %v", barePIDPage.Hits, err)
+	}
 
 	hasMedia := true
 	filtered, err := database.SearchFullText(models.FullTextQuery{

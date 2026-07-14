@@ -15,6 +15,7 @@ import (
 var (
 	Conf       *Config
 	configLock sync.Mutex
+	runtimeDir string
 )
 
 const (
@@ -90,7 +91,13 @@ func resolveRuntimePaths() (runtimePaths, error) {
 		return runtimePaths{}, fmt.Errorf("获取工作目录失败: %w", err)
 	}
 
-	dataDir := filepath.Join(currentDir, dataDirName)
+	dataDir := strings.TrimSpace(runtimeDir)
+	if dataDir == "" {
+		dataDir = filepath.Join(currentDir, dataDirName)
+	} else if !filepath.IsAbs(dataDir) {
+		dataDir = filepath.Join(currentDir, dataDir)
+	}
+	dataDir = filepath.Clean(dataDir)
 	return runtimePaths{
 		dataDir:          dataDir,
 		configPath:       filepath.Join(dataDir, configFileName),
@@ -100,6 +107,26 @@ func resolveRuntimePaths() (runtimePaths, error) {
 		legacyCookies:    filepath.Join(currentDir, cookiesFileName),
 		legacyCrawlerLog: filepath.Join(currentDir, logFileName),
 	}, nil
+}
+
+// SetRuntimeDataDir selects the profile directory used by configuration,
+// cookies, logs, and other process-local files. It must be called before the
+// application is opened. Keeping this explicit lets the TUI and Web use the
+// same profile even when they are launched from different working folders.
+func SetRuntimeDataDir(path string) {
+	configLock.Lock()
+	runtimeDir = strings.TrimSpace(path)
+	configLock.Unlock()
+}
+
+// RuntimeDataDir returns the resolved profile directory without exposing any
+// configuration or session contents.
+func RuntimeDataDir() (string, error) {
+	paths, err := resolveRuntimePaths()
+	if err != nil {
+		return "", err
+	}
+	return paths.dataDir, nil
 }
 
 func ConfigPath() (string, error) {

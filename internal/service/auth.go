@@ -24,8 +24,9 @@ type AuthStatus struct {
 type AuthService interface {
 	CachedStatus(ctx context.Context) AuthStatus
 	Probe(ctx context.Context) AuthStatus
+	Reload(ctx context.Context) AuthStatus
 	Login(ctx context.Context, username, password string) AuthStatus
-	SendSMS(ctx context.Context, username string) AuthStatus
+	SendSMS(ctx context.Context, stage, username string) AuthStatus
 	Continue(ctx context.Context, stage, challenge, username, password, code string) AuthStatus
 	Logout(ctx context.Context) error
 }
@@ -67,6 +68,19 @@ func (s *TreeholeAuthService) Probe(ctx context.Context) AuthStatus {
 	return authStatusFromSession(s.client.ProbeSession())
 }
 
+func (s *TreeholeAuthService) Reload(ctx context.Context) AuthStatus {
+	if err := authContextError(ctx); err != nil {
+		return AuthStatus{Checked: true, FailureKind: "network", Message: err.Error()}
+	}
+	if s == nil || s.client == nil {
+		return AuthStatus{Checked: true, FailureKind: "login", Message: "树洞客户端未初始化"}
+	}
+	if err := s.client.ReloadSessionCookies(); err != nil {
+		return AuthStatus{Checked: true, FailureKind: "login", Message: "未能载入本机登录会话: " + err.Error()}
+	}
+	return authStatusFromSession(s.client.ProbeSession())
+}
+
 func (s *TreeholeAuthService) Login(ctx context.Context, username, password string) AuthStatus {
 	if err := authContextError(ctx); err != nil {
 		return AuthStatus{Checked: true, FailureKind: "network", Message: err.Error()}
@@ -94,13 +108,21 @@ func normalizePKUUsername(username string) string {
 	return value
 }
 
-func (s *TreeholeAuthService) SendSMS(ctx context.Context, username string) AuthStatus {
+func (s *TreeholeAuthService) SendSMS(ctx context.Context, stage, username string) AuthStatus {
 	if err := authContextError(ctx); err != nil {
 		return AuthStatus{Checked: true, FailureKind: "network", Message: err.Error()}
 	}
 	if s == nil || s.client == nil {
 		return AuthStatus{Checked: true, FailureKind: "login", Message: "树洞客户端未初始化"}
 	}
+	if strings.TrimSpace(stage) == string(client.AuthChallengeStageTreehole) {
+		if err := s.client.SendSMSCode(); err != nil {
+			return AuthStatus{Checked: true, FailureKind: "login", Message: err.Error(), Challenge: "sms", ChallengeStage: "treehole", ChallengeReason: err.Error()}
+		}
+		message := "短信验证码已发送，请检查树洞账号绑定手机号"
+		return AuthStatus{Checked: true, FailureKind: "login", Message: message, Challenge: "sms", ChallengeStage: "treehole", ChallengeReason: message}
+	}
+
 	mask, err := s.client.SendIAAASMSCode(normalizePKUUsername(username))
 	if err != nil {
 		return AuthStatus{Checked: true, FailureKind: "login", Message: err.Error(), Challenge: "sms", ChallengeStage: "iaaa", ChallengeReason: err.Error()}

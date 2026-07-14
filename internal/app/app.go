@@ -24,14 +24,16 @@ import (
 // embedded in a command or test. Dependencies omitted here are created by
 // Open and owned by the returned App.
 type Options struct {
-	Config     *config.Config
-	Repository *db.Database
-	Client     *client.Client
-	DataDir    string
-	Archive    service.ArchiveService
-	AI         service.AIService
-	Auth       service.AuthService
-	Jobs       *jobs.Manager
+	Config       *config.Config
+	Repository   *db.Database
+	Client       *client.Client
+	DataDir      string
+	DatabasePath string
+	DisableJobs  bool
+	Archive      service.ArchiveService
+	AI           service.AIService
+	Auth         service.AuthService
+	Jobs         *jobs.Manager
 }
 
 // Ownership reports which resources were created by Open. Config and Client
@@ -117,6 +119,14 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	if application.Config == nil {
 		return nil, errors.New("load config: returned nil config")
 	}
+	if path := strings.TrimSpace(options.DatabasePath); path != "" {
+		cloned := *application.Config
+		cloned.Database = application.Config.Database
+		cloned.Database.Type = "sqlite3"
+		cloned.Database.DBFile = path
+		cloned.Database.DSN = ""
+		application.Config = &cloned
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -166,7 +176,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	application.Notifications = service.NewNotificationService(application.Client)
 	application.Logs = service.NewLogService(application.DataDir)
 	application.Library = service.NewLocalLibraryService(application.Repository)
-	application.Settings = service.NewSettingsService(application.Config)
+	application.Settings = service.NewSettingsService(application.Config, application.DataDir)
 	if application.Auth == nil {
 		application.Auth = service.NewAuthService(application.Client, application.Config)
 	}
@@ -225,15 +235,17 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	}
 	if options.Jobs != nil {
 		application.Jobs = options.Jobs
-	} else {
+	} else if !options.DisableJobs {
 		application.Jobs, err = jobs.NewManager(ctx, application.Repository)
 		if err != nil {
 			return nil, fmt.Errorf("create job manager: %w", err)
 		}
 		application.ownership.Jobs = true
 	}
-	if err := registerJobHandlers(application); err != nil {
-		return nil, err
+	if application.Jobs != nil {
+		if err := registerJobHandlers(application); err != nil {
+			return nil, err
+		}
 	}
 	if err := cleanupExpiredImportStaging(ctx, application.DataDir, application.Jobs, 7*24*time.Hour); err != nil {
 		return nil, fmt.Errorf("clean import staging: %w", err)

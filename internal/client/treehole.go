@@ -561,6 +561,17 @@ func (c *Client) LoadCookies() error {
 	return nil
 }
 
+// ReloadSessionCookies refreshes the in-memory session from the shared cookie
+// file. This is used when another Studio frontend (for example the TUI) has
+// completed an interactive login while the Web process is already running.
+func (c *Client) ReloadSessionCookies() error {
+	if err := c.LoadCookies(); err != nil {
+		return err
+	}
+	c.authorization = c.GetPkuToken()
+	return nil
+}
+
 func (c *Client) GetPostsList(page, limit, commentLimit, commentStream int) (*http.Response, error) {
 	params := url.Values{}
 	params.Set("page", strconv.Itoa(page))

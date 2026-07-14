@@ -2,6 +2,10 @@
 
 ## Unreleased (v0.1.0-alpha.3)
 
+- Web 与 TUI 可通过同一 `--data-dir`、`--db-path` 明确共享配置、Cookie 和数据库；设置页显示实际运行资料目录，TUI 作为次要前端时不再争抢 Web 的持久任务。
+- Web 登录与已验证可用的 TUI 客户端流程对齐：区分 IAAA/树洞短信端点，并可在 Web 运行期间重新载入 TUI 刚保存的本机会话。
+- 指定 PID 同步可分页抓取全部评论并下载帖子/评论图片；Studio 持久导出任务可选择“在线更新 → 下载媒体 → 重建引用 → 生成 archive v2/Markdown”，不依赖 Toolkit。
+- 全文搜索支持裸数字 PID 与 `#PID` 两种精确形式；标签颜色在筛选和详情中持续可见；新增无需在线登录的资料库维护页面。
 - AI Provider 设置改为运行时原子应用：新增、编辑、切换和全局开关无需重启；正在生成的请求继续使用原快照，历史消息保留实际 Provider/模型。
 - Provider 管理增加显式连接测试，支持无 API key 的本地 OpenAI-compatible 服务，并校验 Provider 名称唯一性。
 - Crawler/TUI 日志页面改用 SSE 接收新增日志，保留 REST 刷新降级；增加不含数据库、正文、Cookie 和密钥的安全诊断包。

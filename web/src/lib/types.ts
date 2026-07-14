@@ -63,6 +63,7 @@ export interface ScoreSummary { gpa: string; total_credit: string; passed_credit
 export interface LocalTag { id: number; name: string; color?: string }
 export interface Note { owner_type: string; owner_id: number; content: string; updated_at?: string }
 export interface Settings {
+  data_dir?: string
   database_type: string
   database_file?: string
   ai_enabled: boolean
@@ -96,7 +97,7 @@ export interface AIProviderSettingUpdate extends Omit<AIProviderSetting, 'id' | 
   api_key?: string
   clear_api_key?: boolean
 }
-export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required' | 'ai_active_provider' | 'ai_providers' | 'ai_runtime_provider' | 'ai_runtime_model'> {
+export interface SettingsUpdate extends Omit<Settings, 'data_dir' | 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required' | 'ai_active_provider' | 'ai_providers' | 'ai_runtime_provider' | 'ai_runtime_model'> {
   ai_api_key?: string
   clear_ai_api_key?: boolean
 }

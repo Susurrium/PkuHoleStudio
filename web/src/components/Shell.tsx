@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Archive, Bell, Bot, FileText, FolderSearch, Gauge, GraduationCap, Import, Menu, RefreshCw, Settings, X } from 'lucide-react'
+import { Archive, Bell, Bot, FileText, FolderSearch, Gauge, GraduationCap, Import, Menu, RefreshCw, Settings, Wrench, X } from 'lucide-react'
 import { useUIStore } from '../store/ui'
 
 const navigation = [
@@ -7,6 +7,7 @@ const navigation = [
   { to: '/posts', label: '资料库', icon: Archive },
   { to: '/search', label: '全文搜索', icon: FolderSearch },
   { to: '/sync', label: '同步中心', icon: RefreshCw },
+	{ to: '/maintenance', label: '资料库维护', icon: Wrench },
 	{ to: '/notifications', label: '通知', icon: Bell },
 	{ to: '/logs', label: '运行日志', icon: FileText },
 	{ to: '/campus', label: '课表与成绩', icon: GraduationCap },
@@ -28,7 +29,7 @@ export function Shell() {
       {navOpen && <button className="fixed inset-0 z-30 bg-ink/20 md:hidden" aria-label="关闭导航遮罩" onClick={() => setNavOpen(false)} />}
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-line bg-[#ede7dc] px-5 py-6 transition-transform md:translate-x-0 ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <Brand />
-        <nav className="mt-10 flex flex-1 flex-col gap-1.5" aria-label="主导航">
+        <nav className="mt-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1" aria-label="主导航">
           {navigation.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setNavOpen(false)} className={({ isActive }) => `group flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition ${isActive ? 'bg-ink text-white shadow-sm' : 'text-ink-soft hover:bg-white/60 hover:text-ink'}`}>
               <Icon size={18} strokeWidth={1.8} />
