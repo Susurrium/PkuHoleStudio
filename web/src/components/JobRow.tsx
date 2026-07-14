@@ -19,6 +19,8 @@ export function JobRow({ job, onAction, busy }: { job: Job; onAction?: (action: 
       </div>
       <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-paper-deep"><div className="h-full rounded-full bg-teal transition-all" style={{ width: `${progress}%` }} /></div>
       <div className="mt-2 flex items-center justify-between text-[11px] text-ink-soft"><span>{job.completed_items} 完成 · {job.failed_items} 失败</span><span>{progress}%</span></div>
+      {job.status === 'queued' && <p className="mt-3 text-xs leading-5 text-ink-soft">任务已持久保存，正在等待本机执行器；刷新页面或重新启动程序不会丢失。</p>}
+      {job.status === 'paused' && <p className="mt-3 text-xs leading-5 text-ink-soft">任务已暂停并保存进度，需要点击“继续”后才会重新排队。</p>}
       {job.error && <p className="mt-3 text-xs leading-5 text-coral">{job.error}</p>}
       {onAction && <div className="mt-3 flex gap-2">
         {job.status === 'running' && <button disabled={busy} className="button-secondary !min-h-8 !px-2.5 !py-1 text-xs" onClick={() => onAction('pause')}><CirclePause size={14} />暂停</button>}

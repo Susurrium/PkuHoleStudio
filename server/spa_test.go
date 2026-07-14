@@ -17,7 +17,10 @@ func TestAttachSPAFallsBackForBrowserRoutesOnly(t *testing.T) {
 		t.Fatalf("AttachSPA() error = %v", err)
 	}
 
-	for _, route := range []string{"/", "/posts", "/posts/123456", "/search?q=test"} {
+	for _, route := range []string{
+		"/", "/posts", "/posts/123456", "/search?q=test", "/sync", "/imports",
+		"/ai", "/settings", "/notifications", "/logs", "/campus", "/unknown-browser-route",
+	} {
 		request := httptest.NewRequest(http.MethodGet, route, nil)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
@@ -31,6 +34,9 @@ func TestAttachSPAFallsBackForBrowserRoutesOnly(t *testing.T) {
 		router.ServeHTTP(response, request)
 		if response.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", route, response.Code)
+		}
+		if route == "/api/v1/missing" && strings.Contains(response.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("GET %s returned the SPA document", route)
 		}
 	}
 }

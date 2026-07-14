@@ -66,6 +66,7 @@ describe('PkuHoleStudio Web', () => {
     await user.click(screen.getByRole('button', { name: '预检并开始导入' }))
     await waitFor(() => expect(screen.getByText('预检完成 · legacy-v1')).toBeInTheDocument())
     expect(screen.getByText('job-1')).toBeInTheDocument()
+		expect(screen.getByText(/任务已持久保存/)).toBeInTheDocument()
 	})
 
 	it('shows a failed preflight and does not render a queued import job', async () => {
@@ -133,6 +134,8 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		renderApp('/ai')
 		expect(await screen.findByText('AI Provider 尚未配置')).toBeInTheDocument()
+		expect(screen.getByText(/保存后会立即用于新会话，无需重启/)).toBeInTheDocument()
+		expect(screen.queryByText(/环境变量后重启/)).not.toBeInTheDocument()
 		expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
 	})
 
@@ -145,12 +148,15 @@ describe('PkuHoleStudio Web', () => {
 			if (path.endsWith('/capabilities')) return json({ api_version: 'v1', schema_version: 4, fts5: true, archive_import: true, archive_export: true, jobs: true, ai: true, online_sync: true })
 			if (path.endsWith('/ai/providers')) return json([{ id: 'deepseek', name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: true, active: true }])
 			if (path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/settings/ai/providers/deepseek/test') && init?.method === 'POST') return json({ provider_id: 'deepseek', latency_ms: 42, model: 'deepseek-chat' })
 			if (path.endsWith('/settings') && init?.method === 'PUT') { saved = String(init.body); return json({ ...settings, ai_enabled: true, restart_required: false }) }
 			if (path.endsWith('/settings')) return json(settings)
 			throw new Error(`unexpected request ${path}`)
 		}))
 		const user = userEvent.setup()
 		renderApp('/settings')
+		await user.click(await screen.findByRole('button', { name: '测试' }))
+		expect(await screen.findByText('连接成功 · 42 ms')).toBeInTheDocument()
 		await user.click(await screen.findByRole('button', { name: '编辑' }))
 		const key = screen.getByLabelText(/API key/)
 		expect(key).toHaveAttribute('placeholder', '已配置；不会回显')
@@ -160,6 +166,25 @@ describe('PkuHoleStudio Web', () => {
 		await waitFor(() => expect(saved).toContain('"ai_enabled":true'))
 		expect(saved).not.toContain('existing')
 		expect(await screen.findByText(/设置已安全写入/)).toBeInTheDocument()
+	})
+
+	it('shows live diagnostic lines and falls back to the snapshot after an SSE error', async () => {
+		let snapshotRequests = 0
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/logs?')) { snapshotRequests++; return json([]) }
+			throw new Error(`unexpected request ${path}`)
+		}))
+		vi.stubGlobal('EventSource', MockEventSource)
+		renderApp('/logs')
+		await waitFor(() => expect(MockEventSource.latest?.url).toContain('/api/v1/logs/events'))
+		MockEventSource.latest!.emit('ready', { connected: true })
+		expect(await screen.findByText('● 实时日志已连接')).toBeInTheDocument()
+		MockEventSource.latest!.emit('line', { module: 'crawler', line: 'sync completed' })
+		expect(await screen.findByText(/\[crawler\] sync completed/)).toBeInTheDocument()
+		MockEventSource.latest!.fail()
+		expect(await screen.findByText('○ 正在连接实时日志；仍可手动刷新')).toBeInTheDocument()
+		await waitFor(() => expect(snapshotRequests).toBeGreaterThan(1))
 	})
 
 	it('restores a paged CID deep link after refreshing a post', async () => {
@@ -260,5 +285,6 @@ class MockEventSource {
 		this.listeners.set(type, [...(this.listeners.get(type) ?? []), callback])
 	}
 	emit(type: string, data: unknown) { for (const listener of this.listeners.get(type) ?? []) listener(new MessageEvent(type, { data: JSON.stringify(data) })) }
+	fail() { this.onerror?.() }
 	close() {}
 }

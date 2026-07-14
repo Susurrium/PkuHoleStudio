@@ -131,6 +131,30 @@ func TestManagerWaitsForPersistedJobHandlerRegistration(t *testing.T) {
 	waitForEvent(t, events, "completed")
 }
 
+func TestManagerReconcilesQueuedJobsFromDurableStore(t *testing.T) {
+	store := newFakeStore()
+	manager := newTestManager(t, store)
+	run := make(chan struct{}, 1)
+	if err := manager.Register(TypeImportArchive, func(context.Context, *Execution, Job) error {
+		run <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	// Simulate a queued row committed by the store while its in-memory wake-up
+	// notification was lost. The scheduler must discover and run it.
+	now := time.Now().UTC()
+	store.seedJob(Job{ID: "missed-wakeup", Type: TypeImportArchive, Status: StatusQueued, CreatedAt: now, UpdatedAt: now})
+	receiveSignal(t, run)
+
+	events, err := manager.Events(context.Background(), "missed-wakeup", 0)
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	waitForEvent(t, events, "completed")
+}
+
 func TestManagerPauseAndResume(t *testing.T) {
 	store := newFakeStore()
 	manager := newTestManager(t, store)
