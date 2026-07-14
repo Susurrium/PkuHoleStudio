@@ -84,7 +84,9 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/notifications/:id/read", apiNotificationRead(dependencies))
 	group.POST("/notifications/read-all", apiNotificationsReadAll(dependencies))
 	group.GET("/logs", apiLogs(dependencies))
+	group.GET("/logs/events", apiLogEvents(dependencies))
 	group.POST("/logs/clear", apiClearLogs(dependencies))
+	group.GET("/diagnostics/bundle", apiDiagnosticBundle(dependencies))
 	group.GET("/campus/schedule", apiCampusSchedule(dependencies))
 	group.GET("/campus/scores", apiCampusScores(dependencies))
 	group.GET("/local-tags", apiLocalTags(dependencies))
@@ -103,6 +105,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.PATCH("/settings/ai/providers/:id", apiUpdateAIProviderSetting(dependencies))
 	group.DELETE("/settings/ai/providers/:id", apiDeleteAIProviderSetting(dependencies))
 	group.POST("/settings/ai/providers/:id/activate", apiActivateAIProviderSetting(dependencies))
+	group.POST("/settings/ai/providers/:id/test", apiTestAIProviderSetting(dependencies))
 
 	group.GET("/jobs", apiJobs(dependencies))
 	group.POST("/jobs", apiCreateJob(dependencies))
@@ -278,6 +281,37 @@ func apiLogs(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, items)
+	}
+}
+
+func apiLogEvents(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Logs == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "log service is unavailable", nil)
+			return
+		}
+		events, err := dependencies.Logs.Stream(c.Request.Context(), c.Query("module"), c.Query("q"))
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.SSEvent("ready", gin.H{"connected": true})
+		c.Writer.Flush()
+		for {
+			select {
+			case <-c.Request.Context().Done():
+				return
+			case event, open := <-events:
+				if !open {
+					return
+				}
+				c.SSEvent("line", event)
+				c.Writer.Flush()
+			}
+		}
 	}
 }
 
@@ -690,6 +724,31 @@ func apiActivateAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		apiRespond(c, http.StatusOK, view)
+	}
+}
+
+func apiTestAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		aiService, ok := dependencies.AI.(interface {
+			TestProvider(context.Context, string) (aipkg.ProviderProbe, error)
+		})
+		if !ok {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI provider testing is unavailable", nil)
+			return
+		}
+		probe, err := aiService.TestProvider(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			message := strings.TrimSpace(err.Error())
+			if len(message) > 1000 {
+				message = message[:1000] + "…"
+			}
+			apiFailure(c, http.StatusBadGateway, "provider_unreachable", message, nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, probe)
 	}
 }
 

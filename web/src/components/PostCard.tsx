@@ -1,11 +1,15 @@
 import { Image, MessageCircle, ThumbsUp } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { PostSummary } from '../lib/types'
 import { compactNumber, formatTime, HighlightedText } from '../lib/format'
 
 export function PostCard({ post, source = 'local' }: { post: PostSummary; source?: 'local' | 'live' }) {
+  const location = useLocation()
   const text = post.snippet || post.text
-  const target = `/posts/${post.pid}${source === 'live' ? '?source=live' : ''}`
+  const targetParams = new URLSearchParams()
+  if (source === 'live') targetParams.set('source', 'live')
+  if (location.pathname === '/posts' || location.pathname === '/search') targetParams.set('return_to', location.pathname + location.search)
+  const target = `/posts/${post.pid}${targetParams.size ? `?${targetParams}` : ''}`
   return (
     <article className="panel group p-5 transition hover:-translate-y-0.5 hover:border-teal/40 hover:shadow-[0_16px_40px_rgba(23,44,51,0.09)]">
       <div className="flex items-start justify-between gap-4">
@@ -19,9 +23,9 @@ export function PostCard({ post, source = 'local' }: { post: PostSummary; source
         <HighlightedText value={text || '（无正文）'} />
       </Link>
       {post.comment_matches?.slice(0, 2).map((match) => (
-        <div key={match.cid} className="mt-3 border-l-2 border-teal/35 pl-3 text-sm leading-6 text-ink-soft">
+        <Link to={`${target}#comment-${match.cid}`} key={match.cid} className="mt-3 block border-l-2 border-teal/35 pl-3 text-sm leading-6 text-ink-soft hover:text-teal">
           <span className="mr-2 font-mono text-[11px] text-teal">C{match.cid}</span><HighlightedText value={match.snippet} />
-        </div>
+        </Link>
       ))}
       <footer className="mt-5 flex items-center gap-4 border-t border-line/70 pt-3 text-xs text-ink-soft">
         <span className="inline-flex items-center gap-1.5"><MessageCircle size={14} /> {compactNumber(post.reply)}</span>

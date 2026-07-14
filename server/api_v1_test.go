@@ -1,6 +1,7 @@
 package server
 
 import (
+	stdzip "archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -550,26 +551,41 @@ func TestAPIV1SessionStatusAndLocalLogin(t *testing.T) {
 	}
 }
 
-func TestAPIV1AISessionLifecycleWithoutConfiguredProvider(t *testing.T) {
+func TestAPIV1RejectsSessionWithoutConfiguredProvider(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()
 	response := performRequest(router, http.MethodPost, "/api/v1/ai/sessions", strings.NewReader(`{"mode":"local","title":"Research"}`), "application/json")
-	if response.Code != http.StatusCreated {
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "not configured") {
 		t.Fatalf("create AI session = %d %s", response.Code, response.Body.String())
 	}
-	var created struct {
-		Data models.AISession `json:"data"`
+}
+
+func TestAPIV1DiagnosticBundleExcludesSecretsAndDatabasePath(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	response := performRequest(router, http.MethodGet, "/api/v1/diagnostics/bundle", nil, "")
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/zip" {
+		t.Fatalf("diagnostics response = %d %s", response.Code, response.Body.String())
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Data.ID == "" {
-		t.Fatalf("created AI session = %+v, %v", created, err)
+	reader, err := stdzip.NewReader(bytes.NewReader(response.Body.Bytes()), int64(response.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
 	}
-	response = performRequest(router, http.MethodGet, "/api/v1/ai/sessions/"+created.Data.ID, nil, "")
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Research") {
-		t.Fatalf("get AI session = %d %s", response.Code, response.Body.String())
+	if len(reader.File) != 3 {
+		t.Fatalf("diagnostic entries = %d", len(reader.File))
 	}
-	response = performRequest(router, http.MethodPost, "/api/v1/ai/sessions/"+created.Data.ID+"/messages", strings.NewReader(`{"prompt":"question"}`), "application/json")
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "not configured") {
-		t.Fatalf("unconfigured AI message = %d %s", response.Code, response.Body.String())
+	var combined strings.Builder
+	for _, file := range reader.File {
+		stream, openErr := file.Open()
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		_, _ = io.Copy(&combined, stream)
+		_ = stream.Close()
+	}
+	text := combined.String()
+	if strings.Contains(text, ".db") || strings.Contains(text, "password") || strings.Contains(text, "secret_key") {
+		t.Fatalf("diagnostic bundle leaked sensitive configuration: %s", text)
 	}
 }
 

@@ -78,6 +78,8 @@ export interface Settings {
   restart_required: boolean
   ai_active_provider: string
   ai_providers: AIProviderSetting[]
+  ai_runtime_provider?: string
+  ai_runtime_model?: string
 }
 export interface AIProviderSetting {
   id: string
@@ -94,7 +96,7 @@ export interface AIProviderSettingUpdate extends Omit<AIProviderSetting, 'id' | 
   api_key?: string
   clear_api_key?: boolean
 }
-export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required' | 'ai_active_provider' | 'ai_providers'> {
+export interface SettingsUpdate extends Omit<Settings, 'database_type' | 'database_file' | 'ai_api_key_configured' | 'restart_required' | 'ai_active_provider' | 'ai_providers' | 'ai_runtime_provider' | 'ai_runtime_model'> {
   ai_api_key?: string
   clear_ai_api_key?: boolean
 }
@@ -145,7 +147,8 @@ export interface BridgePairing {
 }
 export interface SearchHistory { id: number; query: string; filters?: string; created_at: string }
 
-export interface AIProvider { name: string; base_url: string; model: string; configured: boolean }
+export interface AIProvider { id?: string; name: string; base_url: string; model: string; configured: boolean; active?: boolean }
+export interface AIProviderProbe { provider_id: string; provider: string; model: string; reachable: boolean; latency_ms: number }
 export interface AISession { id: string; title: string; mode: 'selected' | 'local' | 'course'; provider: string; model: string; created_at: string; updated_at: string }
 export interface AISource { message_id?: string; ordinal?: number; pid: number; cid?: number; snippet?: string }
 export interface AIMessage { id: string; session_id: string; role: 'user' | 'assistant'; content: string; model?: string; mode?: string; trace?: string; created_at: string; sources: AISource[] }

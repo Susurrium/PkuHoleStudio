@@ -30,7 +30,7 @@ func TestSettingsUpdatePreservesWriteOnlySecrets(t *testing.T) {
 	if saved == nil || saved.AI.Provider.APIKey != "existing-secret" || saved.Password != "account-secret" {
 		t.Fatalf("write-only secrets were not preserved: %+v", saved)
 	}
-	if view.AIBaseURL != "http://127.0.0.1:11434/v1" || !view.AIAPIKeyConfigured || !view.RestartRequired {
+	if view.AIBaseURL != "http://127.0.0.1:11434/v1" || !view.AIAPIKeyConfigured || view.RestartRequired {
 		t.Fatalf("view = %+v", view)
 	}
 	if view.DatabaseType != "sqlite3" {

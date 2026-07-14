@@ -138,25 +138,43 @@ describe('PkuHoleStudio Web', () => {
 
 	it('writes AI settings without requiring the existing API key to be returned', async () => {
 		let saved = ''
-		const settings = { database_type: 'sqlite3', database_file: './treehole.db', ai_enabled: false, ai_live_search: false, ai_provider_name: 'DeepSeek', ai_base_url: 'https://api.deepseek.com', ai_model: 'deepseek-chat', ai_temperature: 0.2, ai_max_output_tokens: 4096, ai_request_timeout_seconds: 120, ai_max_search_rounds: 5, ai_api_key_configured: true, restart_required: false }
+		const provider = { id: 'deepseek', name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', temperature: 0.2, max_output_tokens: 4096, request_timeout_seconds: 120, api_key_configured: true, active: true }
+		const settings = { database_type: 'sqlite3', database_file: './treehole.db', ai_enabled: false, ai_live_search: false, ai_provider_name: 'DeepSeek', ai_base_url: 'https://api.deepseek.com', ai_model: 'deepseek-chat', ai_temperature: 0.2, ai_max_output_tokens: 4096, ai_request_timeout_seconds: 120, ai_max_search_rounds: 5, ai_api_key_configured: true, restart_required: false, ai_active_provider: 'deepseek', ai_providers: [provider] }
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
 			const path = String(input)
 			if (path.endsWith('/capabilities')) return json({ api_version: 'v1', schema_version: 4, fts5: true, archive_import: true, archive_export: true, jobs: true, ai: true, online_sync: true })
-			if (path.endsWith('/ai/providers')) return json([{ name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: true }])
+			if (path.endsWith('/ai/providers')) return json([{ id: 'deepseek', name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: true, active: true }])
 			if (path.endsWith('/local-tags')) return json([])
-			if (path.endsWith('/settings') && init?.method === 'PUT') { saved = String(init.body); return json({ ...settings, ai_enabled: true, restart_required: true }) }
+			if (path.endsWith('/settings') && init?.method === 'PUT') { saved = String(init.body); return json({ ...settings, ai_enabled: true, restart_required: false }) }
 			if (path.endsWith('/settings')) return json(settings)
 			throw new Error(`unexpected request ${path}`)
 		}))
 		const user = userEvent.setup()
 		renderApp('/settings')
-		const key = await screen.findByLabelText(/API key/)
+		await user.click(await screen.findByRole('button', { name: '编辑' }))
+		const key = screen.getByLabelText(/API key/)
 		expect(key).toHaveAttribute('placeholder', '已配置；不会回显')
+		await user.click(screen.getByRole('button', { name: '取消' }))
 		await user.click(screen.getByLabelText('启用 AI'))
-		await user.click(screen.getByRole('button', { name: '保存 AI 设置' }))
+		await user.click(screen.getByRole('button', { name: '保存并立即应用' }))
 		await waitFor(() => expect(saved).toContain('"ai_enabled":true'))
 		expect(saved).not.toContain('existing')
 		expect(await screen.findByText(/设置已安全写入/)).toBeInTheDocument()
+	})
+
+	it('restores a paged CID deep link after refreshing a post', async () => {
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/posts/123/comments') && path.includes('cursor=50')) return json({ items: [{ cid: 75, pid: 123, text: 'target comment', timestamp: 2 }], next_cursor: 75, has_more: false })
+			if (path.includes('/posts/123?')) return json({ post: { pid: 123, text: 'post', timestamp: 1, reply: 75 }, comments: [{ cid: 1, pid: 123, text: 'first comment', timestamp: 1 }], references: [], media: [], next_comment_cursor: 50, has_more_comments: true })
+			if (path.endsWith('/local-tags') || path.endsWith('/posts/123/tags')) return json([])
+			if (path.endsWith('/posts/123/note')) return json({ owner_type: 'post', owner_id: 123, content: '' })
+			if (path.includes('/posts/123/references')) return json({ root: 123, nodes: [{ pid: 123, text: 'post' }], edges: [] })
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/posts/123?comment_cursor=75#comment-75')
+		expect(await screen.findByText('target comment')).toBeInTheDocument()
+		expect(screen.getByText('已载入 2 / 75')).toBeInTheDocument()
 	})
 
 	it('creates a native PID sync job after an online session is verified', async () => {
