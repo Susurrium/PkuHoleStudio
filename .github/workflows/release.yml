@@ -138,10 +138,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -149,5 +156,6 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: PkuHoleStudio ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
+          body_path: docs/releases/${{ env.RELEASE_TAG }}.md
           generate_release_notes: true
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
