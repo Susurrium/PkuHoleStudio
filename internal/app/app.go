@@ -208,6 +208,19 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		info := provider.Info()
 		info.Configured = aiConfig.Enabled && providerConfig.APIKey != ""
 		application.AI = aipkg.NewService(ctx, application.Repository, application.Posts, application.Search, provider, aiConfig, info)
+		if concrete, ok := application.AI.(*aipkg.Service); ok {
+			if err := concrete.Reconfigure(aiConfig); err != nil {
+				return nil, fmt.Errorf("configure AI providers: %w", err)
+			}
+			application.Settings.SetAIRuntimeHooks(concrete.Reconfigure, func() (string, string) {
+				for _, provider := range concrete.Providers() {
+					if provider.Active {
+						return provider.Name, provider.Model
+					}
+				}
+				return "", ""
+			})
+		}
 		application.ownership.AI = true
 	}
 	if options.Jobs != nil {

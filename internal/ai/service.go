@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -42,19 +44,26 @@ type MessageDetail struct {
 }
 
 type Service struct {
-	rootCtx  context.Context
-	store    Store
-	posts    *service.PostService
-	search   *service.SearchService
-	provider AIProvider
-	config   config.AIConfig
-	info     ProviderInfo
+	rootCtx   context.Context
+	store     Store
+	posts     *service.PostService
+	search    *service.SearchService
+	runtimeMu sync.RWMutex
+	runtimes  map[string]providerRuntime
+	activeID  string
+	config    config.AIConfig
 
 	mu     sync.Mutex
 	wg     sync.WaitGroup
 	runs   map[string]*runState
 	nextID uint64
 	closed bool
+}
+
+type providerRuntime struct {
+	provider AIProvider
+	config   config.AIConfig
+	info     ProviderInfo
 }
 
 type runState struct {
@@ -74,17 +83,115 @@ func NewService(ctx context.Context, store Store, posts *service.PostService, se
 	if cfg.Provider.MaxOutputTokens <= 0 {
 		cfg.Provider.MaxOutputTokens = 4096
 	}
-	return &Service{rootCtx: ctx, store: store, posts: posts, search: search, provider: provider, config: cfg, info: info, runs: make(map[string]*runState)}
+	id := strings.TrimSpace(info.ID)
+	if id == "" {
+		id = strings.TrimSpace(cfg.ActiveProvider)
+	}
+	if id == "" {
+		id = "default"
+	}
+	info.ID, info.Active = id, true
+	return &Service{rootCtx: ctx, store: store, posts: posts, search: search, runtimes: map[string]providerRuntime{id: {provider: provider, config: cfg, info: info}}, activeID: id, config: cfg, runs: make(map[string]*runState)}
 }
 
 func (s *Service) Providers() []ProviderInfo {
 	if s == nil {
 		return []ProviderInfo{}
 	}
-	return []ProviderInfo{s.info}
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	result := make([]ProviderInfo, 0, len(s.runtimes))
+	for id, runtime := range s.runtimes {
+		info := runtime.info
+		info.Active = id == s.activeID
+		result = append(result, info)
+	}
+	slices.SortFunc(result, func(a, b ProviderInfo) int { return strings.Compare(a.Name, b.Name) })
+	return result
 }
 
-func (s *Service) LiveSearchEnabled() bool { return s != nil && s.config.AllowLiveSearch }
+func (s *Service) LiveSearchEnabled() bool {
+	if s == nil {
+		return false
+	}
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	return s.config.AllowLiveSearch
+}
+
+func (s *Service) Reconfigure(cfg config.AIConfig) error {
+	if s == nil {
+		return errors.New("AI service is unavailable")
+	}
+	config.NormalizeAIProviders(&cfg)
+	next := make(map[string]providerRuntime, len(cfg.Providers))
+	for _, providerConfig := range cfg.Providers {
+		if providerConfig.ID == cfg.ActiveProvider {
+			if key := strings.TrimSpace(os.Getenv("PKUHOLE_AI_API_KEY")); key != "" {
+				providerConfig.APIKey = key
+			}
+		}
+		provider, err := NewOpenAIProvider(providerConfig)
+		if err != nil {
+			return fmt.Errorf("configure provider %q: %w", providerConfig.Name, err)
+		}
+		providerCfg := cfg
+		providerCfg.Provider = providerConfig
+		info := provider.Info()
+		info.ID = providerConfig.ID
+		info.Configured = cfg.Enabled
+		info.Active = providerConfig.ID == cfg.ActiveProvider
+		next[providerConfig.ID] = providerRuntime{provider: provider, config: providerCfg, info: info}
+	}
+	if _, ok := next[cfg.ActiveProvider]; !ok {
+		return errors.New("active AI provider is unavailable")
+	}
+	s.runtimeMu.Lock()
+	s.runtimes, s.activeID, s.config = next, cfg.ActiveProvider, cfg
+	s.runtimeMu.Unlock()
+	return nil
+}
+
+func (s *Service) TestProvider(ctx context.Context, id string) (ProviderProbe, error) {
+	if s == nil {
+		return ProviderProbe{}, errors.New("AI service is unavailable")
+	}
+	s.runtimeMu.RLock()
+	runtime, ok := s.runtimes[strings.TrimSpace(id)]
+	s.runtimeMu.RUnlock()
+	if !ok || runtime.provider == nil {
+		return ProviderProbe{}, errors.New("AI provider was not found")
+	}
+	started := time.Now()
+	_, err := runtime.provider.Chat(ctx, ChatRequest{Model: runtime.info.Model, Messages: []ChatMessage{{Role: "user", Content: "Reply with OK."}}, Temperature: 0, MaxOutputTokens: 8})
+	if err != nil {
+		message := err.Error()
+		if key := strings.TrimSpace(runtime.config.Provider.APIKey); key != "" {
+			message = strings.ReplaceAll(message, key, "<redacted>")
+		}
+		return ProviderProbe{}, errors.New(message)
+	}
+	return ProviderProbe{ProviderID: runtime.info.ID, Provider: runtime.info.Name, Model: runtime.info.Model, Reachable: true, LatencyMS: time.Since(started).Milliseconds()}, nil
+}
+
+func (s *Service) activeRuntime() (providerRuntime, bool) {
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	runtime, ok := s.runtimes[s.activeID]
+	return runtime, ok
+}
+
+func (s *Service) sessionRuntime(session models.AISession) (providerRuntime, bool) {
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	for _, runtime := range s.runtimes {
+		if strings.EqualFold(runtime.info.Name, session.Provider) {
+			runtime.info.Model = session.Model
+			return runtime, true
+		}
+	}
+	return providerRuntime{}, false
+}
 
 func (s *Service) CreateSession(ctx context.Context, mode, title string) (models.AISession, error) {
 	if s == nil || s.store == nil {
@@ -97,8 +204,12 @@ func (s *Service) CreateSession(ctx context.Context, mode, title string) (models
 	if title == "" {
 		title = modeTitle(mode)
 	}
+	runtime, ok := s.activeRuntime()
+	if !ok || runtime.provider == nil || !runtime.info.Configured {
+		return models.AISession{}, errors.New("AI provider is not configured")
+	}
 	now := time.Now().UTC()
-	session := models.AISession{ID: newAIID(), Title: title, Mode: mode, Provider: s.info.Name, Model: s.info.Model, CreatedAt: now, UpdatedAt: now}
+	session := models.AISession{ID: newAIID(), Title: title, Mode: mode, Provider: runtime.info.Name, Model: runtime.info.Model, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.CreateAISession(ctx, session); err != nil {
 		return models.AISession{}, err
 	}
@@ -136,7 +247,7 @@ func (s *Service) GetSession(ctx context.Context, id string) (SessionDetail, err
 }
 
 func (s *Service) Run(ctx context.Context, request service.AIRequest) (<-chan service.AIEvent, error) {
-	if s == nil || s.store == nil || s.provider == nil || !s.info.Configured {
+	if s == nil || s.store == nil {
 		return nil, errors.New("AI provider is not configured")
 	}
 	request.Prompt = strings.TrimSpace(request.Prompt)
@@ -152,6 +263,10 @@ func (s *Service) Run(ctx context.Context, request service.AIRequest) (<-chan se
 	}
 	if request.Mode != session.Mode || !validMode(request.Mode) {
 		return nil, errors.New("message mode does not match the session")
+	}
+	runtime, ok := s.sessionRuntime(session)
+	if !ok || runtime.provider == nil || !runtime.info.Configured {
+		return nil, errors.New("the provider used by this session is no longer available; create a new session")
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -169,7 +284,7 @@ func (s *Service) Run(ctx context.Context, request service.AIRequest) (<-chan se
 	s.wg.Add(1)
 	s.mu.Unlock()
 	now := time.Now().UTC()
-	if err := s.store.SaveAIMessage(ctx, models.AIMessage{ID: newAIID(), SessionID: session.ID, Role: "user", Content: request.Prompt, Provider: s.info.Name, Model: s.info.Model, Mode: request.Mode, CreatedAt: now}, nil); err != nil {
+	if err := s.store.SaveAIMessage(ctx, models.AIMessage{ID: newAIID(), SessionID: session.ID, Role: "user", Content: request.Prompt, Provider: runtime.info.Name, Model: runtime.info.Model, Mode: request.Mode, CreatedAt: now}, nil); err != nil {
 		s.finish(session.ID)
 		s.wg.Done()
 		return nil, err
@@ -177,7 +292,7 @@ func (s *Service) Run(ctx context.Context, request service.AIRequest) (<-chan se
 
 	go func() {
 		defer s.wg.Done()
-		s.execute(runCtx, session, request)
+		s.execute(runCtx, session, request, runtime)
 	}()
 	return channel, nil
 }
@@ -236,9 +351,9 @@ func (s *Service) Close() error {
 	return nil
 }
 
-func (s *Service) execute(ctx context.Context, session models.AISession, request service.AIRequest) {
-	s.emit(session.ID, service.AIEvent{Type: "started", Data: map[string]any{"mode": request.Mode, "model": s.info.Model}})
-	answer, trace, sources, err := s.runWorkflow(ctx, request)
+func (s *Service) execute(ctx context.Context, session models.AISession, request service.AIRequest, runtime providerRuntime) {
+	s.emit(session.ID, service.AIEvent{Type: "started", Data: map[string]any{"mode": request.Mode, "model": runtime.info.Model, "provider": runtime.info.Name}})
+	answer, trace, sources, err := s.runWorkflow(ctx, request, runtime)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			s.emit(session.ID, service.AIEvent{Type: "cancelled", Data: map[string]any{}})
@@ -254,7 +369,7 @@ func (s *Service) execute(ctx context.Context, session models.AISession, request
 	for i, source := range sources {
 		rows[i] = models.AISource{MessageID: messageID, Ordinal: i, PID: source.PID, CID: source.CID, Snippet: source.Snippet}
 	}
-	message := models.AIMessage{ID: messageID, SessionID: session.ID, Role: "assistant", Content: answer, Provider: s.info.Name, Model: s.info.Model, Mode: request.Mode, TraceJSON: string(traceJSON), CreatedAt: time.Now().UTC()}
+	message := models.AIMessage{ID: messageID, SessionID: session.ID, Role: "assistant", Content: answer, Provider: runtime.info.Name, Model: runtime.info.Model, Mode: request.Mode, TraceJSON: string(traceJSON), CreatedAt: time.Now().UTC()}
 	if err := s.store.SaveAIMessage(context.Background(), message, rows); err != nil {
 		s.emit(session.ID, service.AIEvent{Type: "error", Data: map[string]any{"message": err.Error()}})
 		s.finish(session.ID)

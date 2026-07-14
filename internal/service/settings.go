@@ -28,6 +28,8 @@ type SettingsView struct {
 	RestartRequired    bool                 `json:"restart_required"`
 	AIActiveProvider   string               `json:"ai_active_provider"`
 	AIProviders        []AIProviderSettings `json:"ai_providers"`
+	AIRuntimeProvider  string               `json:"ai_runtime_provider,omitempty"`
+	AIRuntimeModel     string               `json:"ai_runtime_model,omitempty"`
 }
 
 type AIProviderSettings struct {
@@ -68,13 +70,21 @@ type SettingsUpdate struct {
 }
 
 type SettingsService struct {
-	mu     sync.Mutex
-	config *config.Config
-	save   func(*config.Config) error
+	mu          sync.Mutex
+	config      *config.Config
+	save        func(*config.Config) error
+	onAIChanged func(config.AIConfig) error
+	runtimeInfo func() (string, string)
 }
 
 func NewSettingsService(current *config.Config) *SettingsService {
 	return &SettingsService{config: current, save: config.SaveConfig}
+}
+
+func (s *SettingsService) SetAIRuntimeHooks(onChanged func(config.AIConfig) error, runtimeInfo func() (string, string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onAIChanged, s.runtimeInfo = onChanged, runtimeInfo
 }
 
 func (s *SettingsService) Get(ctx context.Context) (SettingsView, error) {
@@ -89,7 +99,7 @@ func (s *SettingsService) Get(ctx context.Context) (SettingsView, error) {
 	if s.config == nil {
 		return SettingsView{}, errors.New("settings are unavailable")
 	}
-	return settingsView(s.config, false), nil
+	return s.viewLocked(false), nil
 }
 
 func (s *SettingsService) Update(ctx context.Context, update SettingsUpdate) (SettingsView, error) {
@@ -131,11 +141,12 @@ func (s *SettingsService) Update(ctx context.Context, update SettingsUpdate) (Se
 			break
 		}
 	}
-	if err := s.save(&next); err != nil {
-		return SettingsView{}, err
+	for _, provider := range next.AI.Providers {
+		if provider.ID != next.AI.ActiveProvider && strings.EqualFold(strings.TrimSpace(provider.Name), strings.TrimSpace(next.AI.Provider.Name)) {
+			return SettingsView{}, errors.New("AI provider names must be unique")
+		}
 	}
-	*s.config = next
-	return settingsView(s.config, true), nil
+	return s.commitLocked(next)
 }
 
 func (s *SettingsService) CreateAIProvider(ctx context.Context, update AIProviderSettingsUpdate) (SettingsView, error) {
@@ -190,6 +201,11 @@ func (s *SettingsService) mutateAIProvider(ctx context.Context, id string, updat
 	provider.Temperature = update.Temperature
 	provider.MaxOutputTokens = update.MaxOutputTokens
 	provider.RequestTimeout = update.RequestTimeout
+	for candidate, existingProvider := range next.AI.Providers {
+		if candidate != index && strings.EqualFold(strings.TrimSpace(existingProvider.Name), strings.TrimSpace(provider.Name)) {
+			return SettingsView{}, errors.New("AI provider names must be unique")
+		}
+	}
 	if update.ClearAPIKey {
 		provider.APIKey = ""
 	} else if strings.TrimSpace(update.APIKey) != "" {
@@ -199,11 +215,7 @@ func (s *SettingsService) mutateAIProvider(ctx context.Context, id string, updat
 	if next.AI.ActiveProvider == provider.ID {
 		next.AI.Provider = provider
 	}
-	if err := s.save(&next); err != nil {
-		return SettingsView{}, err
-	}
-	*s.config = next
-	return settingsView(s.config, true), nil
+	return s.commitLocked(next)
 }
 
 func (s *SettingsService) ActivateAIProvider(ctx context.Context, id string) (SettingsView, error) {
@@ -234,11 +246,7 @@ func (s *SettingsService) ActivateAIProvider(ctx context.Context, id string) (Se
 	if !found {
 		return SettingsView{}, errors.New("AI provider was not found")
 	}
-	if err := s.save(&next); err != nil {
-		return SettingsView{}, err
-	}
-	*s.config = next
-	return settingsView(s.config, true), nil
+	return s.commitLocked(next)
 }
 
 func (s *SettingsService) DeleteAIProvider(ctx context.Context, id string) (SettingsView, error) {
@@ -277,11 +285,32 @@ func (s *SettingsService) DeleteAIProvider(ctx context.Context, id string) (Sett
 		next.AI.ActiveProvider = filtered[0].ID
 		next.AI.Provider = filtered[0]
 	}
+	return s.commitLocked(next)
+}
+
+func (s *SettingsService) commitLocked(next config.Config) (SettingsView, error) {
+	previous := *s.config
 	if err := s.save(&next); err != nil {
 		return SettingsView{}, err
 	}
+	if s.onAIChanged != nil {
+		if err := s.onAIChanged(next.AI); err != nil {
+			if rollbackErr := s.save(&previous); rollbackErr != nil {
+				return SettingsView{}, fmt.Errorf("apply AI settings: %v; rollback settings: %w", err, rollbackErr)
+			}
+			return SettingsView{}, fmt.Errorf("apply AI settings: %w", err)
+		}
+	}
 	*s.config = next
-	return settingsView(s.config, true), nil
+	return s.viewLocked(false), nil
+}
+
+func (s *SettingsService) viewLocked(restartRequired bool) SettingsView {
+	view := settingsView(s.config, restartRequired)
+	if s.runtimeInfo != nil {
+		view.AIRuntimeProvider, view.AIRuntimeModel = s.runtimeInfo()
+	}
+	return view
 }
 
 func settingsView(current *config.Config, restartRequired bool) SettingsView {

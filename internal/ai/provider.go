@@ -58,8 +58,18 @@ type StreamEvent struct {
 }
 
 type ProviderInfo struct {
+	ID         string `json:"id,omitempty"`
 	Name       string `json:"name"`
 	BaseURL    string `json:"base_url"`
 	Model      string `json:"model"`
 	Configured bool   `json:"configured"`
+	Active     bool   `json:"active,omitempty"`
+}
+
+type ProviderProbe struct {
+	ProviderID string `json:"provider_id"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model"`
+	Reachable  bool   `json:"reachable"`
+	LatencyMS  int64  `json:"latency_ms"`
 }

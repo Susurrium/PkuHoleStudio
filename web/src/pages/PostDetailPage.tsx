@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Download, Heart, Image, ImagePlus, MessageCircle, Reply, Send, Star, StickyNote } from 'lucide-react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { formatTime } from '../lib/format'
 import { ErrorState, LoadingState } from '../components/States'
@@ -9,19 +9,61 @@ import type { Comment, Media, ReferenceGraph } from '../lib/types'
 
 export function PostDetailPage() {
   const { pid = '' } = useParams()
-  const [searchParams] = useSearchParams()
+	const [searchParams, setSearchParams] = useSearchParams()
+	const location = useLocation()
   const source = searchParams.get('source') === 'live' ? 'live' : 'local'
   const detail = useQuery({ queryKey: ['post', pid, source], queryFn: () => api.post(pid, source), enabled: /^\d+$/.test(pid) })
 	const [additionalComments, setAdditionalComments] = useState<Comment[]>([])
 	const [pagination, setPagination] = useState<{ cursor?: number; hasMore: boolean } | null>(null)
-	useEffect(() => { setAdditionalComments([]); setPagination(null) }, [pid, source, detail.dataUpdatedAt])
+	const [restoreStatus, setRestoreStatus] = useState('')
+	const [restoreCancelled, setRestoreCancelled] = useState(false)
+	useEffect(() => { setAdditionalComments([]); setPagination(null); setRestoreStatus(''); setRestoreCancelled(false) }, [pid, source, detail.dataUpdatedAt])
 	const loadMoreComments = useMutation({
 		mutationFn: (cursor: number) => api.comments(pid, cursor, source, 50),
 		onSuccess: (page) => {
 			setAdditionalComments((current) => dedupeComments([...current, ...page.items]))
 			setPagination({ cursor: page.next_cursor, hasMore: page.has_more })
+			if (page.next_cursor) { const next = new URLSearchParams(searchParams); next.set('comment_cursor', String(page.next_cursor)); setSearchParams(next, { replace: true }) }
 		},
 	})
+	const restoreCursor = Number(searchParams.get('comment_cursor') || 0)
+	const restoreCID = Number(location.hash.match(/^#comment-(\d+)$/)?.[1] || 0)
+	const comments = useMemo(() => dedupeComments([...(detail.data?.comments ?? []), ...additionalComments]), [detail.data?.comments, additionalComments])
+	const hasRestoreCID = useMemo(() => restoreCID > 0 && comments.some((item) => item.cid === restoreCID), [comments, restoreCID])
+	useEffect(() => {
+		if (!detail.data || restoreCancelled || hasRestoreCID || (!restoreCursor && !restoreCID) || (!restoreCID && pagination?.cursor === restoreCursor)) return
+		let cancelled = false
+		const initial = detail.data.comments
+		if (restoreCID && initial.some((item) => item.cid === restoreCID)) return
+		const restore = async () => {
+			let cursor = detail.data?.next_comment_cursor
+			let hasMore = detail.data?.has_more_comments ?? false
+			let loaded: Comment[] = []
+			let pages = 0
+			while (!cancelled && !restoreCancelled && hasMore && cursor !== undefined && pages < 40) {
+				if (restoreCursor && cursor === restoreCursor && !restoreCID) break
+				setRestoreStatus(`正在恢复评论位置…已读取 ${initial.length + loaded.length} 条`)
+				const page = await api.comments(pid, cursor, source, 50)
+				loaded = dedupeComments([...loaded, ...page.items])
+				setAdditionalComments(loaded)
+				setPagination({ cursor: page.next_cursor, hasMore: page.has_more })
+				pages++
+				if (restoreCID && loaded.some((item) => item.cid === restoreCID)) break
+				if (restoreCursor && page.next_cursor === restoreCursor && !restoreCID) break
+				cursor = page.next_cursor
+				hasMore = page.has_more
+			}
+			if (cancelled) return
+			const found = !restoreCID || initial.some((item) => item.cid === restoreCID) || loaded.some((item) => item.cid === restoreCID)
+			setRestoreStatus(found ? '' : pages >= 40 ? '自动恢复已达到 2000 条安全上限，可继续手动加载。' : `未在此洞中找到 C${restoreCID}。`)
+		}
+		restore().catch((error) => { if (!cancelled) setRestoreStatus(`恢复评论位置失败：${String(error)}`) })
+		return () => { cancelled = true }
+	}, [detail.dataUpdatedAt, pid, source, restoreCursor, restoreCID, restoreCancelled, hasRestoreCID])
+	useEffect(() => {
+		if (!hasRestoreCID) return
+		requestAnimationFrame(() => document.getElementById(`comment-${restoreCID}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }))
+	}, [restoreCID, hasRestoreCID])
 	const saveLocal = useMutation({ mutationFn: () => api.createJob('sync_pids', { pids: [Number(pid)] }) })
 	const [replyText, setReplyText] = useState('')
 	const [quoteCID, setQuoteCID] = useState<number | undefined>()
@@ -30,13 +72,14 @@ export function PostDetailPage() {
 	const interact = useMutation({ mutationFn: (action: 'praise' | 'follow') => api.togglePost(Number(pid), action), onSuccess: () => detail.refetch() })
   if (detail.isLoading) return <LoadingState label={`正在读取 #${pid}…`} />
   if (detail.error || !detail.data) return <ErrorState error={detail.error ?? new Error('帖子不存在')} />
-	const { post, comments: initialComments, references, media = [] } = detail.data
-	const comments = dedupeComments([...initialComments, ...additionalComments])
+	const { post, references, media = [] } = detail.data
 	const nextCommentCursor = pagination?.cursor ?? detail.data.next_comment_cursor
 	const hasMoreComments = pagination?.hasMore ?? detail.data.has_more_comments
 	const postMedia = media.filter((item) => item.owner_type === 'post' && item.owner_id === post.pid)
-  return <>
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link to={`/posts${source === 'live' ? '?source=live' : ''}`} className="inline-flex items-center gap-2 text-sm font-medium text-ink-soft hover:text-teal"><ArrowLeft size={16} />返回{source === 'live' ? '在线树洞' : '资料库'}</Link>{source === 'live' && <button className="button-secondary" disabled={saveLocal.isPending || saveLocal.isSuccess} onClick={() => saveLocal.mutate()}><Download size={15} />{saveLocal.isPending ? '正在创建任务…' : saveLocal.isSuccess ? '已加入同步队列' : '保存到本地资料库'}</button>}</div>
+	  const requestedReturn = searchParams.get('return_to')
+	  const returnTo = requestedReturn && /^\/(posts|search)([/?]|$)/.test(requestedReturn) ? requestedReturn : `/posts${source === 'live' ? '?source=live' : ''}`
+	  return <>
+	    <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link to={returnTo} className="inline-flex items-center gap-2 text-sm font-medium text-ink-soft hover:text-teal"><ArrowLeft size={16} />返回{source === 'live' ? '在线树洞' : requestedReturn?.startsWith('/search') ? '搜索结果' : '资料库'}</Link>{source === 'live' && <button className="button-secondary" disabled={saveLocal.isPending || saveLocal.isSuccess} onClick={() => saveLocal.mutate()}><Download size={15} />{saveLocal.isPending ? '正在创建任务…' : saveLocal.isSuccess ? '已加入同步队列' : '保存到本地资料库'}</button>}</div>
     <article className="panel overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white/40 px-5 py-4 md:px-7"><span className="font-mono text-base font-bold text-coral">#{post.pid}</span><time className="text-xs text-ink-soft">{formatTime(post.timestamp)}</time></header>
       <div className="px-5 py-7 md:px-7"><p className="whitespace-pre-wrap text-base leading-8 md:text-[17px]">{post.text || '（无正文）'}</p><MediaGallery items={postMedia} pid={post.pid} /></div>
@@ -45,7 +88,7 @@ export function PostDetailPage() {
 		{source === 'local' && <LocalMetadata pid={post.pid} />}
 		{source === 'live' && <section className="panel mt-6 p-5"><div className="flex items-center justify-between"><div><p className="eyebrow">REPLY</p><h2 className="mt-1 text-lg font-semibold">回复此洞</h2></div>{quoteCID && <button className="badge" onClick={() => setQuoteCID(undefined)}>引用 C{quoteCID} ×</button>}</div><textarea className="field mt-4 min-h-24" value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quoteCID ? `回复并引用 C${quoteCID}…` : '写下回复…'} /><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="button-secondary cursor-pointer"><ImagePlus size={16} />选择图片<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><div className="flex items-center gap-3"><span className="text-xs text-ink-soft">{replyFiles.length ? `${replyFiles.length} 张图片` : submitReply.error ? String(submitReply.error) : ''}</span><button className="button-primary" disabled={submitReply.isPending || (!replyText.trim() && !replyFiles.length)} onClick={() => submitReply.mutate()}><Send size={15} />{submitReply.isPending ? '正在发送…' : '发送回复'}</button></div></div></section>}
     <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_300px]">
-      <div><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}{post.reply ? ` / ${post.reply}` : ''}</span></div><div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} quote={() => { setQuoteCID(comment.cid); document.querySelector('textarea')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无{source === 'local' ? '本地' : '在线'}评论</p>}</div>{hasMoreComments && nextCommentCursor !== undefined && <button className="button-secondary mt-4 w-full" disabled={loadMoreComments.isPending} onClick={() => loadMoreComments.mutate(nextCommentCursor)}>{loadMoreComments.isPending ? '正在加载更多评论…' : '加载更多评论'}</button>}{loadMoreComments.error && <p className="mt-3 text-sm text-coral">加载评论失败：{loadMoreComments.error.message}</p>}</div>
+	      <div><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}{post.reply ? ` / ${post.reply}` : ''}</span></div>{restoreStatus && <div className="panel mb-3 flex items-center justify-between gap-3 border-coral/25 px-4 py-3 text-xs text-ink-soft"><span>{restoreStatus}</span>{restoreStatus.startsWith('正在') && <button className="button-secondary !py-1" onClick={() => { setRestoreCancelled(true); setRestoreStatus('已取消自动恢复，可继续手动加载。') }}>取消</button>}</div>}<div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} quote={() => { setQuoteCID(comment.cid); document.querySelector('textarea')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无{source === 'local' ? '本地' : '在线'}评论</p>}</div>{hasMoreComments && nextCommentCursor !== undefined && <button className="button-secondary mt-4 w-full" disabled={loadMoreComments.isPending} onClick={() => loadMoreComments.mutate(nextCommentCursor)}>{loadMoreComments.isPending ? '正在加载更多评论…' : '加载更多评论'}</button>}{loadMoreComments.error && <p className="mt-3 text-sm text-coral">加载评论失败：{loadMoreComments.error.message}</p>}</div>
       <aside><h2 className="mb-4 text-xl font-semibold">引用关系</h2>{source === 'live' ? <div className="panel p-4"><p className="py-5 text-center text-xs leading-5 text-ink-soft">引用图谱来自本地资料库；同步此洞后即可建立关系。</p></div> : <ReferenceGraphPanel pid={post.pid} fallback={references} />}</aside>
     </section>
   </>
@@ -84,7 +127,7 @@ function ReferenceSVG({ graph }: { graph: ReferenceGraph }) {
 	positions.set(graph.root, { x: 140, y: 130 })
 	const others = nodes.filter((node) => node.pid !== graph.root)
 	others.forEach((node, index) => { const angle = (Math.PI * 2 * index) / others.length - Math.PI / 2; positions.set(node.pid, { x: 140 + Math.cos(angle) * 100, y: 130 + Math.sin(angle) * 100 }) })
-	return <svg viewBox="0 0 280 260" role="img" aria-label={`#${graph.root} 的引用关系图`} className="w-full bg-paper/30">{graph.edges.map((edge, index) => { const from = positions.get(edge.source_pid); const to = positions.get(edge.target_pid); if (!from || !to) return null; return <line key={`${edge.kind}-${index}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={edge.kind === 'explicit' ? '#ef6548' : edge.kind === 'quoted_comment' ? '#0f766e' : '#94a3b8'} strokeWidth="1.5" strokeDasharray={edge.kind === 'inferred' ? '4 3' : undefined}><title>{edge.kind}</title></line>})}{nodes.map((node) => { const point = positions.get(node.pid); if (!point) return null; const root = node.pid === graph.root; return <a key={node.pid} href={`/posts/${node.pid}`}><circle cx={point.x} cy={point.y} r={root ? 24 : 19} fill={root ? '#14333b' : '#fffaf2'} stroke={root ? '#14333b' : '#0f766e'} strokeWidth="2"><title>{node.text || `#${node.pid}`}</title></circle><text x={point.x} y={point.y + 3} textAnchor="middle" fontSize={root ? 10 : 8} fontWeight="700" fill={root ? 'white' : '#14333b'}>#{node.pid}</text></a>})}</svg>
+	return <svg viewBox="0 0 280 260" role="img" aria-label={`#${graph.root} 的引用关系图`} className="w-full bg-paper/30">{graph.edges.map((edge, index) => { const from = positions.get(edge.source_pid); const to = positions.get(edge.target_pid); if (!from || !to) return null; return <line key={`${edge.kind}-${index}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={edge.kind === 'explicit' ? '#ef6548' : edge.kind === 'quoted_comment' ? '#0f766e' : '#94a3b8'} strokeWidth="1.5" strokeDasharray={edge.kind === 'inferred' ? '4 3' : undefined}><title>{edge.kind}</title></line>})}{nodes.map((node) => { const point = positions.get(node.pid); if (!point) return null; const root = node.pid === graph.root; return <Link key={node.pid} to={`/posts/${node.pid}`}><circle cx={point.x} cy={point.y} r={root ? 24 : 19} fill={root ? '#14333b' : '#fffaf2'} stroke={root ? '#14333b' : '#0f766e'} strokeWidth="2"><title>{node.text || `#${node.pid}`}</title></circle><text x={point.x} y={point.y + 3} textAnchor="middle" fontSize={root ? 10 : 8} fontWeight="700" fill={root ? 'white' : '#14333b'}>#{node.pid}</text></Link>})}</svg>
 }
 
 function LocalMetadata({ pid }: { pid: number }) {

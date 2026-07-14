@@ -61,6 +61,7 @@ export const api = {
 	updateAIProviderSetting: (id: string, update: AIProviderSettingUpdate) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
 	deleteAIProviderSetting: (id: string) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'DELETE' }),
 	activateAIProviderSetting: (id: string) => request<Settings>(`/settings/ai/providers/${id}/activate`, { method: 'POST' }),
+	testAIProviderSetting: (id: string) => request<import('./types').AIProviderProbe>(`/settings/ai/providers/${id}/test`, { method: 'POST' }),
 	postTags: (pid: number) => request<LocalTag[]>(`/posts/${pid}/tags`),
 	setPostTags: (pid: number, tagIDs: number[]) => request<LocalTag[]>(`/posts/${pid}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_ids: tagIDs }) }),
 	postNote: (pid: number) => request<Note>(`/posts/${pid}/note`),

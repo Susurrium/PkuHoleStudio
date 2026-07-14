@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -68,6 +70,73 @@ func TestLocalAgentSearchesStreamsAndPersistsSources(t *testing.T) {
 	}
 	if len(replayed) == 0 || replayed[0] != "started" || replayed[len(replayed)-1] != "completed" {
 		t.Fatalf("replayed events = %v", replayed)
+	}
+}
+
+func TestReconfigureSwitchesProvidersWithoutRestartAndAllowsKeylessServer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Errorf("unexpected authorization header")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"model":"local-model","choices":[{"message":{"role":"assistant","content":"OK"}}]}`))
+	}))
+	defer server.Close()
+	database, cleanup := aiTestDatabase(t)
+	defer cleanup()
+	posts := service.NewPostService(database, nil)
+	cfg := config.DefaultConfig().AI
+	cfg.Enabled = true
+	cfg.ActiveProvider = "one"
+	cfg.Providers = []config.AIProviderConfig{
+		{ID: "one", Name: "First", BaseURL: server.URL, Model: "first-model", RequestTimeout: 5, MaxOutputTokens: 32},
+		{ID: "two", Name: "Second", BaseURL: server.URL, Model: "local-model", RequestTimeout: 5, MaxOutputTokens: 32},
+	}
+	aiService := NewService(context.Background(), database, posts, service.NewSearchService(posts, database), &fakeProvider{}, cfg, ProviderInfo{Name: "bootstrap", Model: "bootstrap", Configured: true})
+	if err := aiService.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	first, err := aiService.CreateSession(context.Background(), ModeLocal, "first")
+	if err != nil || first.Provider != "First" {
+		t.Fatalf("first session = %+v, %v", first, err)
+	}
+	cfg.ActiveProvider = "two"
+	if err := aiService.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	second, err := aiService.CreateSession(context.Background(), ModeLocal, "second")
+	if err != nil || second.Provider != "Second" || second.Model != "local-model" {
+		t.Fatalf("second session = %+v, %v", second, err)
+	}
+	probe, err := aiService.TestProvider(context.Background(), "two")
+	if err != nil || !probe.Reachable || probe.Provider != "Second" {
+		t.Fatalf("probe = %+v, %v", probe, err)
+	}
+	providers := aiService.Providers()
+	if len(providers) != 2 || !providers[1].Active {
+		t.Fatalf("providers = %+v", providers)
+	}
+}
+
+func TestProviderProbeRedactsConfiguredAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Error(response, "rejected "+request.Header.Get("Authorization"), http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	database, cleanup := aiTestDatabase(t)
+	defer cleanup()
+	posts := service.NewPostService(database, nil)
+	cfg := config.DefaultConfig().AI
+	cfg.Enabled = true
+	cfg.ActiveProvider = "secret"
+	cfg.Providers = []config.AIProviderConfig{{ID: "secret", Name: "Secret", BaseURL: server.URL, APIKey: "do-not-leak", Model: "model", RequestTimeout: 5, MaxOutputTokens: 32}}
+	aiService := NewService(context.Background(), database, posts, service.NewSearchService(posts, database), nil, cfg, ProviderInfo{})
+	if err := aiService.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, err := aiService.TestProvider(context.Background(), "secret")
+	if err == nil || strings.Contains(err.Error(), "do-not-leak") {
+		t.Fatalf("probe error leaked API key: %v", err)
 	}
 }
 
