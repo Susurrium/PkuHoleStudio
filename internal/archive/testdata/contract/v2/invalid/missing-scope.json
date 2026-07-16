@@ -1,0 +1,14 @@
+{
+  "manifest": {
+    "schemaVersion": 2,
+    "toolVersion": "contract",
+    "runId": "missing-scope",
+    "exportedAt": "2026-07-16T00:00:00Z",
+    "complete": true,
+    "counts": { "exportedHoles": 1, "comments": 0, "failed": 0 },
+    "errors": []
+  },
+  "data": {
+    "items": [{ "pid": "123456", "source": "followed", "hole": { "pid": 123456 }, "comments": [], "fetchStatus": "ok" }]
+  }
+}

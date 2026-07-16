@@ -1,0 +1,36 @@
+{
+  "manifest": {
+    "schemaVersion": 2,
+    "specVersion": "2.1.0",
+    "toolVersion": "PkuHoleStudio",
+    "producer": { "name": "PkuHoleStudio" },
+    "runId": "contract-studio-1",
+    "exportedAt": "2026-07-16T00:00:00Z",
+    "scope": { "type": "library" },
+    "complete": true,
+    "counts": { "expectedHoles": 1, "exportedHoles": 1, "comments": 0, "localTags": 1, "localNotes": 1, "failed": 0 },
+    "extensions": {
+      "io.github.susurrium.pkuhole.studio-metadata": { "version": 1, "required": false },
+      "io.github.susurrium.pkuhole.studio-sources": { "version": 1, "required": false }
+    },
+    "requiredExtensions": [],
+    "errors": []
+  },
+  "data": {
+    "items": [
+      {
+        "pid": "234567",
+        "source": "explicit",
+        "hole": { "pid": 234567, "text": "studio contract post", "timestamp": 2 },
+        "comments": [],
+        "fetchStatus": "ok",
+        "studioMetadata": {
+          "tags": [{ "name": "research", "color": "#336699" }],
+          "note": "portable note",
+          "commentNotes": {}
+        },
+        "studioSources": [{ "source": "explicit", "sourceRef": "contract-studio-1", "contextOnly": false }]
+      }
+    ]
+  }
+}

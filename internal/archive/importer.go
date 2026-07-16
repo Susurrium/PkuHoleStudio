@@ -32,7 +32,12 @@ func NewImporterWithDataDir(store Store, dataDir string) *Importer {
 }
 
 func (i *Importer) Preflight(ctx context.Context, reader io.ReaderAt, size int64) (PreflightReport, error) {
-	return Parse(ctx, reader, size)
+	report, err := Parse(ctx, reader, size)
+	if err != nil || i == nil || i.store == nil {
+		return report, err
+	}
+	_, report.Duplicate, err = i.store.FindImport(ctx, report.ArchiveHash, report.RunID)
+	return report, err
 }
 
 func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (ImportReport, error) {
@@ -60,6 +65,7 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 	sources := make([]PostSource, 0, len(preflight.records))
 	references := make([]Reference, 0, preflight.Counts.References)
 	for _, record := range preflight.records {
+		sources = append(sources, record.StudioSources...)
 		sources = append(sources, PostSource{
 			PID: record.PID, Source: record.Source, ArchiveHash: preflight.ArchiveHash,
 			RunID: preflight.RunID, ContextOnly: record.ContextOnly,

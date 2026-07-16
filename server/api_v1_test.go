@@ -271,6 +271,7 @@ func TestAPIV1ToolkitBridgeRequiresPairingAndLocalConfirmation(t *testing.T) {
 	_, _ = part.Write([]byte(legacy))
 	_ = writer.Close()
 	upload := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings/"+pairing.Data.Token+"/archive", &body)
+	upload.Host = "127.0.0.1:8080"
 	upload.RemoteAddr = "127.0.0.1:54321"
 	upload.Header.Set("Content-Type", writer.FormDataContentType())
 	uploaded := httptest.NewRecorder()
@@ -280,6 +281,7 @@ func TestAPIV1ToolkitBridgeRequiresPairingAndLocalConfirmation(t *testing.T) {
 	}
 
 	confirm := httptest.NewRequest(http.MethodPost, "/api/v1/bridge/pairings/"+pairing.Data.Token+"/confirm", nil)
+	confirm.Host = "127.0.0.1:8080"
 	confirm.RemoteAddr = "127.0.0.1:54321"
 	confirmed := httptest.NewRecorder()
 	router.ServeHTTP(confirmed, confirm)

@@ -121,15 +121,29 @@ type ManifestCounts struct {
 	Failed        *int `json:"failed"`
 }
 
+type ManifestProducer struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
+type ManifestExtension struct {
+	Version  int  `json:"version"`
+	Required bool `json:"required,omitempty"`
+}
+
 type Manifest struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	ToolVersion   string            `json:"toolVersion"`
-	RunID         string            `json:"runId"`
-	ExportedAt    string            `json:"exportedAt"`
-	Scope         json.RawMessage   `json:"scope"`
-	Complete      bool              `json:"complete"`
-	Counts        ManifestCounts    `json:"counts"`
-	Errors        []json.RawMessage `json:"errors"`
+	SchemaVersion      int                          `json:"schemaVersion"`
+	SpecVersion        string                       `json:"specVersion,omitempty"`
+	ToolVersion        string                       `json:"toolVersion"`
+	Producer           *ManifestProducer            `json:"producer,omitempty"`
+	RunID              string                       `json:"runId"`
+	ExportedAt         string                       `json:"exportedAt"`
+	Scope              json.RawMessage              `json:"scope"`
+	Complete           bool                         `json:"complete"`
+	Counts             ManifestCounts               `json:"counts"`
+	Extensions         map[string]ManifestExtension `json:"extensions,omitempty"`
+	RequiredExtensions []string                     `json:"requiredExtensions,omitempty"`
+	Errors             []json.RawMessage            `json:"errors"`
 }
 
 type PreflightReport struct {
@@ -140,6 +154,7 @@ type PreflightReport struct {
 	Counts      Counts    `json:"counts"`
 	Issues      []Issue   `json:"issues"`
 	Manifest    *Manifest `json:"manifest,omitempty"`
+	Duplicate   bool      `json:"duplicate,omitempty"`
 	records     []Record
 	media       []MediaRecord
 }
@@ -157,14 +172,15 @@ type ImportReport struct {
 // Record is a validated archive item. ContextOnly records are intentionally
 // excluded from the post/comment upsert batches.
 type Record struct {
-	PID         int32
-	Source      string
-	FetchStatus string
-	Post        models.Post
-	Comments    []models.Comment
-	ContextOnly bool
-	References  []Reference
-	Studio      StudioMetadata
+	PID           int32
+	Source        string
+	FetchStatus   string
+	Post          models.Post
+	Comments      []models.Comment
+	ContextOnly   bool
+	References    []Reference
+	Studio        StudioMetadata
+	StudioSources []PostSource
 }
 
 // MediaRecord is the portable representation used by Studio's backward-

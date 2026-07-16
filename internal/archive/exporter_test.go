@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,7 +19,10 @@ func TestExporterTreeholeV2RoundTripsThroughParser(t *testing.T) {
 	store := &fakeExportStore{fakeArchiveStore: &fakeArchiveStore{}, records: []ExportRecord{{
 		Post:     models.Post{Pid: 123456, Text: "main #234567", ImageSize: `[[1280,720]]`},
 		Comments: []models.Comment{{Cid: 1001, Pid: 123456, NameTag: "Alice", Text: "reply", QuoteID: &quoteID}},
-		Sources:  []models.PostSource{{PID: 123456, Source: "followed"}},
+		Sources: []models.PostSource{
+			{PID: 123456, Source: "followed", SourceRef: "original-follow"},
+			{PID: 123456, Source: "followed", SourceRef: strings.Repeat("a", 64), ContextOnly: true},
+		},
 	}}}
 	var output bytes.Buffer
 	report, err := NewImporter(store).Export(context.Background(), &output, ExportRequest{Format: ExportFormatTreeholeV2, IncludeComments: true})
@@ -29,11 +33,60 @@ func TestExporterTreeholeV2RoundTripsThroughParser(t *testing.T) {
 	if err != nil || parsed.Status != StatusCompleted || parsed.Counts.ValidItems != 1 || parsed.Counts.Comments != 1 {
 		t.Fatalf("Parse(export) = %+v, %v", parsed, err)
 	}
+	if parsed.Manifest == nil || parsed.Manifest.SpecVersion != ArchiveSpecVersion || parsed.Manifest.Producer == nil || parsed.Manifest.Producer.Name != "PkuHoleStudio" || parsed.Manifest.Extensions[ArchiveExtensionStudioSources].Version != 1 {
+		t.Fatalf("preflight contract metadata = %+v", parsed.Manifest)
+	}
 	if got := parsed.records[0].Source; got != "followed" {
 		t.Fatalf("source = %q", got)
 	}
+	if got := parsed.records[0].StudioSources; len(got) != 1 || got[0].Source != "followed" || got[0].RunID != "original-follow" {
+		t.Fatalf("studio sources = %+v", got)
+	}
 	if got := parsed.records[0].Comments[0].QuoteID; got == nil || *got != quoteID {
 		t.Fatalf("quote id = %v", got)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	for _, file := range reader.File {
+		if file.Method != zip.Store {
+			t.Fatalf("archive entry %s uses ZIP method %d", file.Name, file.Method)
+		}
+		if file.Name != "manifest.json" {
+			continue
+		}
+		stream, openErr := file.Open()
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		decodeErr := json.NewDecoder(stream).Decode(&manifest)
+		_ = stream.Close()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+	}
+	producer, _ := manifest["producer"].(map[string]any)
+	extensions, _ := manifest["extensions"].(map[string]any)
+	if manifest["specVersion"] != ArchiveSpecVersion || producer["name"] != "PkuHoleStudio" || extensions[ArchiveExtensionStudioMetadata] == nil || extensions[ArchiveExtensionStudioSources] == nil {
+		t.Fatalf("archive contract metadata = %#v", manifest)
+	}
+}
+
+func TestPortableStudioSourcesStayBoundedAndSemantic(t *testing.T) {
+	sources := portableStudioSources([]models.PostSource{
+		{Source: "followed", SourceRef: strings.Repeat("b", 64)},
+		{Source: "followed", SourceRef: "crawl-a"},
+		{Source: "followed", SourceRef: "crawl-b"},
+		{Source: "referenced", SourceRef: "context", ContextOnly: false},
+		{Source: "unknown", SourceRef: "ignored"},
+	})
+	if len(sources) != 2 || sources[0].Source != "followed" || sources[0].SourceRef != "" || sources[0].ContextOnly {
+		t.Fatalf("followed source aggregate = %+v", sources)
+	}
+	if sources[1].Source != "referenced" || sources[1].SourceRef != "context" || !sources[1].ContextOnly {
+		t.Fatalf("referenced source aggregate = %+v", sources)
 	}
 }
 

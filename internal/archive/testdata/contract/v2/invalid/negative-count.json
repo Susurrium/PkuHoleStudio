@@ -1,0 +1,4 @@
+{
+  "manifest": { "schemaVersion": 2, "specVersion": "2.1.0", "toolVersion": "contract", "runId": "negative-count", "exportedAt": "2026-07-16T00:00:00Z", "scope": { "type": "all" }, "complete": true, "counts": { "exportedHoles": -1, "comments": 0, "failed": 0 }, "errors": [] },
+  "data": { "items": [{ "pid": "123456", "source": "followed", "hole": { "pid": 123456 }, "comments": [], "fetchStatus": "ok" }] }
+}

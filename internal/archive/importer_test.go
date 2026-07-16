@@ -28,6 +28,10 @@ func TestImporterIsTransactionalAndIdempotent(t *testing.T) {
 	if !store.sources[1].ContextOnly {
 		t.Fatalf("referenced source = %+v", store.sources[1])
 	}
+	preview, err := importer.Preflight(context.Background(), bytes.NewReader(content), int64(len(content)))
+	if err != nil || !preview.Duplicate {
+		t.Fatalf("duplicate preflight = %+v, %v", preview, err)
+	}
 
 	duplicate, err := importer.Import(context.Background(), bytes.NewReader(content), int64(len(content)))
 	if err != nil || !duplicate.Duplicate || duplicate.Status != StatusDuplicate || store.transactions != 1 {

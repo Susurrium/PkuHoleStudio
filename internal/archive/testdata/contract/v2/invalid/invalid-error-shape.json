@@ -1,0 +1,4 @@
+{
+  "manifest": { "schemaVersion": 2, "specVersion": "2.1.0", "toolVersion": "contract", "runId": "invalid-error", "exportedAt": "2026-07-16T00:00:00Z", "scope": { "type": "all" }, "complete": false, "counts": { "exportedHoles": 1, "comments": 0, "failed": 1 }, "errors": ["not-an-error-object"] },
+  "data": { "items": [{ "pid": "123456", "source": "followed", "hole": { "pid": 123456 }, "comments": [], "fetchStatus": "partial" }] }
+}
