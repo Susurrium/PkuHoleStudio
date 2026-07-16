@@ -1,0 +1,25 @@
+{
+  "manifest": {
+    "schemaVersion": 2,
+    "specVersion": "2.1.0",
+    "toolVersion": "1.4.0",
+    "producer": { "name": "PkuHoleToolkit", "version": "1.4.0" },
+    "runId": "contract-toolkit-1",
+    "exportedAt": "2026-07-16T00:00:00Z",
+    "scope": { "type": "all" },
+    "complete": true,
+    "counts": { "expectedHoles": 1, "exportedHoles": 1, "comments": 1, "failed": 0 },
+    "errors": []
+  },
+  "data": {
+    "items": [
+      {
+        "pid": "123456",
+        "source": "followed",
+        "hole": { "pid": 123456, "text": "contract post", "timestamp": 1 },
+        "comments": [{ "cid": 10, "pid": 123456, "text": "contract comment" }],
+        "fetchStatus": "ok"
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Susurrium/PkuHoleArchiveSpec/spec/v2/studio-sources-v1.schema.json",
+  "title": "PkuHole Studio sources extension v1",
+  "type": "array",
+  "maxItems": 16,
+  "items": {
+    "type": "object",
+    "required": ["source"],
+    "properties": {
+      "source": { "enum": ["followed", "explicit", "referenced", "legacy-v1"] },
+      "sourceRef": { "type": "string", "maxLength": 128 },
+      "contextOnly": { "type": "boolean" }
+    },
+    "additionalProperties": false
+  }
+}

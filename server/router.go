@@ -1,6 +1,10 @@
 package server
 
 import (
+	"net"
+	"net/url"
+	"strings"
+
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
@@ -52,8 +56,16 @@ func Cors(e *gin.Engine) {
 		conf.AllowHeaders = config.Conf.Cors.AllowHeaders
 		conf.AllowMethods = config.Conf.Cors.AllowMethods
 	}
-	if len(conf.AllowOrigins) == 0 {
-		conf.AllowOrigins = []string{"*"}
+	allowLoopbackOnly := len(conf.AllowOrigins) == 0
+	for _, origin := range conf.AllowOrigins {
+		allowLoopbackOnly = allowLoopbackOnly || strings.TrimSpace(origin) == "*"
+	}
+	if allowLoopbackOnly {
+		// The production SPA is same-origin and needs no CORS grant. Keep local
+		// Vite/localhost development working without sharing the local archive
+		// API with arbitrary public websites.
+		conf.AllowOrigins = nil
+		conf.AllowOriginFunc = isLoopbackBrowserOrigin
 	}
 	if len(conf.AllowHeaders) == 0 {
 		conf.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Last-Event-ID"}
@@ -61,5 +73,26 @@ func Cors(e *gin.Engine) {
 	if len(conf.AllowMethods) == 0 {
 		conf.AllowMethods = []string{"GET", "POST", "OPTIONS"}
 	}
-	e.Use(cors.New(conf))
+	corsMiddleware := cors.New(conf)
+	e.Use(func(c *gin.Context) {
+		// A userscript-manager request carries the protocol header on the real
+		// request and is validated again by bridge handlers. Browser JavaScript
+		// cannot reach this branch because its CORS preflight does not carry the
+		// requested custom header and is rejected by the loopback-only policy.
+		if strings.TrimSpace(c.GetHeader(toolkitBridgeProtocolHeader)) == "2" {
+			c.Next()
+			return
+		}
+		corsMiddleware(c)
+	})
+}
+
+func isLoopbackBrowserOrigin(origin string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
 }

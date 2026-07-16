@@ -15,7 +15,12 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 )
 
-const bridgePairingLifetime = 5 * time.Minute
+const (
+	bridgeWaitingLifetime      = 15 * time.Minute
+	bridgeUploadLifetime       = 10 * time.Minute
+	bridgeConfirmationLifetime = 30 * time.Minute
+	bridgeQueuedLifetime       = time.Hour
+)
 
 type BridgePairing struct {
 	Token     string                   `json:"token"`
@@ -30,12 +35,17 @@ type BridgePairing struct {
 }
 
 type BridgeManager struct {
-	mu       sync.Mutex
-	dataDir  string
-	archive  serviceArchive
-	jobs     *jobs.Manager
-	pairings map[string]*BridgePairing
-	now      func() time.Time
+	mu             sync.Mutex
+	dataDir        string
+	archive        serviceArchive
+	jobs           *jobs.Manager
+	pairings       map[string]*BridgePairing
+	devices        map[string]*BridgeDevice
+	deviceRequests map[string]*BridgeDeviceRequest
+	challenges     map[string]*BridgeChallenge
+	transfers      map[string]*BridgeTransfer
+	instanceID     string
+	now            func() time.Time
 }
 
 type serviceArchive interface {
@@ -43,7 +53,12 @@ type serviceArchive interface {
 }
 
 func NewBridgeManager(dataDir string, archiveService serviceArchive, jobManager *jobs.Manager) *BridgeManager {
-	return &BridgeManager{dataDir: dataDir, archive: archiveService, jobs: jobManager, pairings: make(map[string]*BridgePairing), now: time.Now}
+	manager := &BridgeManager{
+		dataDir: dataDir, archive: archiveService, jobs: jobManager,
+		pairings: make(map[string]*BridgePairing), now: time.Now,
+	}
+	manager.initTrustedBridge()
+	return manager
 }
 
 func (m *BridgeManager) Create(codePrefix string) (BridgePairing, error) {
@@ -55,7 +70,7 @@ func (m *BridgeManager) Create(codePrefix string) (BridgePairing, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cleanupLocked()
-	pairing := &BridgePairing{Token: token, Code: codePrefix + token, Status: "waiting_upload", ExpiresAt: m.now().Add(bridgePairingLifetime)}
+	pairing := &BridgePairing{Token: token, Code: codePrefix + token, Status: "waiting_upload", ExpiresAt: m.now().Add(bridgeWaitingLifetime)}
 	m.pairings[token] = pairing
 	return clonePairing(pairing), nil
 }
@@ -84,6 +99,7 @@ func (m *BridgeManager) Upload(ctx context.Context, token, filename string, sour
 		return BridgePairing{}, errors.New("pairing has already received an archive")
 	}
 	pairing.Status = "uploading"
+	pairing.ExpiresAt = m.now().Add(bridgeUploadLifetime)
 	m.mu.Unlock()
 
 	// Bridge uploads enter the same guarded staging directory as regular Web
@@ -124,11 +140,6 @@ func (m *BridgeManager) Upload(ctx context.Context, token, filename string, sour
 		m.restoreWaiting(token)
 		return BridgePairing{}, err
 	}
-	if preflight.Counts.ValidItems == 0 {
-		m.restoreWaiting(token)
-		return BridgePairing{}, errors.New("archive contains no valid items")
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	pairing, ok = m.pairings[token]
@@ -136,6 +147,7 @@ func (m *BridgeManager) Upload(ctx context.Context, token, filename string, sour
 		return BridgePairing{}, os.ErrNotExist
 	}
 	pairing.Status = "awaiting_confirmation"
+	pairing.ExpiresAt = m.now().Add(bridgeConfirmationLifetime)
 	pairing.Filename = filepath.Base(filename)
 	pairing.Preflight = &preflight
 	pairing.path = path
@@ -155,6 +167,14 @@ func (m *BridgeManager) Confirm(ctx context.Context, token string) (BridgePairin
 	if pairing.Status != "awaiting_confirmation" {
 		m.mu.Unlock()
 		return BridgePairing{}, errors.New("pairing is not awaiting confirmation")
+	}
+	if pairing.Preflight == nil || pairing.Preflight.Counts.ValidItems == 0 {
+		m.mu.Unlock()
+		return BridgePairing{}, errors.New("archive contains no valid items")
+	}
+	if pairing.Preflight != nil && pairing.Preflight.Duplicate {
+		m.mu.Unlock()
+		return BridgePairing{}, errors.New("archive has already been imported")
 	}
 	path, size := pairing.path, pairing.size
 	pairing.Status = "confirming"
@@ -178,6 +198,7 @@ func (m *BridgeManager) Confirm(ctx context.Context, token string) (BridgePairin
 		return BridgePairing{}, os.ErrNotExist
 	}
 	pairing.Status = "queued"
+	pairing.ExpiresAt = m.now().Add(bridgeQueuedLifetime)
 	pairing.Job = &public
 	pairing.path = ""
 	return clonePairing(pairing), nil
@@ -202,12 +223,18 @@ func (m *BridgeManager) restoreWaiting(token string) {
 	defer m.mu.Unlock()
 	if pairing := m.pairings[token]; pairing != nil {
 		pairing.Status = "waiting_upload"
+		pairing.ExpiresAt = m.now().Add(bridgeWaitingLifetime)
 	}
 }
 
 func (m *BridgeManager) cleanupLocked() {
 	now := m.now()
 	for token, pairing := range m.pairings {
+		// Upload owns its temporary file and restores a retryable state on
+		// failure. Do not let an unrelated status poll expire an active stream.
+		if pairing.Status == "uploading" || pairing.Status == "confirming" {
+			continue
+		}
 		if !now.Before(pairing.ExpiresAt) {
 			if pairing.path != "" {
 				_ = os.Remove(pairing.path)
@@ -215,6 +242,7 @@ func (m *BridgeManager) cleanupLocked() {
 			delete(m.pairings, token)
 		}
 	}
+	m.cleanupTrustedLocked(now)
 }
 
 func clonePairing(pairing *BridgePairing) BridgePairing {

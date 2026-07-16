@@ -1,0 +1,19 @@
+{
+  "io.github.susurrium.pkuhole.media": {
+    "version": 1,
+    "optional": true,
+    "schema": "media-index-v1.schema.json"
+  },
+  "io.github.susurrium.pkuhole.studio-metadata": {
+    "version": 1,
+    "optional": true,
+    "location": "data.items[].studioMetadata",
+    "schema": "studio-metadata-v1.schema.json"
+  },
+  "io.github.susurrium.pkuhole.studio-sources": {
+    "version": 1,
+    "optional": true,
+    "location": "data.items[].studioSources",
+    "schema": "studio-sources-v1.schema.json"
+  }
+}

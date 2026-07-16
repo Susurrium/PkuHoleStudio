@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Susurrium/PkuHoleArchiveSpec/spec/v2/studio-metadata-v1.schema.json",
+  "title": "PkuHole Studio metadata extension v1",
+  "type": "object",
+  "properties": {
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "color": { "type": "string", "maxLength": 32 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "note": { "type": "string" },
+    "commentNotes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

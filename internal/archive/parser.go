@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
@@ -31,13 +32,14 @@ var (
 )
 
 type rawItem struct {
-	PID         string            `json:"pid"`
-	Source      string            `json:"source"`
-	Hole        json.RawMessage   `json:"hole"`
-	Comments    []json.RawMessage `json:"comments"`
-	FetchStatus string            `json:"fetchStatus"`
-	Studio      StudioMetadata    `json:"studioMetadata,omitempty"`
-	shapeError  string
+	PID           string                 `json:"pid"`
+	Source        string                 `json:"source"`
+	Hole          json.RawMessage        `json:"hole"`
+	Comments      []json.RawMessage      `json:"comments"`
+	FetchStatus   string                 `json:"fetchStatus"`
+	Studio        StudioMetadata         `json:"studioMetadata,omitempty"`
+	StudioSources []PortableStudioSource `json:"studioSources,omitempty"`
+	shapeError    string
 }
 
 type v2Data struct {
@@ -289,6 +291,31 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 			continue
 		}
 		record := Record{PID: pid, Source: item.Source, FetchStatus: item.FetchStatus, Post: post, ContextOnly: item.Source == "referenced", Studio: sanitizeStudioMetadata(item.Studio)}
+		seenStudioSources := map[string]bool{}
+		studioSources := item.StudioSources
+		if len(studioSources) > 16 {
+			report.Issues = append(report.Issues, issueWithPID(SeverityWarning, "studio_sources_truncated", "Studio source extension exceeds 16 entries; extra provenance was ignored", itemPath+".studioSources", pid))
+			studioSources = studioSources[:16]
+		}
+		for sourceIndex, source := range studioSources {
+			sourcePath := fmt.Sprintf("%s.studioSources[%d]", itemPath, sourceIndex)
+			source.Source = strings.TrimSpace(source.Source)
+			source.SourceRef = strings.TrimSpace(source.SourceRef)
+			if !validSource(source.Source) || utf8.RuneCountInString(source.SourceRef) > 128 {
+				report.Issues = append(report.Issues, issueWithPID(SeverityWarning, "invalid_studio_source", "Studio source extension entry is invalid and was ignored", sourcePath, pid))
+				continue
+			}
+			key := source.Source + "\x00" + source.SourceRef
+			if seenStudioSources[key] {
+				continue
+			}
+			seenStudioSources[key] = true
+			portable := PostSource{PID: pid, Source: source.Source, RunID: source.SourceRef, ContextOnly: source.ContextOnly || source.Source == "referenced"}
+			if source.SourceRef == "" {
+				portable.ArchiveHash = hash
+			}
+			record.StudioSources = append(record.StudioSources, portable)
+		}
 		report.media = mergeMediaRecords(report.media, inferredMedia("post", int64(pid), item.Hole, post.Type == "image"))
 		if record.ContextOnly {
 			report.Counts.ContextOnly++
@@ -598,6 +625,9 @@ func decodeManifest(data []byte) (Manifest, error) {
 	}
 	if _, err := time.Parse(time.RFC3339, manifest.ExportedAt); err != nil {
 		return Manifest{}, fmt.Errorf("manifest exportedAt is invalid: %w", err)
+	}
+	if err := validateV2ManifestContract(fields); err != nil {
+		return Manifest{}, err
 	}
 	if !jsonObject(manifest.Scope) {
 		return Manifest{}, errors.New("manifest scope must be an object")

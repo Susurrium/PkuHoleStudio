@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Susurrium/PkuHoleArchiveSpec/spec/v2/schema-v2.json",
+  "title": "PkuHole Archive v2 envelope",
+  "type": "object",
+  "required": ["manifest", "data"],
+  "properties": {
+    "manifest": { "$ref": "manifest-v2.schema.json" },
+    "data": { "$ref": "data-v2.schema.json" }
+  },
+  "additionalProperties": false
+}

@@ -133,6 +133,20 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/bridge/pairings/:token/archive", apiUploadBridgeArchive(dependencies))
 	group.POST("/bridge/pairings/:token/confirm", apiConfirmBridgePairing(dependencies))
 	group.POST("/bridge/pairings/:token/cancel", apiCancelBridgePairing(dependencies))
+	group.POST("/bridge/device-requests", apiCreateBridgeDeviceRequest(dependencies))
+	group.GET("/bridge/device-requests", apiBridgeDeviceRequests(dependencies))
+	group.GET("/bridge/device-requests/:token", apiBridgeDeviceRequest(dependencies))
+	group.POST("/bridge/device-requests/:token/approve", apiApproveBridgeDeviceRequest(dependencies))
+	group.POST("/bridge/device-requests/:token/reject", apiRejectBridgeDeviceRequest(dependencies))
+	group.GET("/bridge/devices", apiBridgeDevices(dependencies))
+	group.DELETE("/bridge/devices/:id", apiRevokeBridgeDevice(dependencies))
+	group.POST("/bridge/devices/:id/revoke", apiRevokeOwnBridgeDevice(dependencies))
+	group.POST("/bridge/challenges", apiCreateBridgeChallenge(dependencies))
+	group.POST("/bridge/transfers", apiCreateBridgeTransfer(dependencies))
+	group.GET("/bridge/transfers", apiBridgeTransfers(dependencies))
+	group.POST("/bridge/transfers/:id/archive", apiUploadTrustedBridgeArchive(dependencies))
+	group.POST("/bridge/transfers/:id/confirm", apiConfirmTrustedBridgeTransfer(dependencies))
+	group.POST("/bridge/transfers/:id/cancel", apiCancelTrustedBridgeTransfer(dependencies))
 
 	group.GET("/ai/providers", apiAIProviders(dependencies))
 	group.GET("/ai/sessions", apiAISessions(dependencies))
@@ -149,7 +163,7 @@ func apiCreateBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "Toolkit bridge is unavailable", nil)
 			return
 		}
-		if !requireStudioBrowser(c) {
+		if !requireStudioBridgeBrowser(c) {
 			return
 		}
 		host, port, err := net.SplitHostPort(c.Request.Host)
@@ -756,7 +770,7 @@ func apiTestAIProviderSetting(dependencies Dependencies) gin.HandlerFunc {
 
 func apiBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+		if dependencies.Bridge == nil || !requireStudioBridgeBrowser(c) {
 			return
 		}
 		pairing, ok := dependencies.Bridge.Get(c.Param("token"))
@@ -770,7 +784,7 @@ func apiBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 
 func apiUploadBridgeArchive(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if dependencies.Bridge == nil || !requireLoopback(c) {
+		if dependencies.Bridge == nil || !requireBridgeHost(c) || !requireLoopback(c) {
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, archive.MaxArchiveBytes+(1<<20))
@@ -795,7 +809,7 @@ func apiUploadBridgeArchive(dependencies Dependencies) gin.HandlerFunc {
 
 func apiConfirmBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+		if dependencies.Bridge == nil || !requireStudioBridgeBrowser(c) {
 			return
 		}
 		pairing, err := dependencies.Bridge.Confirm(c.Request.Context(), c.Param("token"))
@@ -813,7 +827,7 @@ func apiConfirmBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 
 func apiCancelBridgePairing(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+		if dependencies.Bridge == nil || !requireStudioBridgeBrowser(c) {
 			return
 		}
 		if !dependencies.Bridge.Cancel(c.Param("token")) {
@@ -1345,6 +1359,7 @@ func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 		apiRespond(c, http.StatusOK, gin.H{
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
 			"archive_import": dependencies.Archive != nil, "archive_export": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
+			"archive_contract": archive.ContractCapabilities(),
 			"ai": aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
 		})
 	}

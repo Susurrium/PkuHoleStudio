@@ -63,7 +63,7 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 	if request.Format == ExportFormatMarkdown {
 		err = writeMarkdownBundle(ctx, writer, records, report, i.dataDir)
 	} else {
-		err = writeTreeholeV2(ctx, writer, records, report, len(request.PIDs) > 0, i.dataDir)
+		err = writeTreeholeV2(ctx, writer, records, report, len(request.PIDs) > 0, i.dataDir, time.Now().UTC())
 	}
 	if err != nil {
 		return ExportReport{}, err
@@ -71,12 +71,12 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 	return report, nil
 }
 
-func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool, dataDir string) error {
+func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool, dataDir string, exportedAt time.Time) error {
 	archiveWriter := zip.NewWriter(output)
 	closeWithError := func(err error) error {
 		return errors.Join(err, archiveWriter.Close())
 	}
-	manifestEntry, err := archiveWriter.Create("manifest.json")
+	manifestEntry, err := createStoredArchiveEntry(archiveWriter, "manifest.json", exportedAt)
 	if err != nil {
 		return closeWithError(err)
 	}
@@ -92,17 +92,26 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		}
 	}
 	manifest := map[string]any{
-		"schemaVersion": 2, "toolVersion": "PkuHoleStudio", "runId": report.RunID,
-		"exportedAt": time.Now().UTC().Format(time.RFC3339), "scope": map[string]any{"type": scopeType},
+		"schemaVersion": 2, "specVersion": ArchiveSpecVersion,
+		"toolVersion": "PkuHoleStudio", "producer": map[string]any{"name": "PkuHoleStudio"}, "runId": report.RunID,
+		"exportedAt": exportedAt.UTC().Format(time.RFC3339), "scope": map[string]any{"type": scopeType},
 		"complete": true, "counts": map[string]any{
 			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia,
 			"localTags": countExportTags(records), "localNotes": countExportNotes(records), "failed": 0,
-		}, "errors": []any{},
+		},
+		"extensions": map[string]any{
+			ArchiveExtensionStudioMetadata: map[string]any{"version": 1, "required": false},
+			ArchiveExtensionStudioSources:  map[string]any{"version": 1, "required": false},
+		},
+		"requiredExtensions": []string{}, "errors": []any{},
+	}
+	if len(mediaIndex) > 0 {
+		manifest["extensions"].(map[string]any)[ArchiveExtensionMedia] = map[string]any{"version": 1, "required": false}
 	}
 	if err := json.NewEncoder(manifestEntry).Encode(manifest); err != nil {
 		return closeWithError(err)
 	}
-	dataEntry, err := archiveWriter.Create("data.json")
+	dataEntry, err := createStoredArchiveEntry(archiveWriter, "data.json", exportedAt)
 	if err != nil {
 		return closeWithError(err)
 	}
@@ -117,7 +126,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		}
 		items = append(items, map[string]any{
 			"pid": strconv.FormatInt(int64(record.Post.Pid), 10), "source": preferredExportSource(record.Sources),
-			"hole": record.Post, "comments": comments, "fetchStatus": "ok", "studioSources": record.Sources,
+			"hole": record.Post, "comments": comments, "fetchStatus": "ok", "studioSources": portableStudioSources(record.Sources),
 			"studioMetadata": record.Studio,
 		})
 	}
@@ -125,7 +134,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		return closeWithError(err)
 	}
 	if len(mediaIndex) > 0 {
-		indexEntry, err := archiveWriter.Create("media/index.json")
+		indexEntry, err := createStoredArchiveEntry(archiveWriter, "media/index.json", exportedAt)
 		if err != nil {
 			return closeWithError(err)
 		}
@@ -138,7 +147,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		}
 		sort.Strings(paths)
 		for _, name := range paths {
-			entry, err := archiveWriter.Create(name)
+			entry, err := createStoredArchiveEntry(archiveWriter, name, exportedAt)
 			if err != nil {
 				return closeWithError(err)
 			}
@@ -147,7 +156,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 			}
 		}
 	}
-	readableEntry, err := archiveWriter.Create("readable.txt")
+	readableEntry, err := createStoredArchiveEntry(archiveWriter, "readable.txt", exportedAt)
 	if err != nil {
 		return closeWithError(err)
 	}
@@ -155,6 +164,12 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		return closeWithError(err)
 	}
 	return archiveWriter.Close()
+}
+
+func createStoredArchiveEntry(writer *zip.Writer, name string, modifiedAt time.Time) (io.Writer, error) {
+	header := &zip.FileHeader{Name: name, Method: zip.Store}
+	header.SetModTime(modifiedAt.UTC())
+	return writer.CreateHeader(header)
 }
 
 func prepareExportMedia(ctx context.Context, records []ExportRecord, dataDir string) ([]MediaRecord, map[string][]byte) {
@@ -361,6 +376,64 @@ func preferredExportSource(sources []models.PostSource) string {
 	}
 	sort.SliceStable(candidates, func(left, right int) bool { return priority[candidates[left]] < priority[candidates[right]] })
 	return candidates[0]
+}
+
+func portableStudioSources(sources []models.PostSource) []PortableStudioSource {
+	type aggregate struct {
+		contextOnly bool
+		sourceRef   string
+		ambiguous   bool
+		seen        bool
+	}
+	bySource := map[string]aggregate{}
+	for _, source := range sources {
+		if !validSource(source.Source) {
+			continue
+		}
+		current := bySource[source.Source]
+		if !current.seen {
+			current.contextOnly = true
+			current.seen = true
+		}
+		current.contextOnly = current.contextOnly && source.ContextOnly
+		candidate := strings.TrimSpace(source.SourceRef)
+		if candidate != "" && !looksLikeArchiveHash(candidate) {
+			if current.sourceRef == "" {
+				current.sourceRef = candidate
+			} else if current.sourceRef != candidate {
+				current.ambiguous = true
+			}
+		}
+		bySource[source.Source] = current
+	}
+	order := []string{"followed", "explicit", "legacy-v1", "referenced"}
+	result := make([]PortableStudioSource, 0, len(bySource))
+	for _, source := range order {
+		current, ok := bySource[source]
+		if !ok {
+			continue
+		}
+		if current.ambiguous {
+			current.sourceRef = ""
+		}
+		result = append(result, PortableStudioSource{
+			Source: source, SourceRef: current.sourceRef,
+			ContextOnly: current.contextOnly || source == "referenced",
+		})
+	}
+	return result
+}
+
+func looksLikeArchiveHash(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') && (character < 'A' || character > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func newExportRunID() string {

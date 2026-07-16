@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Susurrium/PkuHoleArchiveSpec/spec/v2/data-v2.schema.json",
+  "title": "PkuHole Archive v2 data.json",
+  "type": "object",
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 20000,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "portableId": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^[0-9]+$" }
+      ]
+    },
+    "item": {
+      "type": "object",
+      "required": ["pid", "source", "hole", "comments", "fetchStatus"],
+      "properties": {
+        "pid": { "type": "string", "pattern": "^[0-9]{5,7}$" },
+        "source": { "enum": ["followed", "referenced", "explicit", "legacy-v1"] },
+        "hole": {
+          "type": "object",
+          "required": ["pid"],
+          "properties": { "pid": { "$ref": "#/$defs/portableId" } },
+          "additionalProperties": true
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["cid"],
+            "properties": {
+              "cid": { "$ref": "#/$defs/portableId" },
+              "pid": { "$ref": "#/$defs/portableId" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "fetchStatus": { "enum": ["ok", "partial"] },
+        "studioMetadata": { "$ref": "studio-metadata-v1.schema.json" },
+        "studioSources": { "$ref": "studio-sources-v1.schema.json" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
