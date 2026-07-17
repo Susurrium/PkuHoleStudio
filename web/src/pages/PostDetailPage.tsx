@@ -1,100 +1,58 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Download, Heart, Image, ImagePlus, MessageCircle, Reply, Send, Star, StickyNote } from 'lucide-react'
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Check, Download, Heart, Image, ImagePlus, MessageCircle, Radio, Reply, Send, Sparkles, Star, StickyNote } from 'lucide-react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { formatTime } from '../lib/format'
+import { preferredScrollBehavior } from '../lib/motion'
 import { ErrorState, LoadingState } from '../components/States'
 import type { Comment, Media, ReferenceGraph } from '../lib/types'
+import { errorDescription } from '../components/Feedback'
+import { useLocalPostMetadata, usePostComments, usePostDetailResource, usePostInteraction, usePostReply, useSavePostToLocal } from '../features/posts/usePostDetail'
 
 export function PostDetailPage() {
   const { pid = '' } = useParams()
-	const [searchParams, setSearchParams] = useSearchParams()
-	const location = useLocation()
+	const [searchParams] = useSearchParams()
   const source = searchParams.get('source') === 'live' ? 'live' : 'local'
-  const detail = useQuery({ queryKey: ['post', pid, source], queryFn: () => api.post(pid, source), enabled: /^\d+$/.test(pid) })
-	const [additionalComments, setAdditionalComments] = useState<Comment[]>([])
-	const [pagination, setPagination] = useState<{ cursor?: number; hasMore: boolean } | null>(null)
-	const [restoreStatus, setRestoreStatus] = useState('')
-	const [restoreCancelled, setRestoreCancelled] = useState(false)
-	useEffect(() => { setAdditionalComments([]); setPagination(null); setRestoreStatus(''); setRestoreCancelled(false) }, [pid, source, detail.dataUpdatedAt])
-	const loadMoreComments = useMutation({
-		mutationFn: (cursor: number) => api.comments(pid, cursor, source, 50),
-		onSuccess: (page) => {
-			setAdditionalComments((current) => dedupeComments([...current, ...page.items]))
-			setPagination({ cursor: page.next_cursor, hasMore: page.has_more })
-			if (page.next_cursor) { const next = new URLSearchParams(searchParams); next.set('comment_cursor', String(page.next_cursor)); setSearchParams(next, { replace: true }) }
-		},
-	})
-	const restoreCursor = Number(searchParams.get('comment_cursor') || 0)
-	const restoreCID = Number(location.hash.match(/^#comment-(\d+)$/)?.[1] || 0)
-	const comments = useMemo(() => dedupeComments([...(detail.data?.comments ?? []), ...additionalComments]), [detail.data?.comments, additionalComments])
-	const hasRestoreCID = useMemo(() => restoreCID > 0 && comments.some((item) => item.cid === restoreCID), [comments, restoreCID])
-	useEffect(() => {
-		if (!detail.data || restoreCancelled || hasRestoreCID || (!restoreCursor && !restoreCID) || (!restoreCID && pagination?.cursor === restoreCursor)) return
-		let cancelled = false
-		const initial = detail.data.comments
-		if (restoreCID && initial.some((item) => item.cid === restoreCID)) return
-		const restore = async () => {
-			let cursor = detail.data?.next_comment_cursor
-			let hasMore = detail.data?.has_more_comments ?? false
-			let loaded: Comment[] = []
-			let pages = 0
-			while (!cancelled && !restoreCancelled && hasMore && cursor !== undefined && pages < 40) {
-				if (restoreCursor && cursor === restoreCursor && !restoreCID) break
-				setRestoreStatus(`正在恢复评论位置…已读取 ${initial.length + loaded.length} 条`)
-				const page = await api.comments(pid, cursor, source, 50)
-				loaded = dedupeComments([...loaded, ...page.items])
-				setAdditionalComments(loaded)
-				setPagination({ cursor: page.next_cursor, hasMore: page.has_more })
-				pages++
-				if (restoreCID && loaded.some((item) => item.cid === restoreCID)) break
-				if (restoreCursor && page.next_cursor === restoreCursor && !restoreCID) break
-				cursor = page.next_cursor
-				hasMore = page.has_more
-			}
-			if (cancelled) return
-			const found = !restoreCID || initial.some((item) => item.cid === restoreCID) || loaded.some((item) => item.cid === restoreCID)
-			setRestoreStatus(found ? '' : pages >= 40 ? '自动恢复已达到 2000 条安全上限，可继续手动加载。' : `未在此洞中找到 C${restoreCID}。`)
-		}
-		restore().catch((error) => { if (!cancelled) setRestoreStatus(`恢复评论位置失败：${String(error)}`) })
-		return () => { cancelled = true }
-	}, [detail.dataUpdatedAt, pid, source, restoreCursor, restoreCID, restoreCancelled, hasRestoreCID])
-	useEffect(() => {
-		if (!hasRestoreCID) return
-		requestAnimationFrame(() => document.getElementById(`comment-${restoreCID}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }))
-	}, [restoreCID, hasRestoreCID])
-	const saveLocal = useMutation({ mutationFn: () => api.createJob('sync_pids', { pids: [Number(pid)] }) })
-	const [replyText, setReplyText] = useState('')
-	const [quoteCID, setQuoteCID] = useState<number | undefined>()
-	const [replyFiles, setReplyFiles] = useState<File[]>([])
-	const submitReply = useMutation({ mutationFn: async () => { const ids: string[] = []; for (const file of replyFiles) ids.push((await api.uploadMedia(file)).id); return api.createComment(Number(pid), replyText, quoteCID, ids) }, onSuccess: () => { setReplyText(''); setQuoteCID(undefined); setReplyFiles([]); detail.refetch() } })
-	const interact = useMutation({ mutationFn: (action: 'praise' | 'follow') => api.togglePost(Number(pid), action), onSuccess: () => detail.refetch() })
+  const { detail, online } = usePostDetailResource(pid, source)
+	const { comments, loadMoreComments, restoreStatus, cancelRestore, nextCommentCursor, hasMoreComments } = usePostComments(pid, source, detail.data, detail.dataUpdatedAt)
+	const saveLocal = useSavePostToLocal(pid)
+	const reply = usePostReply(pid, () => { detail.refetch() })
+	const { text: replyText, setText: setReplyText, quoteCID, setQuoteCID, files: replyFiles, setFiles: setReplyFiles, mutation: submitReply } = reply
+	const replyComposer = useRef<HTMLElement>(null)
+	const replyInput = useRef<HTMLTextAreaElement>(null)
+	const interact = usePostInteraction(pid, () => { detail.refetch() })
   if (detail.isLoading) return <LoadingState label={`正在读取 #${pid}…`} />
   if (detail.error || !detail.data) return <ErrorState error={detail.error ?? new Error('帖子不存在')} />
 	const { post, references, media = [] } = detail.data
-	const nextCommentCursor = pagination?.cursor ?? detail.data.next_comment_cursor
-	const hasMoreComments = pagination?.hasMore ?? detail.data.has_more_comments
 	const postMedia = media.filter((item) => item.owner_type === 'post' && item.owner_id === post.pid)
+	const canWrite = source === 'live' && online.data?.can_write_online === true
 	  const requestedReturn = searchParams.get('return_to')
-	  const returnTo = requestedReturn && /^\/(posts|search)([/?]|$)/.test(requestedReturn) ? requestedReturn : `/posts${source === 'live' ? '?source=live' : ''}`
+	  const returnTo = requestedReturn && /^\/(online|posts|search|ai|notifications)([/?]|$)/.test(requestedReturn) ? requestedReturn : `/posts${source === 'live' ? '?source=live' : ''}`
+	  const returnLabel = requestedReturn?.startsWith('/ai') ? 'AI 研究' : requestedReturn?.startsWith('/notifications') ? '通知' : source === 'live' ? '在线树洞' : requestedReturn?.startsWith('/search') || requestedReturn?.includes('q=') ? '搜索结果' : '浏览列表'
 	  return <>
-	    <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link to={returnTo} className="inline-flex items-center gap-2 text-sm font-medium text-ink-soft hover:text-teal"><ArrowLeft size={16} />返回{source === 'live' ? '在线树洞' : requestedReturn?.startsWith('/search') ? '搜索结果' : '资料库'}</Link>{source === 'live' && <button className="button-secondary" disabled={saveLocal.isPending || saveLocal.isSuccess} onClick={() => saveLocal.mutate()}><Download size={15} />{saveLocal.isPending ? '正在创建任务…' : saveLocal.isSuccess ? '已加入同步队列' : '保存到本地资料库'}</button>}</div>
-    <article className="panel overflow-hidden">
+	    <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><Link to={returnTo} className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-ink-soft hover:bg-white/60 hover:text-teal"><ArrowLeft size={16} />返回{returnLabel}</Link><div className="flex flex-wrap gap-2">{source === 'local' && <Link className="button-secondary" to={`/posts/${pid}?source=live&return_to=${encodeURIComponent(`/posts/${pid}`)}`}><Radio size={15} />查看线上版本</Link>}{source === 'live' && (!saveLocal.job && detail.data.local_state === 'saved' ? <span className="button-secondary cursor-default text-teal"><Check size={15} />已保存到本地</span> : <button className={`button-secondary ${saveLocal.retryable ? '!text-coral' : ''}`} disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}><Download size={15} />{saveLocal.label}</button>)}</div></div>
+	{source === 'live' && saveLocal.failure && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-coral/25 bg-coral-soft/25 px-4 py-3 text-xs text-coral" role="alert"><span>保存任务失败：{saveLocal.failure}</span><Link className="font-semibold underline" to="/tasks">查看任务详情</Link></div>}
+	<div className="grid items-start gap-7 xl:grid-cols-[minmax(0,860px)_minmax(280px,1fr)]">
+	  <section className="min-w-0">
+    <article className="panel overflow-hidden" aria-labelledby="post-title">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white/40 px-5 py-4 md:px-7"><span className="font-mono text-base font-bold text-coral">#{post.pid}</span><time className="text-xs text-ink-soft">{formatTime(post.timestamp)}</time></header>
-      <div className="px-5 py-7 md:px-7"><p className="whitespace-pre-wrap text-base leading-8 md:text-[17px]">{post.text || '（无正文）'}</p><MediaGallery items={postMedia} pid={post.pid} /></div>
-      <footer className="flex flex-wrap items-center gap-5 border-t border-line bg-paper/45 px-5 py-4 text-xs text-ink-soft md:px-7"><span className="inline-flex items-center gap-1.5"><MessageCircle size={14} />{post.reply ?? comments.length} 条评论</span>{post.praise_num !== undefined && <span>点赞 {post.praise_num}</span>}{source === 'live' && <div className="ml-auto flex gap-2"><button className="button-secondary !px-3 !py-1.5" disabled={interact.isPending} onClick={() => interact.mutate('praise')}><Heart size={14} fill={post.is_praise ? 'currentColor' : 'none'} />{post.is_praise ? '取消点赞' : '点赞'}</button><button className="button-secondary !px-3 !py-1.5" disabled={interact.isPending} onClick={() => interact.mutate('follow')}><Star size={14} fill={post.is_follow ? 'currentColor' : 'none'} />{post.is_follow ? '取消关注' : '关注'}</button></div>}</footer>
+      <div className="px-5 py-7 md:px-7"><p id="post-title" className="whitespace-pre-wrap text-base leading-8 md:text-[17px]">{post.text || '（无正文）'}</p><MediaGallery items={postMedia} pid={post.pid} /></div>
+	      <footer className="flex flex-wrap items-center gap-5 border-t border-line bg-paper/45 px-5 py-4 text-xs text-ink-soft md:px-7"><a href="#comments" className="inline-flex items-center gap-1.5 hover:text-teal"><MessageCircle size={14} />{post.reply ?? comments.length} 条评论</a>{post.praise_num !== undefined && <span>点赞 {post.praise_num}</span>}{(source === 'local' || detail.data.local_state === 'saved') && <Link className="inline-flex items-center gap-1.5 font-semibold text-teal hover:underline" to={`/ai?mode=selected&pids=${post.pid}`}><Sparkles size={14} />研究此洞</Link>}{canWrite && <div className="ml-auto flex gap-2"><button className="button-secondary !px-3 !py-1.5" disabled={interact.isPending} onClick={() => interact.mutate('praise')}><Heart size={14} fill={post.is_praise ? 'currentColor' : 'none'} />{post.is_praise ? '取消点赞' : '点赞'}</button><button className="button-secondary !px-3 !py-1.5" disabled={interact.isPending} onClick={() => interact.mutate('follow')}><Star size={14} fill={post.is_follow ? 'currentColor' : 'none'} />{post.is_follow ? '取消关注' : '关注'}</button></div>}{source === 'live' && !canWrite && !online.isLoading && <Link className="ml-auto font-semibold text-coral hover:underline" to="/sync">登录后互动</Link>}</footer>
     </article>
-		{source === 'local' && <LocalMetadata pid={post.pid} />}
-		{source === 'live' && <section className="panel mt-6 p-5"><div className="flex items-center justify-between"><div><p className="eyebrow">REPLY</p><h2 className="mt-1 text-lg font-semibold">回复此洞</h2></div>{quoteCID && <button className="badge" onClick={() => setQuoteCID(undefined)}>引用 C{quoteCID} ×</button>}</div><textarea className="field mt-4 min-h-24" value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quoteCID ? `回复并引用 C${quoteCID}…` : '写下回复…'} /><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="button-secondary cursor-pointer"><ImagePlus size={16} />选择图片<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><div className="flex items-center gap-3"><span className="text-xs text-ink-soft">{replyFiles.length ? `${replyFiles.length} 张图片` : submitReply.error ? String(submitReply.error) : ''}</span><button className="button-primary" disabled={submitReply.isPending || (!replyText.trim() && !replyFiles.length)} onClick={() => submitReply.mutate()}><Send size={15} />{submitReply.isPending ? '正在发送…' : '发送回复'}</button></div></div></section>}
-    <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_300px]">
-	      <div><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}{post.reply ? ` / ${post.reply}` : ''}</span></div>{restoreStatus && <div className="panel mb-3 flex items-center justify-between gap-3 border-coral/25 px-4 py-3 text-xs text-ink-soft"><span>{restoreStatus}</span>{restoreStatus.startsWith('正在') && <button className="button-secondary !py-1" onClick={() => { setRestoreCancelled(true); setRestoreStatus('已取消自动恢复，可继续手动加载。') }}>取消</button>}</div>}<div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} quote={() => { setQuoteCID(comment.cid); document.querySelector('textarea')?.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无{source === 'local' ? '本地' : '在线'}评论</p>}</div>{hasMoreComments && nextCommentCursor !== undefined && <button className="button-secondary mt-4 w-full" disabled={loadMoreComments.isPending} onClick={() => loadMoreComments.mutate(nextCommentCursor)}>{loadMoreComments.isPending ? '正在加载更多评论…' : '加载更多评论'}</button>}{loadMoreComments.error && <p className="mt-3 text-sm text-coral">加载评论失败：{loadMoreComments.error.message}</p>}</div>
-      <aside><h2 className="mb-4 text-xl font-semibold">引用关系</h2>{source === 'live' ? <div className="panel p-4"><p className="py-5 text-center text-xs leading-5 text-ink-soft">引用图谱来自本地资料库；同步此洞后即可建立关系。</p></div> : <ReferenceGraphPanel pid={post.pid} fallback={references} />}</aside>
-    </section>
+		{canWrite && <section ref={replyComposer} className="panel mt-6 scroll-mt-24 p-5"><div className="flex items-center justify-between gap-3"><div><p className="eyebrow">REPLY</p><h2 className="mt-1 text-lg font-semibold">回复此洞</h2></div>{quoteCID && <button type="button" className="badge cursor-pointer" onClick={() => setQuoteCID(undefined)}>引用 C{quoteCID} ×</button>}</div><textarea ref={replyInput} aria-label="回复内容" className="field mt-4 min-h-24" value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quoteCID ? `回复并引用 C${quoteCID}…` : '写下回复…'} />{submitReply.error && <p className="mt-3 rounded-lg border border-coral/25 bg-coral-soft/25 px-3 py-2 text-xs text-coral">回复失败：{errorDescription(submitReply.error)}。正文和图片选择已保留。</p>}<div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="button-secondary cursor-pointer"><ImagePlus size={16} />选择图片<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><div className="flex items-center gap-3"><span className="text-xs text-ink-soft">{replyFiles.length ? `${replyFiles.length} 张图片 · ` : ''}{replyText.length}/10000</span><button className="button-primary" disabled={submitReply.isPending || (!replyText.trim() && !replyFiles.length)} onClick={() => submitReply.mutate()}><Send size={15} />{submitReply.isPending ? '正在发送…' : '发送回复'}</button></div></div></section>}
+		{source === 'live' && !canWrite && !online.isLoading && <section className="panel mt-6 p-5 text-sm text-ink-soft">当前会话不能回复此洞。<Link className="ml-1 font-semibold text-coral hover:underline" to="/sync">前往登录或重新检测会话</Link></section>}
+	    <section id="comments" className="mt-7 scroll-mt-24"><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-semibold">评论</h2><span className="badge">已载入 {comments.length}{post.reply ? ` / ${post.reply}` : ''}</span></div>{restoreStatus && <div className="panel mb-3 flex items-center justify-between gap-3 border-coral/25 px-4 py-3 text-xs text-ink-soft"><span>{restoreStatus}</span>{restoreStatus.startsWith('正在') && <button className="button-secondary !py-1" onClick={cancelRestore}>取消</button>}</div>}<div className="grid gap-3">{comments.length ? comments.map((comment) => <CommentCard key={comment.cid} comment={comment} source={source} media={media} pid={post.pid} canReply={canWrite} quote={() => { setQuoteCID(comment.cid); replyInput.current?.focus(); requestAnimationFrame(() => replyComposer.current?.scrollIntoView?.({ behavior: preferredScrollBehavior(), block: 'center' })) }} />) : <p className="panel p-7 text-center text-sm text-ink-soft">暂无{source === 'local' ? '本地' : '在线'}评论</p>}</div>{hasMoreComments && nextCommentCursor !== undefined && <button className="button-secondary mt-4 w-full" disabled={loadMoreComments.isPending} onClick={() => loadMoreComments.mutate(nextCommentCursor)}>{loadMoreComments.isPending ? '正在加载更多评论…' : '继续加载评论'}</button>}{loadMoreComments.error && <p className="mt-3 text-sm text-coral">加载评论失败：{loadMoreComments.error.message}</p>}</section>
+	  </section>
+	  <aside className="grid gap-5 xl:sticky xl:top-24">
+		{(source === 'local' || detail.data.local_state === 'saved') && <LocalMetadata pid={post.pid} />}
+		<section><h2 className="mb-3 text-lg font-semibold">引用关系</h2>{source === 'live' ? <div className="panel p-4"><p className="py-5 text-center text-xs leading-5 text-ink-soft">引用图谱保存在本地；保存此洞后即可建立关系。</p></div> : <ReferenceGraphPanel pid={post.pid} fallback={references} />}</section>
+	  </aside>
+	</div>
   </>
 }
 
-function CommentCard({ comment, source, media, pid, quote }: { comment: Comment; source: 'local' | 'live'; media: Media[]; pid: number; quote: () => void }) {
+function CommentCard({ comment, source, media, pid, canReply, quote }: { comment: Comment; source: 'local' | 'live'; media: Media[]; pid: number; canReply: boolean; quote: () => void }) {
 	const [showNote, setShowNote] = useState(false)
 	const note = useQuery({ queryKey: ['comment-note', comment.cid], queryFn: () => api.commentNote(comment.cid), enabled: source === 'local' && showNote })
 	const [content, setContent] = useState('')
@@ -102,12 +60,7 @@ function CommentCard({ comment, source, media, pid, quote }: { comment: Comment;
 	const save = useMutation({ mutationFn: () => api.saveCommentNote(comment.cid, content), onSuccess: () => note.refetch() })
 	const items = media.filter((item) => item.owner_type === 'comment' && item.owner_id === comment.cid)
 	const commentMedia = items.length || source === 'local' ? items : remoteCommentMedia(comment)
-	return <article id={`comment-${comment.cid}`} className="panel p-5"><div className="flex items-center justify-between gap-3"><div><span className="font-mono text-xs text-teal">C{comment.cid}</span><span className="ml-2 text-xs font-medium text-ink-soft">{comment.name_tag || '匿名'}</span>{comment.is_lz ? <span className="ml-2 badge !py-0.5">洞主</span> : null}</div><div className="flex items-center gap-2"><time className="text-[11px] text-ink-soft">{formatTime(comment.timestamp)}</time>{source === 'local' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={() => setShowNote((value) => !value)}><StickyNote size={12} />笔记</button>}{source === 'live' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={quote}><Reply size={12} />引用</button>}</div></div>{comment.quote && <blockquote className="mt-3 rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">引用 C{comment.quote.cid}：{comment.quote.text}</blockquote>}<p className="mt-3 whitespace-pre-wrap text-sm leading-7">{comment.text}</p><MediaGallery items={commentMedia} pid={pid} />{showNote && <div className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><textarea className="field min-h-20" value={content} maxLength={100000} onChange={(event) => setContent(event.target.value)} placeholder="只保存在本机的评论笔记…" /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-ink-soft">{save.error ? String(save.error) : save.isSuccess ? '已保存' : ''}</span><button className="button-secondary" disabled={save.isPending || note.isLoading} onClick={() => save.mutate()}>保存评论笔记</button></div></div>}</article>
-}
-
-function dedupeComments(items: Comment[]) {
-	const seen = new Set<number>()
-	return items.filter((item) => item.cid > 0 && !seen.has(item.cid) && Boolean(seen.add(item.cid)))
+	return <article id={`comment-${comment.cid}`} className="panel scroll-mt-24 p-5"><div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center"><div><span className="font-mono text-xs text-teal">C{comment.cid}</span><span className="ml-2 text-xs font-medium text-ink-soft">{comment.name_tag || '匿名'}</span>{comment.is_lz ? <span className="ml-2 badge !py-0.5">洞主</span> : null}</div><div className="flex items-center gap-2"><time className="text-[11px] text-ink-soft">{formatTime(comment.timestamp)}</time>{source === 'local' && <button className="button-secondary !px-2 !py-1 text-xs" onClick={() => setShowNote((value) => !value)}><StickyNote size={12} />笔记</button>}{canReply && <button className="button-secondary !px-2 !py-1 text-xs" onClick={quote}><Reply size={12} />引用回复</button>}</div></div>{comment.quote && <blockquote className="mt-3 rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">引用 C{comment.quote.cid}：{comment.quote.text}</blockquote>}<p className="mt-3 whitespace-pre-wrap text-sm leading-7">{comment.text}</p><MediaGallery items={commentMedia} pid={pid} />{showNote && <div className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><textarea aria-label={`C${comment.cid} 的本地笔记`} className="field min-h-20" value={content} maxLength={100000} onChange={(event) => setContent(event.target.value)} placeholder="只保存在本机的评论笔记…" /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-ink-soft">{save.error ? String(save.error) : save.isSuccess ? '已保存' : ''}</span><button className="button-secondary" disabled={save.isPending || note.isLoading} onClick={() => save.mutate()}>保存评论笔记</button></div></div>}</article>
 }
 
 function remoteCommentMedia(comment: Comment): Media[] {
@@ -131,18 +84,12 @@ function ReferenceSVG({ graph }: { graph: ReferenceGraph }) {
 }
 
 function LocalMetadata({ pid }: { pid: number }) {
-	const tags = useQuery({ queryKey: ['local-tags'], queryFn: api.localTags })
-	const assigned = useQuery({ queryKey: ['post-tags', pid], queryFn: () => api.postTags(pid) })
-	const note = useQuery({ queryKey: ['post-note', pid], queryFn: () => api.postNote(pid) })
-	const [selected, setSelected] = useState<number[]>([])
-	const [content, setContent] = useState('')
-	const [tagName, setTagName] = useState('')
-	useEffect(() => setSelected(assigned.data?.map((tag) => tag.id) ?? []), [assigned.data])
-	useEffect(() => setContent(note.data?.content ?? ''), [note.data])
-	const saveTags = useMutation({ mutationFn: () => api.setPostTags(pid, selected), onSuccess: () => assigned.refetch() })
-	const saveNote = useMutation({ mutationFn: () => api.savePostNote(pid, content), onSuccess: () => note.refetch() })
-	const createTag = useMutation({ mutationFn: () => api.createLocalTag(tagName, ''), onSuccess: () => { setTagName(''); tags.refetch() } })
-	return <section className="panel mt-6 p-5"><p className="eyebrow">LOCAL METADATA</p><h2 className="mt-1 text-lg font-semibold">本地标签与笔记</h2><div className="mt-4 grid gap-5 lg:grid-cols-2"><div><p className="text-xs font-medium text-ink-soft">标签</p><div className="mt-2 flex flex-wrap gap-2">{tags.data?.length ? tags.data.map((tag) => <label key={tag.id} className="badge cursor-pointer" style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}><input className="hidden" type="checkbox" checked={selected.includes(tag.id)} onChange={() => setSelected((value) => value.includes(tag.id) ? value.filter((id) => id !== tag.id) : [...value, tag.id])} /><span className="size-2 rounded-full" style={{ backgroundColor: tag.color || '#94a3b8' }} />{tag.name}{selected.includes(tag.id) && <span aria-label="已选择">✓</span>}</label>) : <span className="text-xs text-ink-soft">尚未创建标签</span>}</div><div className="mt-3 flex gap-2"><input className="field" value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="新标签名称" /><button className="button-secondary shrink-0" disabled={!tagName.trim() || createTag.isPending} onClick={() => createTag.mutate()}>创建</button></div><button className="button-secondary mt-3" disabled={saveTags.isPending} onClick={() => saveTags.mutate()}>保存标签</button></div><div><label className="text-xs font-medium text-ink-soft">笔记<textarea className="field mt-2 min-h-28" value={content} maxLength={100000} onChange={(event) => setContent(event.target.value)} placeholder="只保存在本机的笔记…" /></label><button className="button-secondary mt-3" disabled={saveNote.isPending} onClick={() => saveNote.mutate()}>保存笔记</button></div></div></section>
+	const metadata = useLocalPostMetadata(pid)
+	return <section className="panel p-5"><p className="eyebrow">PERSONAL</p><h2 className="mt-1 text-lg font-semibold">项目、标签与笔记</h2><div className="mt-4 grid gap-5">
+		<div><div className="flex items-center justify-between gap-3"><p className="text-xs font-medium text-ink-soft">研究项目</p><Link className="text-xs font-semibold text-teal hover:underline" to="/projects">管理项目</Link></div><div className="mt-2 grid gap-2">{metadata.projects.data?.length ? metadata.projects.data.map((project) => <label key={project.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-white/45 px-3 py-2 text-xs"><input type="checkbox" checked={metadata.selectedProjectIDs.includes(project.id)} onChange={() => metadata.setSelectedProjectIDs((value) => value.includes(project.id) ? value.filter((id) => id !== project.id) : [...value, project.id])} /><span className="size-2 rounded-full" style={{ backgroundColor: project.color || '#0f766e' }} />{project.name}</label>) : <span className="text-xs text-ink-soft">尚未创建研究项目</span>}</div><button className="button-secondary mt-3" disabled={metadata.projects.isLoading || metadata.assignedProjects.isLoading || metadata.saveProjects.isPending} onClick={() => metadata.saveProjects.mutate()}>保存项目归属</button></div>
+		<div><p className="text-xs font-medium text-ink-soft">标签</p><div className="mt-2 flex flex-wrap gap-2">{metadata.tags.data?.length ? metadata.tags.data.map((tag) => <label key={tag.id} className="badge cursor-pointer" style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}><input className="hidden" type="checkbox" checked={metadata.selected.includes(tag.id)} onChange={() => metadata.setSelected((value) => value.includes(tag.id) ? value.filter((id) => id !== tag.id) : [...value, tag.id])} /><span className="size-2 rounded-full" style={{ backgroundColor: tag.color || '#94a3b8' }} />{tag.name}{metadata.selected.includes(tag.id) && <span aria-label="已选择">✓</span>}</label>) : <span className="text-xs text-ink-soft">尚未创建标签</span>}</div><div className="mt-3 flex gap-2"><input className="field" value={metadata.tagName} onChange={(event) => metadata.setTagName(event.target.value)} placeholder="新标签名称" /><button className="button-secondary shrink-0" disabled={!metadata.tagName.trim() || metadata.createTag.isPending} onClick={() => metadata.createTag.mutate()}>创建</button></div><button className="button-secondary mt-3" disabled={metadata.saveTags.isPending} onClick={() => metadata.saveTags.mutate()}>保存标签</button></div>
+		<div><label className="text-xs font-medium text-ink-soft">笔记<textarea className="field mt-2 min-h-28" value={metadata.content} maxLength={100000} onChange={(event) => metadata.setContent(event.target.value)} placeholder="只保存在本机的笔记…" /></label><button className="button-secondary mt-3" disabled={metadata.saveNote.isPending} onClick={() => metadata.saveNote.mutate()}>保存笔记</button></div>
+	</div></section>
 }
 
 function ReferenceRow({ reference, currentPID }: { reference: import('../lib/types').Reference; currentPID: number }) {
@@ -156,11 +103,11 @@ function ReferenceRow({ reference, currentPID }: { reference: import('../lib/typ
 function MediaGallery({ items, pid }: { items: Media[]; pid?: number }) {
 	if (!items.length) return null
 	return <div className="mt-5 grid gap-3 sm:grid-cols-2">{items.map((item, index) => item.status === 'available' || item.status === 'remote'
-		? <MediaImage key={`${item.owner_type}-${item.owner_id}-${item.remote_id ?? index}`} item={item} pid={pid} />
+		? <MediaImage key={`${item.owner_type}-${item.owner_id}-${item.remote_id ?? index}`} item={item} pid={pid} index={index} />
 		: <div key={item.id} className="flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-paper/60 px-4 text-sm text-ink-soft"><Image size={17} />图片尚未下载{item.remote_id ? ` · ${item.remote_id}` : ''}</div>)}</div>
 }
 
-function MediaImage({ item, pid }: { item: Media; pid?: number }) {
+function MediaImage({ item, pid, index }: { item: Media; pid?: number; index: number }) {
 	const url = item.status === 'remote' ? `/api/v1/remote-media/${item.remote_id || '_'}?pid=${pid}` : `/api/v1/media/${item.id}`
-	return <a href={url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-line bg-paper"><img src={url} alt="" loading="lazy" className="max-h-[32rem] w-full object-contain" /></a>
+	return <a href={url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-line bg-paper" aria-label={`在新窗口查看树洞 #${pid ?? item.owner_id} 的第 ${index + 1} 张图片`}><img src={url} alt={`树洞 #${pid ?? item.owner_id} 的图片 ${index + 1}`} loading="lazy" className="max-h-[32rem] w-full object-contain" /></a>
 }

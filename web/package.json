@@ -8,9 +8,15 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:classic-quality": "playwright test e2e/classic-quality.spec.ts",
+    "e2e:classic-update": "playwright test e2e/classic-quality.spec.ts --update-snapshots",
+    "e2e:github-quality": "playwright test e2e/github-quality.spec.ts",
+    "e2e:github-update": "playwright test e2e/github-quality.spec.ts --update-snapshots"
   },
   "dependencies": {
+    "@primer/octicons-react": "19.28.1",
+    "@primer/primitives": "11.9.0",
     "@tanstack/react-query": "5.101.2",
     "lucide-react": "1.24.0",
     "react": "19.2.7",
