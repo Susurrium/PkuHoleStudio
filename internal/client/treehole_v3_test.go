@@ -2,7 +2,9 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -207,6 +209,65 @@ func TestCreatePostV3SerializesImagePayload(t *testing.T) {
 	assertJSONField(t, capture.rt.body, "media_ids", "35802,35803")
 }
 
+func TestCreatePostV3AcceptsNumericDataID(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":8403669}`)
+
+	post, err := capture.client.CreatePostV3(CreatePostPayload{Type: "image", Text: "hello", MediaIDs: "35802,35803"})
+	if err != nil {
+		t.Fatalf("CreatePostV3: %v", err)
+	}
+	if post.Pid != 8403669 || post.Text != "hello" || post.Type != "image" || post.MediaIds != "35802,35803" {
+		t.Fatalf("post = %+v", post)
+	}
+}
+
+func TestCreatePostV3PreservesRemoteHTTPError(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":40003,"message":"登录状态已失效"}`)
+	capture.rt.status = http.StatusUnauthorized
+
+	_, err := capture.client.CreatePostV3(CreatePostPayload{Text: "hello"})
+	var remoteError *RemoteAPIError
+	if !errors.As(err, &remoteError) {
+		t.Fatalf("CreatePostV3 error = %T %v, want RemoteAPIError", err, err)
+	}
+	if remoteError.HTTPStatus != http.StatusUnauthorized || remoteError.Code != "40003" || remoteError.Message != "登录状态已失效" || remoteError.Endpoint != "/chapi/api/v3/hole/post" {
+		t.Fatalf("remote error = %+v", remoteError)
+	}
+}
+
+func TestCreatePostV3PreservesRemoteBusinessError(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":42201,"message":"正文不符合发布要求"}`)
+
+	_, err := capture.client.CreatePostV3(CreatePostPayload{Text: "hello"})
+	var remoteError *RemoteAPIError
+	if !errors.As(err, &remoteError) || remoteError.HTTPStatus != http.StatusOK || remoteError.Code != "42201" || remoteError.Message != "正文不符合发布要求" {
+		t.Fatalf("remote error = %+v, raw=%v", remoteError, err)
+	}
+}
+
+func TestCreatePostV3ContextHonorsCancellation(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":{"pid":1}}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := capture.client.CreatePostV3Context(ctx, CreatePostPayload{Text: "hello"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CreatePostV3Context error = %v, want context.Canceled", err)
+	}
+}
+
+func TestHasWriteCredentialsDoesNotProbeRemote(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000}`)
+	capture.client.authorization = "pku-token"
+
+	if !capture.client.HasWriteCredentials() {
+		t.Fatal("HasWriteCredentials() = false, want true")
+	}
+	if capture.rt.last != nil {
+		t.Fatalf("HasWriteCredentials unexpectedly made request: %s", capture.rt.last.URL)
+	}
+}
+
 func TestCreateCommentV3SerializesMediaIDs(t *testing.T) {
 	capture := newV3CaptureClient(t, `{"code":20000,"data":{"cid":1,"pid":99,"text":"ok","timestamp":1}}`)
 
@@ -218,7 +279,19 @@ func TestCreateCommentV3SerializesMediaIDs(t *testing.T) {
 	assertJSONField(t, capture.rt.body, "media_ids", "35802,35803")
 }
 
-func TestUploadImageV3SendsMultipartFile(t *testing.T) {
+func TestCreateCommentV3AcceptsNumericDataID(t *testing.T) {
+	capture := newV3CaptureClient(t, `{"code":20000,"data":38680599}`)
+
+	comment, err := capture.client.CreateCommentV3(CreateCommentPayload{PID: 8403669, Text: "hello", MediaIDs: "35803"})
+	if err != nil {
+		t.Fatalf("CreateCommentV3: %v", err)
+	}
+	if comment.Cid != 38680599 || comment.Pid != 8403669 || comment.Text != "hello" || comment.MediaIds != "35803" {
+		t.Fatalf("comment = %+v", comment)
+	}
+}
+
+func TestUploadImageV3SendsOfficialMultipartDataField(t *testing.T) {
 	capture := newV3CaptureClient(t, `{"code":20000,"data":{"id":35803,"url":"x.jpg"}}`)
 	file, err := os.CreateTemp(t.TempDir(), "upload-*.jpg")
 	if err != nil {
@@ -253,11 +326,14 @@ func TestUploadImageV3SendsMultipartFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NextPart: %v", err)
 	}
-	if part.FormName() != "file" {
-		t.Fatalf("form name = %q, want file", part.FormName())
+	if part.FormName() != "data" {
+		t.Fatalf("form name = %q, want data", part.FormName())
 	}
 	if part.FileName() == "" {
 		t.Fatal("file name should be set")
+	}
+	if got := part.Header.Get("Content-Type"); got != "image/jpeg" {
+		t.Fatalf("part content type = %q, want image/jpeg", got)
 	}
 	data, err := io.ReadAll(part)
 	if err != nil {
@@ -307,9 +383,10 @@ type v3CaptureClient struct {
 }
 
 type jsonCaptureRoundTripper struct {
-	last *http.Request
-	body bytes.Buffer
-	resp string
+	last   *http.Request
+	body   bytes.Buffer
+	resp   string
+	status int
 }
 
 func (rt *jsonCaptureRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -321,8 +398,12 @@ func (rt *jsonCaptureRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 			return nil, err
 		}
 	}
+	status := rt.status
+	if status == 0 {
+		status = http.StatusOK
+	}
 	return &http.Response{
-		StatusCode: http.StatusOK,
+		StatusCode: status,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(rt.resp)),
 		Request:    req,

@@ -1,17 +1,17 @@
 package tui
 
 import (
-	"net/url"
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
+	"github.com/Susurrium/PkuHoleStudio/internal/service"
 
 	"charm.land/lipgloss/v2"
 )
@@ -118,36 +118,28 @@ func TestDashboardWriteHotPostsFrame(t *testing.T) {
 	}
 }
 
-func TestBuildDashboardHotPostsURLUsesRecentTwelveHourWindow(t *testing.T) {
-	previousEndpoint := dashboardHotPostsEndpoint
-	dashboardHotPostsEndpoint = "https://example.invalid/posts"
-	defer func() { dashboardHotPostsEndpoint = previousEndpoint }()
+type dashboardHotStub struct {
+	limit  int
+	window time.Duration
+}
 
-	now := time.Now().Unix()
-	parsed, err := url.Parse(buildDashboardHotPostsURL(now))
-	if err != nil {
-		t.Fatalf("parse hot posts url: %v", err)
+func (s *dashboardHotStub) HotPosts(_ context.Context, limit int, window time.Duration) (service.HotPostsResult, error) {
+	s.limit = limit
+	s.window = window
+	return service.HotPostsResult{Items: []service.HotPost{{ID: 8347014, Text: "observer hot", FollowNum: 9}}}, nil
+}
+
+func TestDashboardHotPostsUsesSharedService(t *testing.T) {
+	stub := &dashboardHotStub{}
+	message, ok := loadDashboardHotPostsCmd(stub)().(LoadDashboardHotPostsMsg)
+	if !ok {
+		t.Fatal("hot posts command returned an unexpected message")
 	}
-	query := parsed.Query()
-	if query.Get("limit") != "5" {
-		t.Fatalf("limit = %q, want 5", query.Get("limit"))
+	if stub.limit != 5 || stub.window != 12*time.Hour {
+		t.Fatalf("request = limit %d window %s", stub.limit, stub.window)
 	}
-	if query.Get("order_by") != "likenum" {
-		t.Fatalf("order_by = %q, want likenum", query.Get("order_by"))
-	}
-	gotEnd, err := strconv.ParseInt(query.Get("end_time"), 10, 64)
-	if err != nil {
-		t.Fatalf("parse end_time: %v", err)
-	}
-	gotStart, err := strconv.ParseInt(query.Get("start_time"), 10, 64)
-	if err != nil {
-		t.Fatalf("parse start_time: %v", err)
-	}
-	if gotEnd != now {
-		t.Fatalf("end_time = %d, want %d", gotEnd, now)
-	}
-	if delta := gotEnd - gotStart; delta != int64(12*time.Hour/time.Second) {
-		t.Fatalf("time window = %d seconds, want 12h", delta)
+	if message.Error != nil || len(message.Posts) != 1 || message.Posts[0].ID != 8347014 {
+		t.Fatalf("message = %+v", message)
 	}
 }
 

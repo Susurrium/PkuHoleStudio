@@ -125,6 +125,41 @@ func TestExporterTreeholeV2CarriesMediaAndImporterPersistsIt(t *testing.T) {
 	}
 }
 
+func TestExportPreviewMatchesCommentAndPhysicalMediaScope(t *testing.T) {
+	dataDir := t.TempDir()
+	availablePath := filepath.Join(dataDir, "images", "available.jpg")
+	if err := os.MkdirAll(filepath.Dir(availablePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(availablePath, []byte("\xff\xd8\xff\xe0preview image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExportStore{fakeArchiveStore: &fakeArchiveStore{}, records: []ExportRecord{{
+		Post:     models.Post{Pid: 123456, Text: "preview"},
+		Comments: []models.Comment{{Cid: 1001, Pid: 123456, Text: "comment"}},
+		Media: []models.Media{
+			// Physical media is authoritative even when a stale database status has
+			// not yet caught up with the downloaded file.
+			{OwnerType: "post", OwnerID: 123456, Path: "images/available.jpg", Status: "missing"},
+			{OwnerType: "comment", OwnerID: 1001, Path: "images/missing.jpg", Status: "available"},
+		},
+	}}}
+	exporter := NewImporterWithDataDir(store, dataDir)
+	withComments, err := exporter.Preview(context.Background(), ExportRequest{Format: ExportFormatTreeholeV2, IncludeComments: true})
+	if err != nil || withComments.Posts != 1 || withComments.Comments != 1 || withComments.Media != 2 || withComments.MissingMedia != 1 {
+		t.Fatalf("preview with comments = %+v, %v", withComments, err)
+	}
+	withoutComments, err := exporter.Preview(context.Background(), ExportRequest{Format: ExportFormatTreeholeV2, IncludeComments: false})
+	if err != nil || withoutComments.Posts != 1 || withoutComments.Comments != 0 || withoutComments.Media != 1 || withoutComments.MissingMedia != 0 {
+		t.Fatalf("preview without comments = %+v, %v", withoutComments, err)
+	}
+	var output bytes.Buffer
+	report, err := exporter.Export(context.Background(), &output, ExportRequest{Format: ExportFormatTreeholeV2, IncludeComments: true})
+	if err != nil || report.MissingMedia != withComments.MissingMedia {
+		t.Fatalf("export report = %+v, preview = %+v, %v", report, withComments, err)
+	}
+}
+
 func TestExporterWritesPerPostMarkdownBundle(t *testing.T) {
 	store := &fakeExportStore{fakeArchiveStore: &fakeArchiveStore{}, records: []ExportRecord{{
 		Post:     models.Post{Pid: 123456, Text: "main text"},

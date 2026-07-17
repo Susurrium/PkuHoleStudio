@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
@@ -27,6 +29,8 @@ type writeRemoteStub struct {
 	postRequest    service.CreatePostRequest
 	commentRequest service.CreateCommentRequest
 	uploaded       bool
+	uploadedPath   string
+	postErr        error
 }
 
 func (s *writeRemoteStub) ListPosts(context.Context, service.RemoteListQuery) ([]models.Post, int, error) {
@@ -53,10 +57,14 @@ func (s *writeRemoteStub) ToggleAttention(context.Context, int32) error { return
 func (s *writeRemoteStub) UploadImage(_ context.Context, path string) (string, error) {
 	_, err := os.Stat(path)
 	s.uploaded = err == nil
+	s.uploadedPath = path
 	return "77", err
 }
 func (s *writeRemoteStub) CreatePost(_ context.Context, request service.CreatePostRequest) (*models.Post, error) {
 	s.postRequest = request
+	if s.postErr != nil {
+		return nil, s.postErr
+	}
 	return &models.Post{Pid: 123456, Text: request.Text}, nil
 }
 func (s *writeRemoteStub) CreateComment(_ context.Context, request service.CreateCommentRequest) (*models.Comment, error) {
@@ -97,6 +105,40 @@ func TestAPIV1PostsSearchAndErrorShape(t *testing.T) {
 	}
 }
 
+func TestAPIV1ResearchProjectLifecycle(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{{Pid: 8133824, Text: "project evidence"}}); err != nil {
+		t.Fatal(err)
+	}
+	created := performRequest(router, http.MethodPost, "/api/v1/projects", strings.NewReader(`{"name":"选课研究","description":"整理课程评价","color":"#0f766e"}`), "application/json")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create project = %d %s", created.Code, created.Body.String())
+	}
+	var projectEnvelope struct {
+		Data models.ResearchProject `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &projectEnvelope); err != nil || projectEnvelope.Data.ID == 0 {
+		t.Fatalf("created project = %+v, %v", projectEnvelope, err)
+	}
+	assigned := performRequest(router, http.MethodPut, "/api/v1/posts/8133824/projects", strings.NewReader(fmt.Sprintf(`{"project_ids":[%d]}`, projectEnvelope.Data.ID)), "application/json")
+	if assigned.Code != http.StatusOK || !strings.Contains(assigned.Body.String(), `"name":"选课研究"`) {
+		t.Fatalf("assign project = %d %s", assigned.Code, assigned.Body.String())
+	}
+	list := performRequest(router, http.MethodGet, "/api/v1/projects", nil, "")
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"post_count":1`) {
+		t.Fatalf("list projects = %d %s", list.Code, list.Body.String())
+	}
+	posts := performRequest(router, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d/posts", projectEnvelope.Data.ID), nil, "")
+	if posts.Code != http.StatusOK || !strings.Contains(posts.Body.String(), `"pid":8133824`) {
+		t.Fatalf("project posts = %d %s", posts.Code, posts.Body.String())
+	}
+	deleted := performRequest(router, http.MethodDelete, fmt.Sprintf("/api/v1/projects/%d", projectEnvelope.Data.ID), nil, "")
+	if deleted.Code != http.StatusOK {
+		t.Fatalf("delete project = %d %s", deleted.Code, deleted.Body.String())
+	}
+}
+
 func TestAPIV1LocalTagsAndNotes(t *testing.T) {
 	database, router, cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -130,6 +172,46 @@ func TestAPIV1LocalTagsAndNotes(t *testing.T) {
 	commentNote := performRequest(router, http.MethodPut, "/api/v1/comments/9001/note", strings.NewReader(`{"content":"评论线索"}`), "application/json")
 	if commentNote.Code != http.StatusOK || !strings.Contains(commentNote.Body.String(), `"owner_type":"comment"`) {
 		t.Fatalf("save comment note = %d %s", commentNote.Code, commentNote.Body.String())
+	}
+}
+
+func TestAPIV1BatchMetadataAssignments(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	if err := database.UpsertPosts([]models.Post{{Pid: 8133824, Text: "first"}, {Pid: 8133825, Text: "second"}}); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := database.CreateLocalTag("批量标签", "#0f766e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateResearchProject("批量项目", "", "#0f766e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := performRequest(router, http.MethodPost, "/api/v1/posts/batch/tags", strings.NewReader(fmt.Sprintf(`{"pids":[8133824,8133825,8133824],"tag_ids":[%d]}`, tag.ID)), "application/json")
+	if tags.Code != http.StatusOK || !strings.Contains(tags.Body.String(), `"updated":2`) {
+		t.Fatalf("batch tags = %d %s", tags.Code, tags.Body.String())
+	}
+	projects := performRequest(router, http.MethodPost, "/api/v1/posts/batch/projects", strings.NewReader(fmt.Sprintf(`{"pids":[8133824,8133825],"project_ids":[%d]}`, project.ID)), "application/json")
+	if projects.Code != http.StatusOK || !strings.Contains(projects.Body.String(), `"updated":2`) {
+		t.Fatalf("batch projects = %d %s", projects.Code, projects.Body.String())
+	}
+	rows, err := database.GetResearchProjectPosts(project.ID)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("project posts = %+v, %v", rows, err)
+	}
+	removed := performRequest(router, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/posts/remove", project.ID), strings.NewReader(`{"pids":[8133824,8133825]}`), "application/json")
+	if removed.Code != http.StatusOK || !strings.Contains(removed.Body.String(), `"updated":2`) {
+		t.Fatalf("remove project posts = %d %s", removed.Code, removed.Body.String())
+	}
+	invalid := performRequest(router, http.MethodPost, "/api/v1/posts/batch/tags", strings.NewReader(fmt.Sprintf(`{"pids":[8133824,9999999],"tag_ids":[%d]}`, tag.ID)), "application/json")
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid batch tags = %d %s", invalid.Code, invalid.Body.String())
+	}
+	nonPositive := performRequest(router, http.MethodPost, "/api/v1/posts/batch/projects", strings.NewReader(fmt.Sprintf(`{"pids":[8133824,-1],"project_ids":[%d]}`, project.ID)), "application/json")
+	if nonPositive.Code != http.StatusBadRequest {
+		t.Fatalf("non-positive batch project assignment = %d %s", nonPositive.Code, nonPositive.Body.String())
 	}
 }
 
@@ -186,8 +268,55 @@ func TestAPIV1OnlineWriteEndpointsUsePostService(t *testing.T) {
 	request.RemoteAddr = "127.0.0.1:50000"
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || !remote.uploaded || !strings.Contains(response.Body.String(), `"id":"77"`) {
+	if response.Code != http.StatusCreated || !remote.uploaded || filepath.Ext(remote.uploadedPath) != ".png" || !strings.Contains(response.Body.String(), `"id":"77"`) {
 		t.Fatalf("upload = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAPIV1OnlineWriteMapsRemoteErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	remote := &writeRemoteStub{postErr: &client.RemoteAPIError{HTTPStatus: http.StatusUnauthorized, Code: "40003", Message: "登录状态已失效", Endpoint: "/chapi/api/v3/hole/post"}}
+	router := gin.New()
+	Init(router, Dependencies{Posts: service.NewPostService(nil, remote), DataDir: t.TempDir()})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/posts", strings.NewReader(`{"text":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "127.0.0.1:50000"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || response.Header().Get("X-Request-ID") == "" {
+		t.Fatalf("response = %d %s headers=%v", response.Code, response.Body.String(), response.Header())
+	}
+	var failure apiErrorEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil {
+		t.Fatal(err)
+	}
+	if failure.Error.Code != "online_session_expired" || failure.Error.Message != "登录状态已失效" || failure.Error.Details["remote_code"] != "40003" || failure.Error.Details["request_id"] == "" {
+		t.Fatalf("failure = %+v", failure)
+	}
+}
+
+func TestClassifyOnlineWriteErrorMapsRemoteStatuses(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "forbidden", err: &client.RemoteAPIError{HTTPStatus: http.StatusForbidden, Message: "forbidden"}, wantStatus: http.StatusUnauthorized, wantCode: "online_session_expired"},
+		{name: "validation", err: &client.RemoteAPIError{HTTPStatus: http.StatusUnprocessableEntity, Message: "invalid"}, wantStatus: http.StatusUnprocessableEntity, wantCode: "remote_rejected"},
+		{name: "business", err: &client.RemoteAPIError{HTTPStatus: http.StatusOK, Code: "41001", Message: "rejected"}, wantStatus: http.StatusUnprocessableEntity, wantCode: "remote_rejected"},
+		{name: "rate limit", err: &client.RemoteAPIError{HTTPStatus: http.StatusTooManyRequests, Message: "slow down"}, wantStatus: http.StatusTooManyRequests, wantCode: "remote_rate_limited"},
+		{name: "upstream", err: &client.RemoteAPIError{HTTPStatus: http.StatusInternalServerError, Message: "upstream"}, wantStatus: http.StatusBadGateway, wantCode: "publish_failed"},
+		{name: "timeout", err: context.DeadlineExceeded, wantStatus: http.StatusGatewayTimeout, wantCode: "remote_timeout"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			status, code, _, _ := classifyOnlineWriteError(test.err, "publish_failed")
+			if status != test.wantStatus || code != test.wantCode {
+				t.Fatalf("classifyOnlineWriteError() = %d/%s, want %d/%s", status, code, test.wantStatus, test.wantCode)
+			}
+		})
 	}
 }
 
@@ -215,6 +344,10 @@ func TestAPIV1JobLifecycleAndSSEReplay(t *testing.T) {
 	router.ServeHTTP(replay, request)
 	if replay.Code != http.StatusOK || !strings.Contains(replay.Body.String(), "event: queued") || !strings.Contains(replay.Body.String(), "event: cancelled") || !strings.Contains(replay.Body.String(), "id: 1") {
 		t.Fatalf("SSE replay = %d %q", replay.Code, replay.Body.String())
+	}
+	scoped := performRequest(router, http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"type":"sync_pids","payload":{"pids":[123456,123456,234567],"include_comments":true}}`), "application/json")
+	if scoped.Code != http.StatusAccepted || !strings.Contains(scoped.Body.String(), `"scope":{"pids":[123456,234567]}`) || strings.Contains(scoped.Body.String(), "include_comments") {
+		t.Fatalf("safe public job scope = %d %s", scoped.Code, scoped.Body.String())
 	}
 }
 
@@ -330,6 +463,63 @@ func TestAPIV1ArchiveWithNoValidItemsReturnsPreflightWithoutQueue(t *testing.T) 
 	}
 }
 
+func TestAPIV1FileImportRequiresExplicitConfirmationAfterPreflight(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	legacy := `{"holes":[{"pid":123456,"text":"preview first"}],"comments":[[]]}`
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "preview.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte(legacy))
+	_ = writer.Close()
+	preview := performRequest(router, http.MethodPost, "/api/v1/imports/preflight", &body, writer.FormDataContentType())
+	var envelope struct {
+		Data BridgePairing `json:"data"`
+	}
+	if preview.Code != http.StatusOK || json.Unmarshal(preview.Body.Bytes(), &envelope) != nil || envelope.Data.Token == "" || envelope.Data.Preflight == nil || envelope.Data.Status != "awaiting_confirmation" {
+		t.Fatalf("import preview = %d %s", preview.Code, preview.Body.String())
+	}
+	jobsBefore := performRequest(router, http.MethodGet, "/api/v1/jobs?limit=50", nil, "")
+	if jobsBefore.Code != http.StatusOK || !strings.Contains(jobsBefore.Body.String(), `"data":[]`) {
+		t.Fatalf("jobs before confirmation = %d %s", jobsBefore.Code, jobsBefore.Body.String())
+	}
+	confirmed := performRequest(router, http.MethodPost, "/api/v1/imports/preflight/"+envelope.Data.Token+"/confirm", nil, "")
+	if confirmed.Code != http.StatusAccepted || !strings.Contains(confirmed.Body.String(), `"status":"queued"`) || !strings.Contains(confirmed.Body.String(), `"type":"import_archive"`) {
+		t.Fatalf("confirm preview = %d %s", confirmed.Code, confirmed.Body.String())
+	}
+}
+
+func TestAPIV1FileImportKeepsInvalidPreflightVisibleWithoutCreatingJob(t *testing.T) {
+	_, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "empty.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte(`{"holes":[],"comments":[]}`))
+	_ = writer.Close()
+	preview := performRequest(router, http.MethodPost, "/api/v1/imports/preflight", &body, writer.FormDataContentType())
+	var envelope struct {
+		Data BridgePairing `json:"data"`
+	}
+	if preview.Code != http.StatusOK || json.Unmarshal(preview.Body.Bytes(), &envelope) != nil || envelope.Data.Preflight == nil || envelope.Data.Preflight.Counts.ValidItems != 0 || envelope.Data.Status != "awaiting_confirmation" {
+		t.Fatalf("invalid import preview = %d %s", preview.Code, preview.Body.String())
+	}
+	confirmed := performRequest(router, http.MethodPost, "/api/v1/imports/preflight/"+envelope.Data.Token+"/confirm", nil, "")
+	if confirmed.Code != http.StatusConflict || !strings.Contains(confirmed.Body.String(), `archive contains no valid items`) {
+		t.Fatalf("confirm invalid preview = %d %s", confirmed.Code, confirmed.Body.String())
+	}
+	jobsAfter := performRequest(router, http.MethodGet, "/api/v1/jobs?limit=50", nil, "")
+	if jobsAfter.Code != http.StatusOK || !strings.Contains(jobsAfter.Body.String(), `"data":[]`) {
+		t.Fatalf("jobs after invalid confirmation = %d %s", jobsAfter.Code, jobsAfter.Body.String())
+	}
+}
+
 func TestAPIV1ExportsTreeholeV2Archive(t *testing.T) {
 	database, router, cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -343,6 +533,10 @@ func TestAPIV1ExportsTreeholeV2Archive(t *testing.T) {
 	parsed, err := archive.Parse(context.Background(), bytes.NewReader(response.Body.Bytes()), int64(response.Body.Len()))
 	if err != nil || parsed.Counts.ValidItems != 1 || parsed.Counts.Comments != 1 {
 		t.Fatalf("parse exported archive = %+v, %v", parsed, err)
+	}
+	preview := performRequest(router, http.MethodPost, "/api/v1/exports/preview", strings.NewReader(`{"format":"treehole-v2","pids":[123456],"include_comments":true}`), "application/json")
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"posts":1`) || !strings.Contains(preview.Body.String(), `"comments":1`) {
+		t.Fatalf("export preview = %d %s", preview.Code, preview.Body.String())
 	}
 }
 

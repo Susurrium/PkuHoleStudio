@@ -29,6 +29,10 @@ func (*archiveStub) Export(context.Context, io.Writer, service.ArchiveExportRequ
 	return service.ArchiveExportReport{}, nil
 }
 
+func (*archiveStub) Preview(context.Context, service.ArchiveExportRequest) (service.ArchiveExportReport, error) {
+	return service.ArchiveExportReport{}, nil
+}
+
 type aiStub struct{}
 
 func (*aiStub) Run(context.Context, service.AIRequest) (<-chan service.AIEvent, error) {

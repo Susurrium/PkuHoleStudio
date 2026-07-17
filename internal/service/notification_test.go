@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
@@ -11,11 +12,14 @@ type notificationRemoteStub struct {
 	all    models.NotificationType
 }
 
-func (s *notificationRemoteStub) ListNotificationsV3(kind models.NotificationType, page, limit int) ([]models.Notification, int, error) {
+func (s *notificationRemoteStub) ListNotificationsV3Context(_ context.Context, kind models.NotificationType, page, limit int) ([]models.Notification, int, error) {
 	return []models.Notification{{ID: page, Type: kind}}, limit, nil
 }
-func (s *notificationRemoteStub) SetNotificationReadV3(id int) error { s.readID = id; return nil }
-func (s *notificationRemoteStub) SetAllNotificationsReadV3(kind models.NotificationType) error {
+func (s *notificationRemoteStub) SetNotificationReadV3Context(_ context.Context, id int) error {
+	s.readID = id
+	return nil
+}
+func (s *notificationRemoteStub) SetAllNotificationsReadV3Context(_ context.Context, kind models.NotificationType) error {
 	s.all = kind
 	return nil
 }

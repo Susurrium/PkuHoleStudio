@@ -98,6 +98,10 @@ func TestContextOnlyArchivePostsStayOutOfDefaultLibraryQueries(t *testing.T) {
 	if err != nil || len(page.Hits) != 1 || page.Hits[0].Post.Pid != 234567 {
 		t.Fatalf("referenced search = %+v, %v", page, err)
 	}
+	visible, err := database.GetVisiblePostIDs([]int32{123456, 234567, 345678})
+	if err != nil || !visible[123456] || visible[234567] || visible[345678] {
+		t.Fatalf("visible post IDs = %+v, %v", visible, err)
+	}
 
 	if err := database.Transaction(ctx, func(tx archivepkg.Transaction) error {
 		return tx.UpsertSources(ctx, []archivepkg.PostSource{{PID: 234567, Source: "explicit", ArchiveHash: "two"}})
@@ -107,6 +111,10 @@ func TestContextOnlyArchivePostsStayOutOfDefaultLibraryQueries(t *testing.T) {
 	posts, err = database.GetPostsCursor(0, 10, false)
 	if err != nil || len(posts) != 2 {
 		t.Fatalf("promoted posts = %+v, %v", posts, err)
+	}
+	visible, err = database.GetVisiblePostIDs([]int32{123456, 234567})
+	if err != nil || !visible[123456] || !visible[234567] {
+		t.Fatalf("promoted visible post IDs = %+v, %v", visible, err)
 	}
 }
 

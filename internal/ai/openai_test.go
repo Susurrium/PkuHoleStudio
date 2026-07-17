@@ -66,3 +66,25 @@ func TestOpenAIProviderIncludesHTTPFailureBody(t *testing.T) {
 		t.Fatalf("Chat() error = %v", err)
 	}
 }
+
+func TestOpenAIProviderUsesModernCompletionLimitForGPT(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+			t.Error(err)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"model":"gpt-5.6","choices":[{"message":{"role":"assistant","content":"OK"}}]}`))
+	}))
+	defer server.Close()
+	provider, err := NewOpenAIProvider(config.AIProviderConfig{BaseURL: server.URL, Model: "gpt-5.6", RequestTimeout: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(context.Background(), ChatRequest{Messages: []ChatMessage{{Role: "user", Content: "test"}}, MaxOutputTokens: 8192}); err != nil {
+		t.Fatal(err)
+	}
+	if requestBody["max_completion_tokens"] != float64(8192) || requestBody["max_tokens"] != nil {
+		t.Fatalf("GPT token limit payload = %+v", requestBody)
+	}
+}

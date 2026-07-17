@@ -48,7 +48,7 @@ func TestLoadConfigValid(t *testing.T) {
 	if cfg.Database.DBFile != "./treehole.db" {
 		t.Errorf("Database.DBFile = %s, want ./treehole.db", cfg.Database.DBFile)
 	}
-	if cfg.AI.Provider.BaseURL != "https://api.deepseek.com" || cfg.AI.Provider.Model != "deepseek-chat" || cfg.AI.MaxSearchRounds != 5 || cfg.AI.Enabled {
+	if cfg.AI.Provider.BaseURL != "https://api.deepseek.com" || cfg.AI.Provider.Model != "deepseek-chat" || cfg.AI.MaxSearchRounds != 5 || cfg.AI.Enabled || len(cfg.AI.Providers) != 2 || cfg.AI.Providers[1].ID != "openai" || cfg.AI.Providers[1].BaseURL != "https://api.openai.com/v1" || cfg.AI.Providers[1].Model != "gpt-5.6" {
 		t.Errorf("AI defaults = %+v", cfg.AI)
 	}
 }
@@ -366,7 +366,7 @@ func TestSaveConfigAtReplacesCompleteJSON(t *testing.T) {
 func TestNormalizeAIProvidersMigratesLegacyProviderAndSelectsActive(t *testing.T) {
 	ai := AIConfig{Provider: AIProviderConfig{Name: "Legacy", BaseURL: "https://example.test/v1", APIKey: "secret", Model: "legacy-model", MaxOutputTokens: 100, RequestTimeout: 5}}
 	NormalizeAIProviders(&ai)
-	if len(ai.Providers) != 1 || ai.ActiveProvider == "" || ai.Providers[0].APIKey != "secret" || ai.Provider.Model != "legacy-model" {
+	if len(ai.Providers) != 2 || ai.ActiveProvider == "" || ai.Providers[0].APIKey != "secret" || ai.Provider.Model != "legacy-model" || ai.Providers[1].ID != "openai" || ai.ProviderPresetVersion != 1 {
 		t.Fatalf("legacy AI config migration = %+v", ai)
 	}
 	ai.Providers = append(ai.Providers, AIProviderConfig{ID: "local", Name: "Local", BaseURL: "http://127.0.0.1:11434/v1", Model: "qwen", MaxOutputTokens: 10, RequestTimeout: 5})
@@ -374,6 +374,15 @@ func TestNormalizeAIProvidersMigratesLegacyProviderAndSelectsActive(t *testing.T
 	NormalizeAIProviders(&ai)
 	if ai.Provider.ID != "local" || ai.Provider.Model != "qwen" {
 		t.Fatalf("active provider mirror = %+v", ai.Provider)
+	}
+}
+
+func TestNormalizeAIProvidersDoesNotRestoreDeletedPreset(t *testing.T) {
+	ai := DefaultConfig().AI
+	ai.Providers = ai.Providers[:1]
+	NormalizeAIProviders(&ai)
+	if len(ai.Providers) != 1 || ai.Providers[0].ID != "deepseek" {
+		t.Fatalf("deleted preset was unexpectedly restored: %+v", ai.Providers)
 	}
 }
 

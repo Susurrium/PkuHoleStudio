@@ -22,7 +22,7 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	expectedVersion := 4
+	expectedVersion := 13
 	if version != expectedVersion {
 		t.Fatalf("SchemaVersion() = %d, want %d", version, expectedVersion)
 	}
@@ -31,7 +31,9 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 		"sync_runs", "sync_run_items", "import_runs", "post_sources",
 		"local_tags", "post_tags", "notes", "references", "media",
 		"search_history", "ai_sessions", "ai_messages", "ai_sources",
-		"jobs", "job_items", "job_events",
+		"ai_runs", "ai_event_records", "ai_queries", "jobs", "job_items", "job_events",
+		"research_projects", "project_posts",
+		"observer_sync_states", "observer_event_receipts", "post_availability",
 	} {
 		if !database.db.Migrator().HasTable(table) {
 			t.Errorf("new database is missing table %q", table)
@@ -39,6 +41,9 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	}
 	if !database.db.Migrator().HasIndex(&models.Media{}, "idx_media_owner_remote") {
 		t.Fatal("media composite unique index is missing")
+	}
+	if !database.db.Migrator().HasColumn(&models.AIMessage{}, "EvidenceJSON") {
+		t.Fatal("ai_messages evidence_json column is missing")
 	}
 	var mediaIndexColumns []struct{ Name string }
 	if err := database.db.Raw("PRAGMA index_info('idx_media_owner_remote')").Scan(&mediaIndexColumns).Error; err != nil {
@@ -91,7 +96,7 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
 	expectedCount := expectedMigrationCount(t, database)
-	if len(migrations) != expectedCount || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[len(migrations)-1].Version != 4 {
+	if len(migrations) != expectedCount || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[len(migrations)-1].Version != 13 {
 		t.Fatalf("legacy migrations = %+v", migrations)
 	}
 	if migrations[0].Name != "pkuholetui baseline (adopted)" {
@@ -114,9 +119,9 @@ func expectedMigrationCount(t *testing.T, database *Database) int {
 		t.Fatalf("FTS5Available() error = %v", err)
 	}
 	if available {
-		return 4
+		return 13
 	}
-	return 3
+	return 12
 }
 
 func TestMigrationsRejectIncompleteOrIncompatibleLegacySchema(t *testing.T) {

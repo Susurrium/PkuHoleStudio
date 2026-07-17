@@ -20,6 +20,23 @@ type fakePostMediaRepository struct {
 	media []models.Media
 }
 
+type fakePostPresenceRepository struct {
+	*fakeRepository
+	visible map[int32]bool
+	calls   int
+}
+
+func (f *fakePostPresenceRepository) GetVisiblePostIDs(pids []int32) (map[int32]bool, error) {
+	f.calls++
+	result := make(map[int32]bool, len(pids))
+	for _, pid := range pids {
+		if f.visible[pid] {
+			result[pid] = true
+		}
+	}
+	return result, nil
+}
+
 func (f *fakePostMediaRepository) GetMediaByPID(int32) ([]models.Media, error) {
 	return append([]models.Media(nil), f.media...), nil
 }
@@ -145,6 +162,37 @@ func TestPostServiceLiveCursorAndFilters(t *testing.T) {
 	}
 	if page.NextCursor != 2 || !page.HasMore {
 		t.Fatalf("page = %+v", page)
+	}
+}
+
+func TestPostServiceMarksLivePostsAlreadySavedLocally(t *testing.T) {
+	repository := &fakeRepository{posts: []models.Post{{Pid: 10, Text: "saved"}}}
+	remote := &fakeRemote{posts: []models.Post{{Pid: 10}, {Pid: 11}}}
+	service := NewPostService(repository, remote)
+	page, err := service.List(context.Background(), PostQuery{Source: SourceLive, Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(page.Items) != 2 || page.Items[0].LocalState != "saved" || page.Items[1].LocalState != "not_saved" {
+		t.Fatalf("local states = %+v", page.Items)
+	}
+}
+
+func TestPostServiceMarksLivePostsWithOneVisibleLibraryLookup(t *testing.T) {
+	repository := &fakePostPresenceRepository{
+		fakeRepository: &fakeRepository{posts: []models.Post{{Pid: 10}, {Pid: 11}}},
+		visible:        map[int32]bool{10: true},
+	}
+	remote := &fakeRemote{posts: []models.Post{{Pid: 10}, {Pid: 11}}}
+	page, err := NewPostService(repository, remote).List(context.Background(), PostQuery{Source: SourceLive, Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if repository.calls != 1 || len(page.Items) != 2 || page.Items[0].LocalState != "saved" || page.Items[1].LocalState != "not_saved" {
+		t.Fatalf("calls = %d, local states = %+v", repository.calls, page.Items)
+	}
+	if len(repository.postFetchCount) != 0 {
+		t.Fatalf("individual post lookups = %+v", repository.postFetchCount)
 	}
 }
 

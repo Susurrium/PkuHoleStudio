@@ -10,6 +10,7 @@ import (
 func TestSettingsUpdatePreservesWriteOnlySecrets(t *testing.T) {
 	current := config.DefaultConfig()
 	current.AI.Provider.APIKey = "existing-secret"
+	current.AI.Providers[0].APIKey = "existing-secret"
 	current.Password = "account-secret"
 	service := NewSettingsService(&current)
 	var saved *config.Config
@@ -53,6 +54,7 @@ func TestSettingsUpdateValidatesProviderLimits(t *testing.T) {
 func TestSettingsManageMultipleAIProvidersAndPreserveKeys(t *testing.T) {
 	current := config.DefaultConfig()
 	current.AI.Provider.APIKey = "deepseek-secret"
+	current.AI.Providers[0].APIKey = "deepseek-secret"
 	service := NewSettingsService(&current)
 	service.save = func(*config.Config) error { return nil }
 	view, err := service.CreateAIProvider(context.Background(), AIProviderSettingsUpdate{
@@ -62,7 +64,7 @@ func TestSettingsManageMultipleAIProvidersAndPreserveKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.AIProviders) != 2 || view.AIProviders[1].ID != "local-ollama" || view.AIActiveProvider != "deepseek" {
+	if len(view.AIProviders) != 3 || view.AIProviders[2].ID != "local-ollama" || view.AIActiveProvider != "deepseek" {
 		t.Fatalf("providers after create = %+v", view)
 	}
 	view, err = service.ActivateAIProvider(context.Background(), "local-ollama")
@@ -80,8 +82,11 @@ func TestSettingsManageMultipleAIProvidersAndPreserveKeys(t *testing.T) {
 		t.Fatal("updating a provider without an API key erased its existing key")
 	}
 	view, err = service.DeleteAIProvider(context.Background(), "deepseek")
-	if err != nil || len(view.AIProviders) != 1 || view.AIProviders[0].ID != "local-ollama" {
+	if err != nil || len(view.AIProviders) != 2 || view.AIProviders[0].ID != "openai" || view.AIProviders[1].ID != "local-ollama" {
 		t.Fatalf("delete provider = %+v, %v", view, err)
+	}
+	if _, err := service.DeleteAIProvider(context.Background(), "openai"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := service.DeleteAIProvider(context.Background(), "local-ollama"); err == nil {
 		t.Fatal("deleting the final provider unexpectedly succeeded")
