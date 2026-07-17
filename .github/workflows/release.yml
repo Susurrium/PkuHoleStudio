@@ -44,7 +44,9 @@ jobs:
         run: go test -tags sqlite_fts5 ./...
 
   web-e2e:
-    runs-on: ubuntu-latest
+    # Visual baselines are intentionally captured on Windows. Keep the CI
+    # browser platform aligned with the committed *-chromium-win32 snapshots.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,7 +59,7 @@ jobs:
         run: npm ci
       - name: Install browser
         working-directory: web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Run Web end-to-end tests
         working-directory: web
         run: npm run e2e
