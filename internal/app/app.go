@@ -31,6 +31,7 @@ type Options struct {
 	DatabasePath string
 	DisableJobs  bool
 	Archive      service.ArchiveService
+	Observer     *service.ObserverService
 	AI           service.AIService
 	Auth         service.AuthService
 	Jobs         *jobs.Manager
@@ -65,6 +66,7 @@ type App struct {
 	Library       *service.LocalLibraryService
 	Settings      *service.SettingsService
 	Archive       service.ArchiveService
+	Observer      *service.ObserverService
 	AI            service.AIService
 	Auth          service.AuthService
 	Jobs          *jobs.Manager
@@ -172,7 +174,6 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		service.NewTreeholeMediaRemote(application.Client),
 		application.Repository,
 	)
-	application.Dashboard = service.NewDashboardService()
 	application.Notifications = service.NewNotificationService(application.Client)
 	application.Logs = service.NewLogService(application.DataDir)
 	application.Library = service.NewLocalLibraryService(application.Repository)
@@ -183,6 +184,17 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	if application.Archive == nil {
 		application.Archive = archive.NewImporterWithDataDir(application.Repository, application.DataDir)
 	}
+	if options.Observer != nil {
+		application.Observer = options.Observer
+	} else {
+		application.Observer, err = service.NewObserverService(application.Repository, application.Archive, application.DataDir, application.Config.Observer)
+		if err != nil {
+			return nil, fmt.Errorf("create Observer service: %w", err)
+		}
+	}
+	application.Settings.SetObserverRuntimeHook(application.Observer.Configure)
+	application.Dashboard = service.NewDashboardService(application.Observer)
+	application.Dashboard.SetRecentLiveSource(application.Posts)
 	if application.AI == nil {
 		aiConfig := application.Config.AI
 		config.NormalizeAIProviders(&aiConfig)
@@ -262,6 +274,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	application.Observer.Start(ctx)
 	completed = true
 	return application, nil
 }
@@ -282,6 +295,9 @@ func (a *App) Close() error {
 	}
 
 	a.closeOnce.Do(func() {
+		if a.Observer != nil {
+			a.Observer.Close()
+		}
 		var aiErr error
 		if closer, ok := a.AI.(interface{ Close() error }); a.ownership.AI && ok {
 			if err := closer.Close(); err != nil {

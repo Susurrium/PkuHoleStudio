@@ -106,6 +106,83 @@ func (d *Database) schemaMigrations() ([]schemaMigration, error) {
 				return upsertRemoteMediaMetadata(tx, posts, comments)
 			},
 		},
+		{
+			version: 5,
+			name:    "durable ai research scope",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AISession{})
+			},
+		},
+		{
+			version: 6,
+			name:    "persistent ai runs and events",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AIRun{}, &models.AIEventRecord{})
+			},
+		},
+		{
+			version: 7,
+			name:    "ai evidence origin",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AISource{})
+			},
+		},
+		{
+			version: 8,
+			name:    "ai provider identity and run snapshots",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AISession{}, &models.AIMessage{}, &models.AIRun{})
+			},
+		},
+		{
+			version: 9,
+			name:    "deterministic ai message order",
+			apply: func(tx *gorm.DB) error {
+				if err := tx.AutoMigrate(&models.AIMessage{}); err != nil {
+					return err
+				}
+				var rows []models.AIMessage
+				if err := tx.Order("session_id ASC, created_at ASC, CASE WHEN role = 'user' THEN 0 ELSE 1 END ASC, id ASC").Find(&rows).Error; err != nil {
+					return err
+				}
+				ordinals := make(map[string]int64)
+				for _, row := range rows {
+					ordinals[row.SessionID]++
+					if err := tx.Model(&models.AIMessage{}).Where("id = ?", row.ID).Update("ordinal", ordinals[row.SessionID]).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			version: 10,
+			name:    "persistent ai query traces",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AIQuery{})
+			},
+		},
+		{
+			version: 11,
+			name:    "persistent ai claim evidence reports",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.AIMessage{})
+			},
+		},
+		{
+			version: 12,
+			name:    "durable research projects",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.ResearchProject{}, &models.ProjectPost{})
+			},
+		},
+		{
+			version: 13,
+			name:    "observer sync receipts and post availability",
+			apply: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&models.ObserverSyncState{}, &models.ObserverEventReceipt{}, &models.PostAvailability{})
+			},
+		},
 	}
 	if d.dbType == "postgres" {
 		migrations = append(migrations, schemaMigration{

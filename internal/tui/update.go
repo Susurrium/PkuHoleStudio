@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -55,7 +54,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case TickMsg:
-		return m, tickCmd()
+		commands := []tea.Cmd{tickCmd()}
+		if m.Page == PageDashboard && (m.HotRefreshedAt.IsZero() || time.Since(m.HotRefreshedAt) >= 5*time.Minute) {
+			// Record the attempt immediately so an unavailable Observer does not
+			// trigger a new network request on every one-second UI tick.
+			m.HotRefreshedAt = time.Now()
+			commands = append(commands, loadDashboardHotPostsCmd(m.DashboardHot))
+		}
+		return m, tea.Batch(commands...)
 
 	case LoginMsg:
 		if msg.Error != nil {
@@ -228,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LoadDashboardHotPostsMsg:
+		m.HotRefreshedAt = time.Now()
 		m.Dashboard.SetHotPosts(msg.Posts, msg.Error)
 		return m, nil
 
@@ -1492,42 +1499,22 @@ func loadDashboardNotificationsCmd(notifications *service.NotificationService) t
 	}
 }
 
-var dashboardHotPostsEndpoint = "https://treeholestat.dfshfghj.workers.dev/posts"
-
-func buildDashboardHotPostsURL(now int64) string {
-	start := now - int64(12*time.Hour/time.Second)
-	return fmt.Sprintf("%s?limit=5&order_by=likenum&end_time=%d&start_time=%d", dashboardHotPostsEndpoint, now, start)
-}
-
-func loadDashboardHotPostsCmd() tea.Cmd {
+func loadDashboardHotPostsCmd(dashboard DashboardHotPostsOperations) tea.Cmd {
 	return func() tea.Msg {
-		now := time.Now().Unix()
-		url := buildDashboardHotPostsURL(now)
-
-		client := http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(url)
+		if dashboard == nil {
+			return LoadDashboardHotPostsMsg{Error: errors.New("热榜服务未配置")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, err := dashboard.HotPosts(ctx, 5, 12*time.Hour)
 		if err != nil {
 			return LoadDashboardHotPostsMsg{Error: err}
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return LoadDashboardHotPostsMsg{Error: fmt.Errorf("热榜请求失败: HTTP %d", resp.StatusCode)}
+		posts := make([]DashboardHotPost, 0, len(result.Items))
+		for _, item := range result.Items {
+			posts = append(posts, DashboardHotPost{ID: int(item.ID), Text: item.Text, FollowNum: item.FollowNum})
 		}
-
-		var payload struct {
-			Status int                `json:"status"`
-			Data   []DashboardHotPost `json:"data"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return LoadDashboardHotPostsMsg{Error: err}
-		}
-		if payload.Status != 0 && payload.Status != http.StatusOK {
-			return LoadDashboardHotPostsMsg{Error: fmt.Errorf("热榜请求失败: status %d", payload.Status)}
-		}
-		if len(payload.Data) > 5 {
-			payload.Data = payload.Data[:5]
-		}
-		return LoadDashboardHotPostsMsg{Posts: payload.Data}
+		return LoadDashboardHotPostsMsg{Posts: posts}
 	}
 }
 

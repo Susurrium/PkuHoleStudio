@@ -23,6 +23,13 @@ type ReferenceRepository interface {
 	GetReferencesByPID(pid int32) ([]models.ReferenceEdge, error)
 }
 
+// PostPresenceRepository is an optional optimized read boundary used to mark
+// live posts that are already part of the visible local library. Repositories
+// that do not implement it keep working through the single-post fallback.
+type PostPresenceRepository interface {
+	GetVisiblePostIDs(pids []int32) (map[int32]bool, error)
+}
+
 type MediaRepository interface {
 	GetMediaByPID(pid int32) ([]models.Media, error)
 	GetMediaByID(id uint) (*models.Media, error)

@@ -3,15 +3,16 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 type notificationRemote interface {
-	ListNotificationsV3(models.NotificationType, int, int) ([]models.Notification, int, error)
-	SetNotificationReadV3(int) error
-	SetAllNotificationsReadV3(models.NotificationType) error
+	ListNotificationsV3Context(context.Context, models.NotificationType, int, int) ([]models.Notification, int, error)
+	SetNotificationReadV3Context(context.Context, int) error
+	SetAllNotificationsReadV3Context(context.Context, models.NotificationType) error
 }
 
 type NotificationService struct{ remote notificationRemote }
@@ -43,7 +44,7 @@ func (s *NotificationService) List(ctx context.Context, messageType models.Notif
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	items, total, err := s.remote.ListNotificationsV3(messageType, page, limit)
+	items, total, err := s.remote.ListNotificationsV3Context(ctx, messageType, page, limit)
 	return items, total, err
 }
 
@@ -57,7 +58,9 @@ func (s *NotificationService) MarkRead(ctx context.Context, id int) error {
 	if id <= 0 {
 		return errors.New("notification id must be positive")
 	}
-	return s.remote.SetNotificationReadV3(id)
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return s.remote.SetNotificationReadV3Context(writeCtx, id)
 }
 
 func (s *NotificationService) MarkAllRead(ctx context.Context, messageType models.NotificationType) error {
@@ -70,5 +73,7 @@ func (s *NotificationService) MarkAllRead(ctx context.Context, messageType model
 	if messageType != models.NotificationTypeInteractive && messageType != models.NotificationTypeSystem {
 		return errors.New("unsupported notification type")
 	}
-	return s.remote.SetAllNotificationsReadV3(messageType)
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return s.remote.SetAllNotificationsReadV3Context(writeCtx, messageType)
 }

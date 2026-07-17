@@ -316,12 +316,12 @@ func (r *treeholeMediaRemote) DownloadImage(ctx context.Context, id string, pid 
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	return r.client.DownloadImageBinary(id, pid)
+	return r.client.DownloadImageBinaryContext(ctx, id, pid)
 }
 
 func (r *treeholeMediaRemote) DownloadThumbnail(ctx context.Context, id string, pid int32) ([]byte, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	return r.client.DownloadThumbnail(id, pid)
+	return r.client.DownloadThumbnailContext(ctx, id, pid)
 }

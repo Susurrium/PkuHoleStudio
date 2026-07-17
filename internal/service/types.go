@@ -41,6 +41,7 @@ type PostSummary struct {
 	Snippet        string                    `json:"snippet,omitempty"`
 	Score          float64                   `json:"score,omitempty"`
 	CommentMatches []models.CommentSearchHit `json:"comment_matches,omitempty"`
+	LocalState     string                    `json:"local_state"`
 }
 
 type PostPage struct {
@@ -56,6 +57,7 @@ type PostDetail struct {
 	Media             []models.Media   `json:"media"`
 	NextCommentCursor int32            `json:"next_comment_cursor,omitempty"`
 	HasMoreComments   bool             `json:"has_more_comments"`
+	LocalState        string           `json:"local_state"`
 }
 
 // CommentQuery describes a cursor-based comment request. As with PostQuery,

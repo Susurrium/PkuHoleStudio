@@ -128,13 +128,19 @@ func (p *OpenAIProvider) do(ctx context.Context, request ChatRequest, stream boo
 		model = p.model
 	}
 	payload := struct {
-		Model       string           `json:"model"`
-		Messages    []ChatMessage    `json:"messages"`
-		Tools       []ToolDefinition `json:"tools,omitempty"`
-		Temperature float64          `json:"temperature,omitempty"`
-		MaxTokens   int              `json:"max_tokens,omitempty"`
-		Stream      bool             `json:"stream,omitempty"`
-	}{model, request.Messages, request.Tools, request.Temperature, request.MaxOutputTokens, stream}
+		Model               string           `json:"model"`
+		Messages            []ChatMessage    `json:"messages"`
+		Tools               []ToolDefinition `json:"tools,omitempty"`
+		Temperature         float64          `json:"temperature,omitempty"`
+		MaxTokens           int              `json:"max_tokens,omitempty"`
+		MaxCompletionTokens int              `json:"max_completion_tokens,omitempty"`
+		Stream              bool             `json:"stream,omitempty"`
+	}{Model: model, Messages: request.Messages, Tools: request.Tools, Temperature: request.Temperature, Stream: stream}
+	if usesMaxCompletionTokens(p.baseURL, model) {
+		payload.MaxCompletionTokens = request.MaxOutputTokens
+	} else {
+		payload.MaxTokens = request.MaxOutputTokens
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -157,6 +163,14 @@ func (p *OpenAIProvider) do(ctx context.Context, request ChatRequest, stream boo
 		return nil, fmt.Errorf("AI provider returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return response, nil
+}
+
+func usesMaxCompletionTokens(baseURL, model string) bool {
+	baseURL = strings.ToLower(strings.TrimSpace(baseURL))
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(baseURL, "https://api.openai.com/") ||
+		strings.HasPrefix(model, "gpt-5") || strings.HasPrefix(model, "o1") ||
+		strings.HasPrefix(model, "o3") || strings.HasPrefix(model, "o4")
 }
 
 func sendStreamEvent(ctx context.Context, target chan<- StreamEvent, event StreamEvent) bool {

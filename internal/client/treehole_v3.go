@@ -2,14 +2,17 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +22,43 @@ import (
 
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
+
+const maxV3ResponseBytes = 2 << 20
+
+// RemoteAPIError preserves the useful, non-secret part of an upstream API
+// failure so callers can map authentication, validation and rate-limit errors
+// without logging cookies, tokens, request bodies or response HTML.
+type RemoteAPIError struct {
+	Operation  string
+	Endpoint   string
+	HTTPStatus int
+	Code       string
+	Message    string
+}
+
+func (e *RemoteAPIError) Error() string {
+	if e == nil {
+		return "treehole request failed"
+	}
+	detail := e.Message
+	if detail == "" {
+		detail = http.StatusText(e.HTTPStatus)
+	}
+	if detail == "" {
+		detail = "remote request failed"
+	}
+	meta := make([]string, 0, 2)
+	if e.HTTPStatus > 0 {
+		meta = append(meta, fmt.Sprintf("HTTP %d", e.HTTPStatus))
+	}
+	if e.Code != "" {
+		meta = append(meta, "code "+e.Code)
+	}
+	if len(meta) == 0 {
+		return detail
+	}
+	return fmt.Sprintf("%s (%s)", detail, strings.Join(meta, ", "))
+}
 
 const (
 	chapiBaseURL        = "https://treehole.pku.edu.cn/chapi/api"
@@ -217,6 +257,13 @@ func (c *Client) ProbeSession() SessionStatus {
 	return status
 }
 
+// HasWriteCredentials is intentionally a local check. The actual mutation
+// endpoint remains the source of truth; an unrelated read endpoint must not
+// be able to block a write before it is attempted.
+func (c *Client) HasWriteCredentials() bool {
+	return c != nil && c.GetAuthorization() != "" && c.GetXSRFToken() != ""
+}
+
 func ClassifySessionError(err error) SessionFailureKind {
 	var netErr net.Error
 	lower := strings.ToLower(err.Error())
@@ -246,6 +293,10 @@ func ClassifySessionError(err error) SessionFailureKind {
 }
 
 func (c *Client) ListPostsV3(params V3ListPostsParams) ([]models.Post, int, error) {
+	return c.ListPostsV3Context(context.Background(), params)
+}
+
+func (c *Client) ListPostsV3Context(ctx context.Context, params V3ListPostsParams) ([]models.Post, int, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -289,7 +340,7 @@ func (c *Client) ListPostsV3(params V3ListPostsParams) ([]models.Post, int, erro
 			Total int       `json:"total"`
 		} `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodGet, v3HoleListComments, q, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3HoleListComments, q, nil, false, &envelope); err != nil {
 		return nil, 0, err
 	}
 	posts := make([]models.Post, 0, len(envelope.Data.List))
@@ -300,6 +351,10 @@ func (c *Client) ListPostsV3(params V3ListPostsParams) ([]models.Post, int, erro
 }
 
 func (c *Client) ListNotificationsV3(messageType models.NotificationType, page, limit int) ([]models.Notification, int, error) {
+	return c.ListNotificationsV3Context(context.Background(), messageType, page, limit)
+}
+
+func (c *Client) ListNotificationsV3Context(ctx context.Context, messageType models.NotificationType, page, limit int) ([]models.Notification, int, error) {
 	if err := validateNotificationType(messageType); err != nil {
 		return nil, 0, err
 	}
@@ -315,7 +370,7 @@ func (c *Client) ListNotificationsV3(messageType models.NotificationType, page, 
 		"message_type": {string(messageType)},
 	}
 	var envelope notificationEnvelope
-	if err := c.doV3JSON(http.MethodGet, v3MessageIndex, query, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3MessageIndex, query, nil, false, &envelope); err != nil {
 		return nil, 0, err
 	}
 	items := make([]models.Notification, 0, len(envelope.Data.List))
@@ -326,17 +381,25 @@ func (c *Client) ListNotificationsV3(messageType models.NotificationType, page, 
 }
 
 func (c *Client) SetNotificationReadV3(id int) error {
+	return c.SetNotificationReadV3Context(context.Background(), id)
+}
+
+func (c *Client) SetNotificationReadV3Context(ctx context.Context, id int) error {
 	if id <= 0 {
 		return errors.New("notification id must be positive")
 	}
-	return c.doV3JSON(http.MethodPost, v3MessageSetRead, nil, map[string]int{"id": id}, true, nil)
+	return c.doV3JSONContext(ctx, http.MethodPost, v3MessageSetRead, nil, map[string]int{"id": id}, true, nil)
 }
 
 func (c *Client) SetAllNotificationsReadV3(messageType models.NotificationType) error {
+	return c.SetAllNotificationsReadV3Context(context.Background(), messageType)
+}
+
+func (c *Client) SetAllNotificationsReadV3Context(ctx context.Context, messageType models.NotificationType) error {
 	if err := validateNotificationType(messageType); err != nil {
 		return err
 	}
-	return c.doV3JSON(http.MethodPost, v3MessageSetAllRead, nil, map[string]string{
+	return c.doV3JSONContext(ctx, http.MethodPost, v3MessageSetAllRead, nil, map[string]string{
 		"message_type": string(messageType),
 	}, true, nil)
 }
@@ -383,6 +446,10 @@ func parseNotificationPID(value any) int32 {
 }
 
 func (c *Client) GetPostOne(pid int32, commentStream int) (*models.Post, []models.Comment, int, error) {
+	return c.GetPostOneContext(context.Background(), pid, commentStream)
+}
+
+func (c *Client) GetPostOneContext(ctx context.Context, pid int32, commentStream int) (*models.Post, []models.Comment, int, error) {
 	if commentStream == 0 {
 		commentStream = 1
 	}
@@ -396,7 +463,7 @@ func (c *Client) GetPostOne(pid int32, commentStream int) (*models.Post, []model
 			Total int          `json:"total"`
 		} `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodGet, v3HoleOne, q, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3HoleOne, q, nil, false, &envelope); err != nil {
 		return nil, nil, 0, err
 	}
 	post := envelope.Data.Hole.toModel()
@@ -408,12 +475,16 @@ func (c *Client) GetPostOne(pid int32, commentStream int) (*models.Post, []model
 }
 
 func (c *Client) GetPostGet(pid int32) (*models.Post, error) {
+	return c.GetPostGetContext(context.Background(), pid)
+}
+
+func (c *Client) GetPostGetContext(ctx context.Context, pid int32) (*models.Post, error) {
 	q := url.Values{}
 	q.Set("pid", strconv.Itoa(int(pid)))
 	var envelope struct {
 		Data postDTO `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodGet, v3HoleGet, q, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3HoleGet, q, nil, false, &envelope); err != nil {
 		return nil, err
 	}
 	post := envelope.Data.toModel()
@@ -421,8 +492,12 @@ func (c *Client) GetPostGet(pid int32) (*models.Post, error) {
 }
 
 func (c *Client) GetCourseTableV2() ([]models.CourseScheduleRow, error) {
+	return c.GetCourseTableV2Context(context.Background())
+}
+
+func (c *Client) GetCourseTableV2Context(ctx context.Context) ([]models.CourseScheduleRow, error) {
 	var envelope courseTableEnvelope
-	if err := c.doV3JSON(http.MethodGet, chapiCourseTable, nil, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, chapiCourseTable, nil, nil, false, &envelope); err != nil {
 		return nil, err
 	}
 	rows := make([]models.CourseScheduleRow, 0, len(envelope.Data.Course))
@@ -433,8 +508,12 @@ func (c *Client) GetCourseTableV2() ([]models.CourseScheduleRow, error) {
 }
 
 func (c *Client) GetCourseScoresV2() (*models.ScoreSummary, error) {
+	return c.GetCourseScoresV2Context(context.Background())
+}
+
+func (c *Client) GetCourseScoresV2Context(ctx context.Context) (*models.ScoreSummary, error) {
 	var envelope scoreEnvelope
-	if err := c.doV3JSON(http.MethodGet, chapiCourseScore, nil, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, chapiCourseScore, nil, nil, false, &envelope); err != nil {
 		return nil, err
 	}
 	summary := &models.ScoreSummary{
@@ -465,6 +544,10 @@ func (c *Client) GetCourseScoresV2() (*models.ScoreSummary, error) {
 }
 
 func (c *Client) ListCommentsV3(pid int32, page, limit int, sort, commentStream int) ([]models.Comment, int, error) {
+	return c.ListCommentsV3Context(context.Background(), pid, page, limit, sort, commentStream)
+}
+
+func (c *Client) ListCommentsV3Context(ctx context.Context, pid int32, page, limit int, sort, commentStream int) ([]models.Comment, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -483,7 +566,7 @@ func (c *Client) ListCommentsV3(pid int32, page, limit int, sort, commentStream 
 			Total int          `json:"total"`
 		} `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodGet, v3CommentList, q, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3CommentList, q, nil, false, &envelope); err != nil {
 		return nil, 0, err
 	}
 	comments := make([]models.Comment, 0, len(envelope.Data.List))
@@ -494,35 +577,113 @@ func (c *Client) ListCommentsV3(pid int32, page, limit int, sort, commentStream 
 }
 
 func (c *Client) ToggleAttentionV3(pid int32) error {
+	return c.ToggleAttentionV3Context(context.Background(), pid)
+}
+
+func (c *Client) ToggleAttentionV3Context(ctx context.Context, pid int32) error {
 	body := map[string]int32{"pid": pid}
-	return c.doV3JSON(http.MethodPost, v3HoleAttention, nil, body, true, nil)
+	return c.doV3JSONContext(ctx, http.MethodPost, v3HoleAttention, nil, body, true, nil)
 }
 
 func (c *Client) TogglePraiseV3(pid int32) error {
+	return c.TogglePraiseV3Context(context.Background(), pid)
+}
+
+func (c *Client) TogglePraiseV3Context(ctx context.Context, pid int32) error {
 	body := map[string]int32{"pid": pid}
-	return c.doV3JSON(http.MethodPost, v3HolePraise, nil, body, true, nil)
+	return c.doV3JSONContext(ctx, http.MethodPost, v3HolePraise, nil, body, true, nil)
 }
 
 func (c *Client) CreatePostV3(payload CreatePostPayload) (*models.Post, error) {
+	return c.CreatePostV3Context(context.Background(), payload)
+}
+
+func (c *Client) CreatePostV3Context(ctx context.Context, payload CreatePostPayload) (*models.Post, error) {
 	var envelope struct {
-		Data postDTO `json:"data"`
+		Data json.RawMessage `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodPost, v3HolePost, nil, payload, true, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodPost, v3HolePost, nil, payload, true, &envelope); err != nil {
 		return nil, err
 	}
-	post := envelope.Data.toModel()
-	return &post, nil
+	if firstJSONToken(envelope.Data) == '{' {
+		var dto postDTO
+		if err := json.Unmarshal(envelope.Data, &dto); err != nil {
+			return nil, fmt.Errorf("decode created post: %w", err)
+		}
+		post := dto.toModel()
+		return &post, nil
+	}
+	pid, err := positiveInt32ResponseID(envelope.Data, "post id")
+	if err != nil {
+		return nil, err
+	}
+	return &models.Post{Pid: pid, Text: payload.Text, Type: payload.Type, MediaIds: payload.MediaIDs}, nil
 }
 
 func (c *Client) CreateCommentV3(payload CreateCommentPayload) (*models.Comment, error) {
+	return c.CreateCommentV3Context(context.Background(), payload)
+}
+
+func (c *Client) CreateCommentV3Context(ctx context.Context, payload CreateCommentPayload) (*models.Comment, error) {
 	var envelope struct {
-		Data commentDTO `json:"data"`
+		Data json.RawMessage `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodPost, v3CommentPost, nil, payload, true, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodPost, v3CommentPost, nil, payload, true, &envelope); err != nil {
 		return nil, err
 	}
-	comment := envelope.Data.toModel()
-	return &comment, nil
+	if firstJSONToken(envelope.Data) == '{' {
+		var dto commentDTO
+		if err := json.Unmarshal(envelope.Data, &dto); err != nil {
+			return nil, fmt.Errorf("decode created comment: %w", err)
+		}
+		comment := dto.toModel()
+		return &comment, nil
+	}
+	cid, err := positiveInt32ResponseID(envelope.Data, "comment id")
+	if err != nil {
+		return nil, err
+	}
+	return &models.Comment{Cid: cid, Pid: payload.PID, Text: payload.Text, MediaIds: payload.MediaIDs}, nil
+}
+
+func firstJSONToken(raw json.RawMessage) byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0
+	}
+	return trimmed[0]
+}
+
+// The current Treehole write endpoints return the newly-created PID/CID as a
+// bare JSON number. Older deployments returned the whole object, and a few
+// mirrors have returned the ID as a JSON string, so accept all three shapes.
+func positiveInt32ResponseID(raw json.RawMessage, name string) (int32, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return 0, fmt.Errorf("create response missing %s", name)
+	}
+	var number json.Number
+	if firstJSONToken(trimmed) == '"' {
+		var value string
+		if err := json.Unmarshal(trimmed, &value); err != nil {
+			return 0, fmt.Errorf("decode create response %s: %w", name, err)
+		}
+		number = json.Number(strings.TrimSpace(value))
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(trimmed))
+		decoder.UseNumber()
+		if err := decoder.Decode(&number); err != nil {
+			return 0, fmt.Errorf("decode create response %s: %w", name, err)
+		}
+	}
+	value, err := strconv.ParseInt(number.String(), 10, 32)
+	if err != nil || value <= 0 {
+		if err == nil {
+			err = errors.New("id must be positive")
+		}
+		return 0, fmt.Errorf("invalid create response %s %q: %w", name, number.String(), err)
+	}
+	return int32(value), nil
 }
 
 func (c *Client) CreateCommentV3WithQuote(pid int32, text string, quoteID *int32) (*models.Comment, error) {
@@ -534,6 +695,10 @@ func (c *Client) CreateCommentV3WithQuote(pid int32, text string, quoteID *int32
 }
 
 func (c *Client) UploadImageV3(path string) (string, error) {
+	return c.UploadImageV3Context(context.Background(), path)
+}
+
+func (c *Client) UploadImageV3Context(ctx context.Context, path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -542,7 +707,17 @@ func (c *Client) UploadImageV3(path string) (string, error) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	// The official web client posts the image in the multipart field named
+	// "data". The legacy client used "file", which the current API rejects
+	// with business code 40001 even though the image bytes are otherwise valid.
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", multipart.FileContentDisposition("data", filepath.Base(path)))
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = "application/octet-stream"
+	}
+	partHeader.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(partHeader)
 	if err != nil {
 		return "", err
 	}
@@ -558,7 +733,7 @@ func (c *Client) UploadImageV3(path string) (string, error) {
 			ID int `json:"id"`
 		} `json:"data"`
 	}
-	if err := c.doV3Multipart(http.MethodPost, v3MediaUploadImage, writer.FormDataContentType(), &body, &envelope); err != nil {
+	if err := c.doV3MultipartContext(ctx, http.MethodPost, v3MediaUploadImage, writer.FormDataContentType(), &body, &envelope); err != nil {
 		return "", err
 	}
 	if envelope.Data.ID <= 0 {
@@ -568,39 +743,58 @@ func (c *Client) UploadImageV3(path string) (string, error) {
 }
 
 func (c *Client) GetTagsTreeV3() ([]models.Tag, error) {
+	return c.GetTagsTreeV3Context(context.Background())
+}
+
+func (c *Client) GetTagsTreeV3Context(ctx context.Context) ([]models.Tag, error) {
 	var envelope struct {
 		Data struct {
 			List interface{} `json:"list"`
 		} `json:"data"`
 	}
-	if err := c.doV3JSON(http.MethodGet, v3TagsTree, nil, nil, false, &envelope); err != nil {
+	if err := c.doV3JSONContext(ctx, http.MethodGet, v3TagsTree, nil, nil, false, &envelope); err != nil {
 		return nil, err
 	}
 	return flattenTags(envelope.Data.List, 0), nil
 }
 
 func (c *Client) DownloadImageBinary(id string, pid int32) ([]byte, error) {
+	return c.DownloadImageBinaryContext(context.Background(), id, pid)
+}
+
+func (c *Client) DownloadImageBinaryContext(ctx context.Context, id string, pid int32) ([]byte, error) {
 	q := url.Values{}
 	if id != "" {
 		q.Set("id", id)
 	} else {
 		q.Set("pid", strconv.Itoa(int(pid)))
 	}
-	return c.doV3Binary(http.MethodGet, v3MediaBinary, q)
+	return c.doV3BinaryContext(ctx, http.MethodGet, v3MediaBinary, q)
 }
 
 func (c *Client) DownloadThumbnail(id string, pid int32) ([]byte, error) {
+	return c.DownloadThumbnailContext(context.Background(), id, pid)
+}
+
+func (c *Client) DownloadThumbnailContext(ctx context.Context, id string, pid int32) ([]byte, error) {
 	q := url.Values{}
 	if id != "" {
 		q.Set("id", id)
 	} else {
 		q.Set("pid", strconv.Itoa(int(pid)))
 	}
-	return c.doV3Binary(http.MethodGet, v3MediaThumbnail, q)
+	return c.doV3BinaryContext(ctx, http.MethodGet, v3MediaThumbnail, q)
 }
 
 func (c *Client) doV3Binary(method, endpoint string, query url.Values) ([]byte, error) {
-	req, err := http.NewRequest(method, endpoint, nil)
+	return c.doV3BinaryContext(context.Background(), method, endpoint, query)
+}
+
+func (c *Client) doV3BinaryContext(ctx context.Context, method, endpoint string, query url.Values) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -613,13 +807,24 @@ func (c *Client) doV3Binary(method, endpoint string, query url.Values) ([]byte, 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("v3 request failed with status: %d", resp.StatusCode)
+	payload, err := readBoundedV3Response(resp.Body)
+	if err != nil {
+		return nil, err
 	}
-	return io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, newRemoteAPIError(method, endpoint, resp.StatusCode, payload)
+	}
+	return payload, nil
 }
 
 func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interface{}, write bool, out interface{}) error {
+	return c.doV3JSONContext(context.Background(), method, endpoint, query, body, write, out)
+}
+
+func (c *Client) doV3JSONContext(ctx context.Context, method, endpoint string, query url.Values, body interface{}, write bool, out interface{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -628,7 +833,7 @@ func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interf
 		}
 		reader = bytes.NewReader(payload)
 	}
-	req, err := http.NewRequest(method, endpoint, reader)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
 	if err != nil {
 		return err
 	}
@@ -644,14 +849,14 @@ func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interf
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("v3 request failed with status: %d", resp.StatusCode)
-	}
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readBoundedV3Response(resp.Body)
 	if err != nil {
 		return err
 	}
-	if err := verifyV3Success(bodyBytes); err != nil {
+	if resp.StatusCode != http.StatusOK {
+		return newRemoteAPIError(method, endpoint, resp.StatusCode, bodyBytes)
+	}
+	if err := verifyV3SuccessForRequest(method, endpoint, resp.StatusCode, bodyBytes); err != nil {
 		return err
 	}
 	if out != nil {
@@ -663,7 +868,14 @@ func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interf
 }
 
 func (c *Client) doV3Multipart(method, endpoint, contentType string, body io.Reader, out interface{}) error {
-	req, err := http.NewRequest(method, endpoint, body)
+	return c.doV3MultipartContext(context.Background(), method, endpoint, contentType, body, out)
+}
+
+func (c *Client) doV3MultipartContext(ctx context.Context, method, endpoint, contentType string, body io.Reader, out interface{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return err
 	}
@@ -674,14 +886,14 @@ func (c *Client) doV3Multipart(method, endpoint, contentType string, body io.Rea
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("v3 request failed with status: %d", resp.StatusCode)
-	}
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readBoundedV3Response(resp.Body)
 	if err != nil {
 		return err
 	}
-	if err := verifyV3Success(bodyBytes); err != nil {
+	if resp.StatusCode != http.StatusOK {
+		return newRemoteAPIError(method, endpoint, resp.StatusCode, bodyBytes)
+	}
+	if err := verifyV3SuccessForRequest(method, endpoint, resp.StatusCode, bodyBytes); err != nil {
 		return err
 	}
 	if out != nil {
@@ -693,18 +905,80 @@ func (c *Client) doV3Multipart(method, endpoint, contentType string, body io.Rea
 }
 
 func verifyV3Success(payload []byte) error {
-	var envelope map[string]interface{}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
+	return verifyV3SuccessForRequest("", "", http.StatusOK, payload)
+}
+
+func verifyV3SuccessForRequest(method, endpoint string, status int, payload []byte) error {
+	code, message, failed, err := parseV3Envelope(payload)
+	if err != nil {
 		return err
 	}
-	if code, ok := envelope["code"].(float64); ok && code != 20000 {
-		message, _ := envelope["message"].(string)
-		if message == "" {
-			message = fmt.Sprintf("code=%v", code)
-		}
-		return fmt.Errorf("api error: %s", message)
+	if !failed {
+		return nil
 	}
-	return nil
+	return &RemoteAPIError{Operation: method, Endpoint: remoteEndpointPath(endpoint), HTTPStatus: status, Code: code, Message: message}
+}
+
+func newRemoteAPIError(method, endpoint string, status int, payload []byte) error {
+	code, message, _, _ := parseV3Envelope(payload)
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	return &RemoteAPIError{Operation: method, Endpoint: remoteEndpointPath(endpoint), HTTPStatus: status, Code: code, Message: message}
+}
+
+func parseV3Envelope(payload []byte) (code, message string, failed bool, err error) {
+	var envelope map[string]json.RawMessage
+	if err = json.Unmarshal(payload, &envelope); err != nil {
+		return "", "", false, err
+	}
+	if raw, ok := envelope["message"]; ok {
+		_ = json.Unmarshal(raw, &message)
+		message = sanitizeRemoteMessage(message)
+	}
+	rawCode, ok := envelope["code"]
+	if !ok {
+		return "", message, false, nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(rawCode, &number); err == nil {
+		code = number.String()
+	} else {
+		_ = json.Unmarshal(rawCode, &code)
+	}
+	failed = code != "" && code != "20000"
+	if failed && message == "" {
+		message = "Treehole rejected the request"
+	}
+	return code, message, failed, nil
+}
+
+func sanitizeRemoteMessage(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	const maxLength = 500
+	if len(message) > maxLength {
+		message = message[:maxLength] + "…"
+	}
+	return message
+}
+
+func remoteEndpointPath(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err == nil && parsed.Path != "" {
+		return parsed.Path
+	}
+	return endpoint
+}
+
+func readBoundedV3Response(reader io.Reader) ([]byte, error) {
+	payload, err := io.ReadAll(io.LimitReader(reader, maxV3ResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > maxV3ResponseBytes {
+		return nil, errors.New("treehole response exceeded the safety limit")
+	}
+	return payload, nil
 }
 
 func (c *Client) applyV3Headers(req *http.Request, write bool) {

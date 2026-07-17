@@ -463,6 +463,28 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 }
 
 // GetCommentsByPidCursor 游标分页获取评论列表
+// GetVisiblePostIDs returns only posts that belong to the user's visible local
+// library. Context-only rows are intentionally excluded until another source
+// promotes them into the library.
+func (d *Database) GetVisiblePostIDs(pids []int32) (map[int32]bool, error) {
+	visible := make(map[int32]bool)
+	if len(pids) == 0 {
+		return visible, nil
+	}
+	var ids []int32
+	err := d.db.Model(&models.Post{}).
+		Where(visibleLibraryPostSQL).
+		Where("pid IN ?", pids).
+		Pluck("pid", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, pid := range ids {
+		visible[pid] = true
+	}
+	return visible, nil
+}
+
 func (d *Database) GetCommentsByPidCursor(pid int32, cursor int32, limit int, sortAsc bool) ([]models.Comment, error) {
 	var comments []models.Comment
 	query := d.db.Model(&models.Comment{}).Preload("Quote").Where("pid = ?", pid)

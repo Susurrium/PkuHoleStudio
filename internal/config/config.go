@@ -67,12 +67,26 @@ type AIProviderConfig struct {
 }
 
 type AIConfig struct {
-	Enabled         bool               `json:"enabled"`
-	AllowLiveSearch bool               `json:"allow_live_search"`
-	MaxSearchRounds int                `json:"max_search_rounds"`
-	ActiveProvider  string             `json:"active_provider,omitempty"`
-	Providers       []AIProviderConfig `json:"providers,omitempty"`
-	Provider        AIProviderConfig   `json:"provider"`
+	Enabled               bool               `json:"enabled"`
+	AllowLiveSearch       bool               `json:"allow_live_search"`
+	MaxSearchRounds       int                `json:"max_search_rounds"`
+	ActiveProvider        string             `json:"active_provider,omitempty"`
+	ProviderPresetVersion int                `json:"provider_preset_version,omitempty"`
+	Providers             []AIProviderConfig `json:"providers,omitempty"`
+	Provider              AIProviderConfig   `json:"provider"`
+}
+
+// ObserverConfig configures the optional self-hosted Observer service. The API
+// token is persisted locally, but must only ever be exposed as a configured
+// boolean by higher-level settings APIs.
+type ObserverConfig struct {
+	Enabled          bool   `json:"enabled"`
+	BaseURL          string `json:"base_url"`
+	APIToken         string `json:"api_token,omitempty"`
+	RequestTimeout   int    `json:"request_timeout_seconds"`
+	AutoSyncOnStart  bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins int    `json:"sync_interval_minutes"`
+	SyncBeforeExport bool   `json:"sync_before_export"`
 }
 
 type Config struct {
@@ -83,6 +97,7 @@ type Config struct {
 	Database   DatabaseConfig `json:"database"`
 	Cors       CorsConfig     `json:"cors"`
 	AI         AIConfig       `json:"ai"`
+	Observer   ObserverConfig `json:"observer"`
 }
 
 func resolveRuntimePaths() (runtimePaths, error) {
@@ -268,6 +283,7 @@ func LoadConfig() (*Config, error) {
 		config.AI.Provider.RequestTimeout = aiDefaults.Provider.RequestTimeout
 	}
 	NormalizeAIProviders(&config.AI)
+	NormalizeObserver(&config.Observer)
 
 	if config.DeviceUUID == "" {
 		config.DeviceUUID = generateDeviceUUID()
@@ -369,6 +385,11 @@ func (c *Config) HasTOTPSecret() bool {
 }
 
 func DefaultConfig() Config {
+	deepSeek := AIProviderConfig{
+		ID: "deepseek", Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat",
+		Temperature: 0.2, MaxOutputTokens: 4096, RequestTimeout: 120,
+	}
+	openAI := defaultOpenAIProvider()
 	return Config{
 		Username:   "",
 		Password:   "",
@@ -391,14 +412,43 @@ func DefaultConfig() Config {
 			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		},
 		AI: AIConfig{
-			Enabled:         false,
-			AllowLiveSearch: false,
-			MaxSearchRounds: 5,
-			Provider: AIProviderConfig{
-				ID: "deepseek", Name: "DeepSeek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat",
-				Temperature: 0.2, MaxOutputTokens: 4096, RequestTimeout: 120,
-			},
+			Enabled: false, AllowLiveSearch: false, MaxSearchRounds: 5,
+			ActiveProvider: "deepseek", ProviderPresetVersion: 1,
+			Providers: []AIProviderConfig{deepSeek, openAI}, Provider: deepSeek,
 		},
+		Observer: ObserverConfig{
+			RequestTimeout: 15, AutoSyncOnStart: true, SyncIntervalMins: 5, SyncBeforeExport: true,
+		},
+	}
+}
+
+// NormalizeObserver fills defaults for legacy configuration files that did
+// not yet contain an Observer section. Explicit booleans are retained once a
+// section has any configured value.
+func NormalizeObserver(observer *ObserverConfig) {
+	if observer == nil {
+		return
+	}
+	legacyEmpty := observer.RequestTimeout == 0 && observer.SyncIntervalMins == 0 &&
+		strings.TrimSpace(observer.BaseURL) == "" && strings.TrimSpace(observer.APIToken) == ""
+	if observer.RequestTimeout <= 0 {
+		observer.RequestTimeout = 15
+	}
+	if observer.SyncIntervalMins <= 0 {
+		observer.SyncIntervalMins = 5
+	}
+	if legacyEmpty {
+		observer.AutoSyncOnStart = true
+		observer.SyncBeforeExport = true
+	}
+	observer.BaseURL = strings.TrimRight(strings.TrimSpace(observer.BaseURL), "/")
+	observer.APIToken = strings.TrimSpace(observer.APIToken)
+}
+
+func defaultOpenAIProvider() AIProviderConfig {
+	return AIProviderConfig{
+		ID: "openai", Name: "OpenAI GPT", BaseURL: "https://api.openai.com/v1", Model: "gpt-5.6",
+		Temperature: 0, MaxOutputTokens: 8192, RequestTimeout: 180,
 	}
 }
 
@@ -415,6 +465,19 @@ func NormalizeAIProviders(ai *AIConfig) {
 	}
 	if len(ai.Providers) == 0 {
 		ai.Providers = []AIProviderConfig{ai.Provider}
+	}
+	if ai.ProviderPresetVersion < 1 {
+		hasOpenAI := false
+		for _, provider := range ai.Providers {
+			if strings.EqualFold(strings.TrimSpace(provider.ID), "openai") || strings.EqualFold(strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/"), "https://api.openai.com/v1") {
+				hasOpenAI = true
+				break
+			}
+		}
+		if !hasOpenAI {
+			ai.Providers = append(ai.Providers, defaultOpenAIProvider())
+		}
+		ai.ProviderPresetVersion = 1
 	}
 	seen := make(map[string]bool)
 	result := make([]AIProviderConfig, 0, len(ai.Providers))

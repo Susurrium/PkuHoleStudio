@@ -32,13 +32,14 @@ var (
 )
 
 type rawItem struct {
-	PID           string                 `json:"pid"`
-	Source        string                 `json:"source"`
-	Hole          json.RawMessage        `json:"hole"`
-	Comments      []json.RawMessage      `json:"comments"`
-	FetchStatus   string                 `json:"fetchStatus"`
-	Studio        StudioMetadata         `json:"studioMetadata,omitempty"`
-	StudioSources []PortableStudioSource `json:"studioSources,omitempty"`
+	PID           string                     `json:"pid"`
+	Source        string                     `json:"source"`
+	Hole          json.RawMessage            `json:"hole"`
+	Comments      []json.RawMessage          `json:"comments"`
+	FetchStatus   string                     `json:"fetchStatus"`
+	Studio        StudioMetadata             `json:"studioMetadata,omitempty"`
+	StudioSources []PortableStudioSource     `json:"studioSources,omitempty"`
+	Extensions    map[string]json.RawMessage `json:"extensions,omitempty"`
 	shapeError    string
 }
 
@@ -291,6 +292,14 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 			continue
 		}
 		record := Record{PID: pid, Source: item.Source, FetchStatus: item.FetchStatus, Post: post, ContextOnly: item.Source == "referenced", Studio: sanitizeStudioMetadata(item.Studio)}
+		if rawAvailability, ok := item.Extensions[ArchiveExtensionAvailability]; ok {
+			availability, availabilityErr := decodeAvailabilityMetadata(rawAvailability)
+			if availabilityErr != nil {
+				report.Issues = append(report.Issues, issueWithPID(SeverityWarning, "invalid_availability", availabilityErr.Error(), itemPath+".extensions."+ArchiveExtensionAvailability, pid))
+			} else {
+				record.Availability = &availability
+			}
+		}
 		seenStudioSources := map[string]bool{}
 		studioSources := item.StudioSources
 		if len(studioSources) > 16 {
@@ -378,6 +387,37 @@ func validateItems(ctx context.Context, format Format, hash, runID string, items
 	recountMedia(&report)
 	finalizeReport(&report)
 	return report
+}
+
+func decodeAvailabilityMetadata(raw json.RawMessage) (AvailabilityMetadata, error) {
+	var value AvailabilityMetadata
+	if !jsonObject(raw) {
+		return value, errors.New("availability extension must be an object")
+	}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return value, errors.New("availability extension is invalid")
+	}
+	value.State = strings.TrimSpace(value.State)
+	switch value.State {
+	case "active", "suspected_unavailable", "confirmed_unavailable", "restored":
+	default:
+		return value, errors.New("availability state is invalid")
+	}
+	for name, timestamp := range map[string]string{
+		"observedAt": value.ObservedAt, "firstUnavailableAt": value.FirstUnavailableAt,
+		"lastUnavailableAt": value.LastUnavailableAt, "restoredAt": value.RestoredAt,
+	} {
+		if timestamp == "" && name != "observedAt" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, timestamp); err != nil {
+			return value, fmt.Errorf("availability %s must be RFC3339", name)
+		}
+	}
+	if len(value.Completeness) > 32 || len(value.SnapshotID) > 128 || len(value.ObserverID) > 64 || len(value.RemoteInstanceID) > 128 {
+		return value, errors.New("availability extension contains an oversized identifier")
+	}
+	return value, nil
 }
 
 func decodeArchiveMedia(data []byte, entries map[string][]byte, records []Record) ([]MediaRecord, []Issue) {

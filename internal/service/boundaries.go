@@ -26,6 +26,7 @@ const (
 type ArchiveService interface {
 	Preflight(ctx context.Context, reader io.ReaderAt, size int64) (ArchivePreflight, error)
 	Import(ctx context.Context, reader io.ReaderAt, size int64) (ArchiveImportReport, error)
+	Preview(ctx context.Context, request ArchiveExportRequest) (ArchiveExportReport, error)
 	Export(ctx context.Context, writer io.Writer, request ArchiveExportRequest) (ArchiveExportReport, error)
 }
 
@@ -33,14 +34,24 @@ type AIRequest struct {
 	SessionID string
 	Mode      string
 	Prompt    string
-	PIDs      []int32
-	Course    string
-	Teachers  []string
+	// ReplaceScope makes the supplied scope authoritative, including empty
+	// filters. Without it, omitted fields keep the session's durable scope for
+	// backwards-compatible callers.
+	ReplaceScope bool
+	PIDs         []int32
+	Course       string
+	Teachers     []string
+	From         int64
+	To           int64
+	TagIDs       []uint
+	Origins      []string
+	HasMedia     *bool
 }
 
 type AIEvent struct {
-	Type string
-	Data any
+	Sequence int64 `json:"sequence,omitempty"`
+	Type     string
+	Data     any
 }
 
 // AIService is intentionally provider-neutral. Phase 4 supplies the concrete

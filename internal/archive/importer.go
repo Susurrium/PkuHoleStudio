@@ -64,6 +64,7 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 	comments := make([]models.Comment, 0, preflight.Counts.Comments)
 	sources := make([]PostSource, 0, len(preflight.records))
 	references := make([]Reference, 0, preflight.Counts.References)
+	availability := make([]AvailabilityRecord, 0, len(preflight.records))
 	for _, record := range preflight.records {
 		sources = append(sources, record.StudioSources...)
 		sources = append(sources, PostSource{
@@ -73,6 +74,9 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 		references = append(references, record.References...)
 		posts = append(posts, record.Post)
 		comments = append(comments, record.Comments...)
+		if record.Availability != nil {
+			availability = append(availability, AvailabilityRecord{PID: record.PID, AvailabilityMetadata: *record.Availability})
+		}
 	}
 	media, createdFiles, err := i.persistArchiveMedia(ctx, preflight.media)
 	if err != nil {
@@ -110,6 +114,11 @@ func (i *Importer) Import(ctx context.Context, reader io.ReaderAt, size int64) (
 		}
 		if metadata, ok := tx.(LocalMetadataTransaction); ok {
 			if err := metadata.MergeLocalMetadata(ctx, preflight.records); err != nil {
+				return err
+			}
+		}
+		if availabilityStore, ok := tx.(AvailabilityTransaction); ok {
+			if err := availabilityStore.UpsertAvailability(ctx, availability); err != nil {
 				return err
 			}
 		}

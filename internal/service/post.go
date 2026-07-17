@@ -155,6 +155,10 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 	} else {
 		media = liveMedia(post, comments.Items)
 	}
+	localState := "saved"
+	if query.Source == SourceLive {
+		localState = s.localState(pid)
+	}
 	return PostDetail{
 		Post:              *post,
 		Comments:          comments.Items,
@@ -162,6 +166,7 @@ func (s *PostService) Get(ctx context.Context, pid int32, query CommentQuery) (P
 		Media:             media,
 		NextCommentCursor: comments.NextCursor,
 		HasMoreComments:   comments.HasMore,
+		LocalState:        localState,
 	}, nil
 }
 
@@ -409,6 +414,20 @@ func (s *PostService) CanWrite(ctx context.Context, source string) bool {
 	return err == nil && canWrite
 }
 
+// RecentLivePosts returns a bounded, unenriched online timeline page for
+// dashboard fallbacks. It avoids the extra mentioned-post lookups used by the
+// full browsing view.
+func (s *PostService) RecentLivePosts(ctx context.Context, limit int) ([]models.Post, error) {
+	if err := s.requireRemote(ctx); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	posts, _, err := s.remote.ListPosts(ctx, RemoteListQuery{Page: 1, Limit: limit, CommentLimit: 0, CommentStream: 1})
+	return posts, err
+}
+
 func (s *PostService) TogglePraise(ctx context.Context, pid int32, source string) error {
 	if normalizeSource(source) != SourceLive {
 		return errLiveOnly
@@ -548,7 +567,11 @@ func (s *PostService) listLocal(ctx context.Context, query PostQuery, parsed Par
 		return PostPage{}, err
 	}
 	s.enrichPosts(ctx, posts, SourceLocal)
-	return PostPage{Items: summarizePosts(posts), NextCursor: postCursor(posts, orderField), HasMore: len(posts) == query.Limit}, contextError(ctx)
+	items := summarizePosts(posts)
+	for i := range items {
+		items[i].LocalState = "saved"
+	}
+	return PostPage{Items: items, NextCursor: postCursor(posts, orderField), HasMore: len(posts) == query.Limit}, contextError(ctx)
 }
 
 func (s *PostService) listLive(ctx context.Context, query PostQuery, parsed ParsedPostQuery) (PostPage, error) {
@@ -576,7 +599,57 @@ func (s *PostService) listLive(ctx context.Context, query PostQuery, parsed Pars
 		posts = filterPostsWithMedia(posts, *query.HasMedia)
 	}
 	s.enrichPosts(ctx, posts, SourceLive)
-	return PostPage{Items: summarizePosts(posts), NextCursor: page, HasMore: page*query.Limit < total}, contextError(ctx)
+	items := summarizePosts(posts)
+	s.markLocalStates(items)
+	return PostPage{Items: items, NextCursor: page, HasMore: page*query.Limit < total}, contextError(ctx)
+}
+
+func (s *PostService) localState(pid int32) string {
+	if s == nil || s.repository == nil || pid <= 0 {
+		return "not_saved"
+	}
+	if repository, ok := s.repository.(PostPresenceRepository); ok {
+		visible, err := repository.GetVisiblePostIDs([]int32{pid})
+		if err == nil && visible[pid] {
+			return "saved"
+		}
+		return "not_saved"
+	}
+	post, err := s.repository.GetPostByPid(pid)
+	if err == nil && post != nil && post.Pid == pid {
+		return "saved"
+	}
+	return "not_saved"
+}
+
+func (s *PostService) markLocalStates(items []PostSummary) {
+	if len(items) == 0 {
+		return
+	}
+	if s != nil && s.repository != nil {
+		if repository, ok := s.repository.(PostPresenceRepository); ok {
+			pids := make([]int32, 0, len(items))
+			for _, item := range items {
+				if item.Pid > 0 {
+					pids = append(pids, item.Pid)
+				}
+			}
+			visible, err := repository.GetVisiblePostIDs(pids)
+			if err == nil {
+				for i := range items {
+					if visible[items[i].Pid] {
+						items[i].LocalState = "saved"
+					} else {
+						items[i].LocalState = "not_saved"
+					}
+				}
+				return
+			}
+		}
+	}
+	for i := range items {
+		items[i].LocalState = s.localState(items[i].Pid)
+	}
 }
 
 func (s *PostService) enrichPosts(ctx context.Context, posts []models.Post, source string) {

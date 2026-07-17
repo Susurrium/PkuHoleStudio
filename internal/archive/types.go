@@ -31,11 +31,12 @@ type ExportReport struct {
 }
 
 type ExportRecord struct {
-	Post     models.Post
-	Comments []models.Comment
-	Sources  []models.PostSource
-	Media    []models.Media
-	Studio   StudioMetadata
+	Post         models.Post
+	Comments     []models.Comment
+	Sources      []models.PostSource
+	Media        []models.Media
+	Studio       StudioMetadata
+	Availability *AvailabilityMetadata
 }
 
 type PortableLocalTag struct {
@@ -51,11 +52,27 @@ type StudioMetadata struct {
 	CommentNotes map[string]string  `json:"commentNotes,omitempty"`
 }
 
+// AvailabilityMetadata is the portable v1 representation of Observer state.
+// RFC3339 strings keep the archive contract independent from a database/time
+// library and allow older readers to ignore the optional item extension.
+type AvailabilityMetadata struct {
+	State              string `json:"state"`
+	ObservedAt         string `json:"observedAt"`
+	FirstUnavailableAt string `json:"firstUnavailableAt,omitempty"`
+	LastUnavailableAt  string `json:"lastUnavailableAt,omitempty"`
+	RestoredAt         string `json:"restoredAt,omitempty"`
+	Completeness       string `json:"completeness,omitempty"`
+	SnapshotID         string `json:"snapshotId,omitempty"`
+	ObserverID         string `json:"observerId,omitempty"`
+	RemoteInstanceID   string `json:"remoteInstanceId,omitempty"`
+}
+
 type ExportStore interface {
 	ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]ExportRecord, error)
 }
 
 type Exporter interface {
+	Preview(ctx context.Context, request ExportRequest) (ExportReport, error)
 	Export(ctx context.Context, writer io.Writer, request ExportRequest) (ExportReport, error)
 }
 
@@ -181,6 +198,7 @@ type Record struct {
 	References    []Reference
 	Studio        StudioMetadata
 	StudioSources []PostSource
+	Availability  *AvailabilityMetadata
 }
 
 // MediaRecord is the portable representation used by Studio's backward-
@@ -248,4 +266,13 @@ type Transaction interface {
 
 type LocalMetadataTransaction interface {
 	MergeLocalMetadata(ctx context.Context, records []Record) error
+}
+
+type AvailabilityRecord struct {
+	PID int32
+	AvailabilityMetadata
+}
+
+type AvailabilityTransaction interface {
+	UpsertAvailability(ctx context.Context, records []AvailabilityRecord) error
 }

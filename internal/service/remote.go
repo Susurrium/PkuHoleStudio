@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
@@ -101,7 +102,7 @@ func (r *TreeholeRemote) ListPosts(ctx context.Context, query RemoteListQuery) (
 	if r == nil || r.client == nil {
 		return nil, 0, errRemoteUnavailable
 	}
-	return r.client.ListPostsV3(client.V3ListPostsParams{
+	return r.client.ListPostsV3Context(ctx, client.V3ListPostsParams{
 		Page:          query.Page,
 		Limit:         query.Limit,
 		CommentLimit:  query.CommentLimit,
@@ -121,7 +122,7 @@ func (r *TreeholeRemote) GetPost(ctx context.Context, pid int32) (*models.Post, 
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.GetPostGet(pid)
+	return r.client.GetPostGetContext(ctx, pid)
 }
 
 func (r *TreeholeRemote) ListComments(ctx context.Context, pid int32, query RemoteCommentQuery) ([]models.Comment, int, error) {
@@ -131,7 +132,7 @@ func (r *TreeholeRemote) ListComments(ctx context.Context, pid int32, query Remo
 	if r == nil || r.client == nil {
 		return nil, 0, errRemoteUnavailable
 	}
-	return r.client.ListCommentsV3(pid, query.Page, query.Limit, query.Sort, query.Stream)
+	return r.client.ListCommentsV3Context(ctx, pid, query.Page, query.Limit, query.Sort, query.Stream)
 }
 
 func (r *TreeholeRemote) ListTags(ctx context.Context) ([]models.Tag, error) {
@@ -141,7 +142,7 @@ func (r *TreeholeRemote) ListTags(ctx context.Context) ([]models.Tag, error) {
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.GetTagsTreeV3()
+	return r.client.GetTagsTreeV3Context(ctx)
 }
 
 func (r *TreeholeRemote) GetCourseTable(ctx context.Context) ([]models.CourseScheduleRow, error) {
@@ -151,7 +152,7 @@ func (r *TreeholeRemote) GetCourseTable(ctx context.Context) ([]models.CourseSch
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.GetCourseTableV2()
+	return r.client.GetCourseTableV2Context(ctx)
 }
 
 func (r *TreeholeRemote) GetCourseScores(ctx context.Context) (*models.ScoreSummary, error) {
@@ -161,7 +162,7 @@ func (r *TreeholeRemote) GetCourseScores(ctx context.Context) (*models.ScoreSumm
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.GetCourseScoresV2()
+	return r.client.GetCourseScoresV2Context(ctx)
 }
 
 func (r *TreeholeRemote) RefreshPost(ctx context.Context, pid int32) (*models.Post, error) {
@@ -171,7 +172,7 @@ func (r *TreeholeRemote) RefreshPost(ctx context.Context, pid int32) (*models.Po
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.GetPostGet(pid)
+	return r.client.GetPostGetContext(ctx, pid)
 }
 
 func (r *TreeholeRemote) TogglePraise(ctx context.Context, pid int32) error {
@@ -181,7 +182,9 @@ func (r *TreeholeRemote) TogglePraise(ctx context.Context, pid int32) error {
 	if r == nil || r.client == nil {
 		return errRemoteUnavailable
 	}
-	return r.client.TogglePraiseV3(pid)
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return r.client.TogglePraiseV3Context(writeCtx, pid)
 }
 
 func (r *TreeholeRemote) ToggleAttention(ctx context.Context, pid int32) error {
@@ -191,7 +194,9 @@ func (r *TreeholeRemote) ToggleAttention(ctx context.Context, pid int32) error {
 	if r == nil || r.client == nil {
 		return errRemoteUnavailable
 	}
-	return r.client.ToggleAttentionV3(pid)
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return r.client.ToggleAttentionV3Context(writeCtx, pid)
 }
 
 func (r *TreeholeRemote) UploadImage(ctx context.Context, path string) (string, error) {
@@ -201,7 +206,9 @@ func (r *TreeholeRemote) UploadImage(ctx context.Context, path string) (string, 
 	if r == nil || r.client == nil {
 		return "", errRemoteUnavailable
 	}
-	return r.client.UploadImageV3(path)
+	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	return r.client.UploadImageV3Context(writeCtx, path)
 }
 
 func (r *TreeholeRemote) CreatePost(ctx context.Context, request CreatePostRequest) (*models.Post, error) {
@@ -211,7 +218,9 @@ func (r *TreeholeRemote) CreatePost(ctx context.Context, request CreatePostReque
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.CreatePostV3(client.CreatePostPayload{
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return r.client.CreatePostV3Context(writeCtx, client.CreatePostPayload{
 		Type:         request.Type,
 		Kind:         request.Kind,
 		RewardCost:   request.RewardCost,
@@ -233,7 +242,9 @@ func (r *TreeholeRemote) CreateComment(ctx context.Context, request CreateCommen
 	if r == nil || r.client == nil {
 		return nil, errRemoteUnavailable
 	}
-	return r.client.CreateCommentV3(client.CreateCommentPayload{
+	writeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return r.client.CreateCommentV3Context(writeCtx, client.CreateCommentPayload{
 		PID:          request.PID,
 		CommentID:    commentIDString(request.QuoteID),
 		Text:         request.Text,
@@ -250,7 +261,7 @@ func (r *TreeholeRemote) CanWrite(ctx context.Context) (bool, error) {
 	if r == nil || r.client == nil {
 		return false, errRemoteUnavailable
 	}
-	return r.client.ProbeSession().CanWriteOnline, nil
+	return r.client.HasWriteCredentials(), nil
 }
 
 func commentIDString(id *int32) *string {

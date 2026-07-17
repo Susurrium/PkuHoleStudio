@@ -251,6 +251,13 @@ type SyncOperations interface {
 	SaveRawResponses(context.Context) error
 }
 
+// DashboardHotPostsOperations is the shared application service used by the
+// TUI dashboard. Keeping this boundary narrow prevents the TUI from carrying
+// a second Observer HTTP client (and its bearer token) alongside the Web API.
+type DashboardHotPostsOperations interface {
+	HotPosts(context.Context, int, time.Duration) (service.HotPostsResult, error)
+}
+
 type Model struct {
 	Page      Page
 	Width     int
@@ -262,6 +269,7 @@ type Model struct {
 	Home           HomePageModel
 	PostsService   *service.PostService
 	SyncOperations SyncOperations
+	DashboardHot   DashboardHotPostsOperations
 	Client         *client.Client
 	Notifications  *service.NotificationService
 	Config         *config.Config
@@ -286,6 +294,7 @@ type Model struct {
 
 	ToastMsg       string
 	ToastExpiresAt time.Time
+	HotRefreshedAt time.Time
 
 	LeaderPending bool
 	CommandActive bool
@@ -320,6 +329,10 @@ func NewModel(posts *service.PostService, syncOperations SyncOperations, client 
 		Session:        session,
 		Posts:          NewPostsPageModel(),
 		Dashboard:      NewDashboardModel(),
+		// Init immediately starts the first hot-post request. Treat that as a
+		// refresh attempt so the one-second UI tick cannot enqueue a duplicate
+		// request before the response arrives.
+		HotRefreshedAt: time.Now(),
 		ToolsDialog:    NewToolsDialog(cfg),
 		ImageDialog:    NewImageDialog(),
 		SessionDialog:  sessionDialog,
@@ -339,7 +352,7 @@ func (m Model) Init() tea.Cmd {
 			return LoginMsg{Username: username}
 		},
 		loadDashboardNotificationsCmd(m.Notifications),
-		loadDashboardHotPostsCmd(),
+		loadDashboardHotPostsCmd(m.DashboardHot),
 		tickCmd(),
 	)
 }

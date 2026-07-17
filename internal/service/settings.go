@@ -70,13 +70,109 @@ type SettingsUpdate struct {
 	ClearAIAPIKey     bool    `json:"clear_ai_api_key,omitempty"`
 }
 
+type ObserverSettingsView struct {
+	Enabled            bool   `json:"enabled"`
+	BaseURL            string `json:"base_url"`
+	APITokenConfigured bool   `json:"api_token_configured"`
+	RequestTimeout     int    `json:"request_timeout_seconds"`
+	AutoSyncOnStart    bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins   int    `json:"sync_interval_minutes"`
+	SyncBeforeExport   bool   `json:"sync_before_export"`
+}
+
+type ObserverSettingsUpdate struct {
+	Enabled          bool   `json:"enabled"`
+	BaseURL          string `json:"base_url"`
+	APIToken         string `json:"api_token,omitempty"`
+	ClearAPIToken    bool   `json:"clear_api_token,omitempty"`
+	RequestTimeout   int    `json:"request_timeout_seconds"`
+	AutoSyncOnStart  bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins int    `json:"sync_interval_minutes"`
+	SyncBeforeExport bool   `json:"sync_before_export"`
+}
+
 type SettingsService struct {
-	mu          sync.Mutex
-	config      *config.Config
-	dataDir     string
-	save        func(*config.Config) error
-	onAIChanged func(config.AIConfig) error
-	runtimeInfo func() (string, string)
+	mu                sync.Mutex
+	config            *config.Config
+	dataDir           string
+	save              func(*config.Config) error
+	onAIChanged       func(config.AIConfig) error
+	onObserverChanged func(config.ObserverConfig) error
+	runtimeInfo       func() (string, string)
+}
+
+func (s *SettingsService) SetObserverRuntimeHook(onChanged func(config.ObserverConfig) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onObserverChanged = onChanged
+}
+
+func (s *SettingsService) GetObserver(ctx context.Context) (ObserverSettingsView, error) {
+	if err := contextError(ctx); err != nil {
+		return ObserverSettingsView{}, err
+	}
+	if s == nil {
+		return ObserverSettingsView{}, errors.New("settings are unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.config == nil {
+		return ObserverSettingsView{}, errors.New("settings are unavailable")
+	}
+	return observerSettingsView(s.config.Observer), nil
+}
+
+func (s *SettingsService) UpdateObserver(ctx context.Context, update ObserverSettingsUpdate) (ObserverSettingsView, error) {
+	if err := contextError(ctx); err != nil {
+		return ObserverSettingsView{}, err
+	}
+	if s == nil {
+		return ObserverSettingsView{}, errors.New("settings are unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.config == nil || s.save == nil {
+		return ObserverSettingsView{}, errors.New("settings are unavailable")
+	}
+	previous := s.config.Observer
+	nextObserver := config.ObserverConfig{
+		Enabled: update.Enabled, BaseURL: strings.TrimRight(strings.TrimSpace(update.BaseURL), "/"),
+		APIToken: previous.APIToken, RequestTimeout: update.RequestTimeout,
+		AutoSyncOnStart: update.AutoSyncOnStart, SyncIntervalMins: update.SyncIntervalMins,
+		SyncBeforeExport: update.SyncBeforeExport,
+	}
+	if update.ClearAPIToken {
+		nextObserver.APIToken = ""
+	} else if strings.TrimSpace(update.APIToken) != "" {
+		nextObserver.APIToken = strings.TrimSpace(update.APIToken)
+	}
+	config.NormalizeObserver(&nextObserver)
+	if err := ValidateObserverConfig(nextObserver); err != nil {
+		return ObserverSettingsView{}, err
+	}
+	next := *s.config
+	next.Observer = nextObserver
+	if err := s.save(&next); err != nil {
+		return ObserverSettingsView{}, err
+	}
+	if s.onObserverChanged != nil {
+		if err := s.onObserverChanged(nextObserver); err != nil {
+			_ = s.save(s.config)
+			_ = s.onObserverChanged(previous)
+			return ObserverSettingsView{}, fmt.Errorf("apply Observer settings: %w", err)
+		}
+	}
+	*s.config = next
+	return observerSettingsView(nextObserver), nil
+}
+
+func observerSettingsView(value config.ObserverConfig) ObserverSettingsView {
+	config.NormalizeObserver(&value)
+	return ObserverSettingsView{
+		Enabled: value.Enabled, BaseURL: value.BaseURL, APITokenConfigured: value.APIToken != "",
+		RequestTimeout: value.RequestTimeout, AutoSyncOnStart: value.AutoSyncOnStart,
+		SyncIntervalMins: value.SyncIntervalMins, SyncBeforeExport: value.SyncBeforeExport,
+	}
 }
 
 func NewSettingsService(current *config.Config, dataDirs ...string) *SettingsService {

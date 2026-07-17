@@ -118,6 +118,7 @@ func runTUI() error {
 	}
 
 	model := tui.NewModel(application.Posts, application.Sync, application.Client, application.Config, session)
+	model.DashboardHot = application.Dashboard
 	model.Images = tui.NewKittyImageRenderer()
 	opts := []tea.ProgramOption{}
 

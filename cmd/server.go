@@ -87,6 +87,7 @@ func serverDependencies(application *app.App) server.Dependencies {
 		Search:        application.Search,
 		Media:         application.Media,
 		Dashboard:     application.Dashboard,
+		Observer:      application.Observer,
 		Notifications: application.Notifications,
 		Logs:          application.Logs,
 		Library:       application.Library,

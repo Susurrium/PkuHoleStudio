@@ -60,6 +60,15 @@ func (d *Database) ArchiveExportSnapshot(ctx context.Context, pids []int32) ([]a
 			records[index].Sources = append(records[index].Sources, source)
 		}
 	}
+	var availabilityRows []models.PostAvailability
+	if err := d.db.WithContext(ctx).Where("pid IN ?", matchedPIDs).Find(&availabilityRows).Error; err != nil {
+		return nil, err
+	}
+	for _, availability := range availabilityRows {
+		if index, ok := indexByPID[availability.PID]; ok {
+			records[index].Availability = portableAvailability(availability)
+		}
+	}
 	var media []models.Media
 	if err := d.db.WithContext(ctx).Where("(owner_type = ? AND owner_id IN ?) OR (owner_type = ? AND owner_id IN (SELECT cid FROM comments WHERE pid IN ?))", "post", matchedPIDs, "comment", matchedPIDs).Order("owner_type ASC, owner_id ASC, variant ASC").Find(&media).Error; err != nil {
 		return nil, err
@@ -162,11 +171,130 @@ func (d *Database) Transaction(ctx context.Context, fn func(archivepkg.Transacti
 
 type archiveTransaction struct{ tx *gorm.DB }
 
+func portableAvailability(row models.PostAvailability) *archivepkg.AvailabilityMetadata {
+	value := &archivepkg.AvailabilityMetadata{
+		State: row.State, ObservedAt: row.ObservedAt.UTC().Format(time.RFC3339),
+		Completeness: row.Completeness, SnapshotID: row.SnapshotID,
+		ObserverID: row.ObserverID, RemoteInstanceID: row.RemoteInstanceID,
+	}
+	if row.FirstUnavailableAt != nil {
+		value.FirstUnavailableAt = row.FirstUnavailableAt.UTC().Format(time.RFC3339)
+	}
+	if row.LastUnavailableAt != nil {
+		value.LastUnavailableAt = row.LastUnavailableAt.UTC().Format(time.RFC3339)
+	}
+	if row.RestoredAt != nil {
+		value.RestoredAt = row.RestoredAt.UTC().Format(time.RFC3339)
+	}
+	return value
+}
+
+func (a *archiveTransaction) UpsertAvailability(ctx context.Context, records []archivepkg.AvailabilityRecord) error {
+	for _, record := range records {
+		observedAt, err := time.Parse(time.RFC3339, record.ObservedAt)
+		if err != nil {
+			return err
+		}
+		row := models.PostAvailability{
+			PID: record.PID, State: record.State, ObservedAt: observedAt.UTC(),
+			Completeness: record.Completeness, SnapshotID: record.SnapshotID,
+			ObserverID: record.ObserverID, RemoteInstanceID: record.RemoteInstanceID,
+			UpdatedAt: time.Now().UTC(),
+		}
+		if row.Completeness == "" {
+			row.Completeness = "unknown"
+		}
+		if row.ObserverID == "" {
+			row.ObserverID = "archive"
+		}
+		if row.RemoteInstanceID == "" {
+			row.RemoteInstanceID = "archive"
+		}
+		parseOptional := func(raw string) (*time.Time, error) {
+			if raw == "" {
+				return nil, nil
+			}
+			parsed, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				return nil, err
+			}
+			parsed = parsed.UTC()
+			return &parsed, nil
+		}
+		if row.FirstUnavailableAt, err = parseOptional(record.FirstUnavailableAt); err != nil {
+			return err
+		}
+		if row.LastUnavailableAt, err = parseOptional(record.LastUnavailableAt); err != nil {
+			return err
+		}
+		if row.RestoredAt, err = parseOptional(record.RestoredAt); err != nil {
+			return err
+		}
+		var current models.PostAvailability
+		err = a.tx.WithContext(ctx).Where("pid = ?", row.PID).First(&current).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := a.tx.WithContext(ctx).Create(&row).Error; err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if row.ObservedAt.Before(current.ObservedAt) {
+			continue
+		}
+		if current.FirstUnavailableAt != nil && (row.FirstUnavailableAt == nil || current.FirstUnavailableAt.Before(*row.FirstUnavailableAt)) {
+			row.FirstUnavailableAt = current.FirstUnavailableAt
+		}
+		if row.State == "restored" {
+			if row.LastUnavailableAt == nil {
+				row.LastUnavailableAt = current.LastUnavailableAt
+			}
+			if row.SnapshotID == "" {
+				row.SnapshotID = current.SnapshotID
+			}
+		} else if row.State == "confirmed_unavailable" {
+			row.RestoredAt = nil
+		}
+		if row.Completeness == "" {
+			row.Completeness = current.Completeness
+		}
+		updates := map[string]any{
+			"state": row.State, "observed_at": row.ObservedAt, "first_unavailable_at": row.FirstUnavailableAt,
+			"last_unavailable_at": row.LastUnavailableAt, "restored_at": row.RestoredAt,
+			"observer_id": row.ObserverID, "remote_instance_id": row.RemoteInstanceID,
+			"completeness": row.Completeness, "snapshot_id": row.SnapshotID, "updated_at": row.UpdatedAt,
+		}
+		if err := a.tx.WithContext(ctx).Model(&models.PostAvailability{}).Where("pid = ?", row.PID).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *archiveTransaction) UpsertPosts(ctx context.Context, posts []models.Post) error {
 	if len(posts) == 0 {
 		return nil
 	}
 	sanitizePosts(posts)
+	pids := make([]int32, 0, len(posts))
+	for _, post := range posts {
+		pids = append(pids, post.Pid)
+	}
+	var existing []models.Post
+	if err := a.tx.WithContext(ctx).Where("pid IN ?", pids).Find(&existing).Error; err != nil {
+		return err
+	}
+	byPID := make(map[int32]models.Post, len(existing))
+	for _, post := range existing {
+		byPID[post.Pid] = post
+	}
+	for index := range posts {
+		if current, ok := byPID[posts[index].Pid]; ok {
+			mergeArchivePost(&posts[index], current)
+		}
+	}
 	return a.tx.WithContext(ctx).Omit("Comments").Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "pid"}},
 		UpdateAll: true,
@@ -178,10 +306,109 @@ func (a *archiveTransaction) UpsertComments(ctx context.Context, comments []mode
 		return nil
 	}
 	sanitizeComments(comments)
+	cids := make([]int32, 0, len(comments))
+	for _, comment := range comments {
+		cids = append(cids, comment.Cid)
+	}
+	var existing []models.Comment
+	if err := a.tx.WithContext(ctx).Where("cid IN ?", cids).Find(&existing).Error; err != nil {
+		return err
+	}
+	byCID := make(map[int32]models.Comment, len(existing))
+	for _, comment := range existing {
+		byCID[comment.Cid] = comment
+	}
+	for index := range comments {
+		if current, ok := byCID[comments[index].Cid]; ok {
+			mergeArchiveComment(&comments[index], current)
+		}
+	}
 	return a.tx.WithContext(ctx).Omit("Quote").Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "cid"}},
 		UpdateAll: true,
 	}).CreateInBatches(comments, 100).Error
+}
+
+// Archive imports may come from older or partial captures. Preserve fields
+// that carry real content when an incoming sparse record omits them, and keep
+// monotonic engagement counters from moving backwards.
+func mergeArchivePost(incoming *models.Post, current models.Post) {
+	if incoming.Text == "" {
+		incoming.Text = current.Text
+	}
+	if incoming.Type == "" {
+		incoming.Type = current.Type
+	}
+	if incoming.Timestamp == 0 {
+		incoming.Timestamp = current.Timestamp
+	}
+	if incoming.TagsIds == "" {
+		incoming.TagsIds = current.TagsIds
+	}
+	if incoming.AutoTagsIds == "" {
+		incoming.AutoTagsIds = current.AutoTagsIds
+	}
+	if incoming.MgrTagsIds == "" {
+		incoming.MgrTagsIds = current.MgrTagsIds
+	}
+	if incoming.MediaIds == "" {
+		incoming.MediaIds = current.MediaIds
+	}
+	if incoming.IdentityType == "" {
+		incoming.IdentityType = current.IdentityType
+	}
+	if incoming.IdentityInfo == "" {
+		incoming.IdentityInfo = current.IdentityInfo
+	}
+	if incoming.ExclusiveIdInfo == "" {
+		incoming.ExclusiveIdInfo = current.ExclusiveIdInfo
+	}
+	if incoming.Mention == "" {
+		incoming.Mention = current.Mention
+	}
+	if incoming.ImageSize == "" {
+		incoming.ImageSize = current.ImageSize
+	}
+	incoming.Reply = max(incoming.Reply, current.Reply)
+	incoming.Likenum = max(incoming.Likenum, current.Likenum)
+	incoming.PraiseNum = max(incoming.PraiseNum, current.PraiseNum)
+	incoming.PraiseNumShow = max(incoming.PraiseNumShow, current.PraiseNumShow)
+	incoming.TreadNum = max(incoming.TreadNum, current.TreadNum)
+	incoming.FoldNum = max(incoming.FoldNum, current.FoldNum)
+}
+
+func mergeArchiveComment(incoming *models.Comment, current models.Comment) {
+	if incoming.Pid == 0 {
+		incoming.Pid = current.Pid
+	}
+	if incoming.Text == "" {
+		incoming.Text = current.Text
+	}
+	if incoming.Timestamp == 0 {
+		incoming.Timestamp = current.Timestamp
+	}
+	if incoming.IdentityType == "" {
+		incoming.IdentityType = current.IdentityType
+	}
+	if incoming.IdentityInfo == "" {
+		incoming.IdentityInfo = current.IdentityInfo
+	}
+	if incoming.ExclusiveIdInfo == "" {
+		incoming.ExclusiveIdInfo = current.ExclusiveIdInfo
+	}
+	if incoming.Mention == "" {
+		incoming.Mention = current.Mention
+	}
+	if incoming.NameTag == "" {
+		incoming.NameTag = current.NameTag
+	}
+	if incoming.MediaIds == "" {
+		incoming.MediaIds = current.MediaIds
+	}
+	if incoming.QuoteID == nil {
+		incoming.QuoteID = current.QuoteID
+	}
+	incoming.RewardGood = max(incoming.RewardGood, current.RewardGood)
 }
 
 func (a *archiveTransaction) UpsertSources(ctx context.Context, sources []archivepkg.PostSource) error {

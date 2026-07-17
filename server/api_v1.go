@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -46,6 +47,7 @@ type publicJob struct {
 	Type           jobs.Type       `json:"type"`
 	Status         jobs.Status     `json:"status"`
 	Checkpoint     json.RawMessage `json:"checkpoint,omitempty"`
+	Scope          *publicJobScope `json:"scope,omitempty"`
 	CompletedItems int             `json:"completed_items"`
 	FailedItems    int             `json:"failed_items"`
 	TotalItems     int             `json:"total_items"`
@@ -55,6 +57,10 @@ type publicJob struct {
 	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type publicJobScope struct {
+	PIDs []int32 `json:"pids,omitempty"`
 }
 
 func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
@@ -95,14 +101,34 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/local-tags", apiCreateLocalTag(dependencies))
 	group.PATCH("/local-tags/:id", apiUpdateLocalTag(dependencies))
 	group.DELETE("/local-tags/:id", apiDeleteLocalTag(dependencies))
+	group.POST("/posts/batch/tags", apiAddPostTags(dependencies))
 	group.GET("/posts/:pid/tags", apiPostTags(dependencies))
 	group.PUT("/posts/:pid/tags", apiSetPostTags(dependencies))
+	group.GET("/projects", apiResearchProjects(dependencies))
+	group.POST("/projects", apiCreateResearchProject(dependencies))
+	group.PATCH("/projects/:id", apiUpdateResearchProject(dependencies))
+	group.DELETE("/projects/:id", apiDeleteResearchProject(dependencies))
+	group.GET("/projects/:id/posts", apiResearchProjectPosts(dependencies))
+	group.POST("/projects/:id/posts/remove", apiRemoveResearchProjectPosts(dependencies))
+	group.POST("/posts/batch/projects", apiAddPostsToProjects(dependencies))
+	group.GET("/posts/:pid/projects", apiPostProjects(dependencies))
+	group.PUT("/posts/:pid/projects", apiSetPostProjects(dependencies))
 	group.GET("/posts/:pid/note", apiPostNote(dependencies))
 	group.PUT("/posts/:pid/note", apiSavePostNote(dependencies))
 	group.GET("/comments/:cid/note", apiCommentNote(dependencies))
 	group.PUT("/comments/:cid/note", apiSaveCommentNote(dependencies))
 	group.GET("/settings", apiSettings(dependencies))
 	group.PUT("/settings", apiUpdateSettings(dependencies))
+	group.GET("/settings/observer", apiObserverSettings(dependencies))
+	group.PUT("/settings/observer", apiUpdateObserverSettings(dependencies))
+	group.POST("/settings/observer/test", apiTestObserverSettings(dependencies))
+	group.GET("/observer/status", apiObserverStatus(dependencies))
+	group.POST("/observer/sync", apiObserverSync(dependencies))
+	group.POST("/observer/auth/challenge/submit", apiObserverSubmitChallenge(dependencies))
+	group.POST("/observer/auth/challenge/resend", apiObserverResendChallenge(dependencies))
+	group.POST("/observer/auth/retry", apiObserverRetryAuth(dependencies))
+	group.GET("/removed", apiObserverRemoved(dependencies))
+	group.GET("/removed/:pid", apiObserverRemovedDetail(dependencies))
 	group.POST("/settings/ai/providers", apiCreateAIProviderSetting(dependencies))
 	group.PATCH("/settings/ai/providers/:id", apiUpdateAIProviderSetting(dependencies))
 	group.DELETE("/settings/ai/providers/:id", apiDeleteAIProviderSetting(dependencies))
@@ -119,9 +145,13 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/jobs/:id/retry", apiJobAction(dependencies, "retry"))
 
 	group.POST("/imports", apiCreateImport(dependencies))
+	group.POST("/imports/preflight", apiPreflightImport(dependencies))
+	group.POST("/imports/preflight/:token/confirm", apiConfirmImportPreflight(dependencies))
+	group.POST("/imports/preflight/:token/cancel", apiCancelImportPreflight(dependencies))
 	group.GET("/imports", apiImports(dependencies))
 	group.GET("/imports/:id", apiImport(dependencies))
 	group.POST("/exports", apiCreateExport(dependencies))
+	group.POST("/exports/preview", apiExportPreview(dependencies))
 	group.GET("/exports/jobs", apiExportJobs(dependencies))
 	group.POST("/exports/jobs", apiCreateExportJob(dependencies))
 	group.GET("/exports/:id/download", apiDownloadExport(dependencies))
@@ -252,9 +282,10 @@ func apiNotificationRead(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		if err := dependencies.Notifications.MarkRead(c.Request.Context(), id); err != nil {
-			apiFailure(c, http.StatusBadGateway, "notification_update_failed", err.Error(), nil)
+			apiOnlineWriteFailure(c, "notification_mark_read", "notification_update_failed", err, 0, 0)
 			return
 		}
+		logOnlineWrite(c, "notification_mark_read", http.StatusOK, nil, 0, 0)
 		apiRespond(c, http.StatusOK, gin.H{"id": id, "read": true})
 	}
 }
@@ -274,9 +305,10 @@ func apiNotificationsReadAll(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		if err := dependencies.Notifications.MarkAllRead(c.Request.Context(), kind); err != nil {
-			apiFailure(c, http.StatusBadGateway, "notification_update_failed", err.Error(), nil)
+			apiOnlineWriteFailure(c, "notification_mark_all_read", "notification_update_failed", err, 0, 0)
 			return
 		}
+		logOnlineWrite(c, "notification_mark_all_read", http.StatusOK, nil, 0, 0)
 		apiRespond(c, http.StatusOK, gin.H{"type": kind, "read": true})
 	}
 }
@@ -512,6 +544,231 @@ func apiSetPostTags(dependencies Dependencies) gin.HandlerFunc {
 		}
 		apiRespond(c, http.StatusOK, rows)
 	}
+}
+
+func apiAddPostTags(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		PIDs   []int32 `json:"pids"`
+		TagIDs []uint  `json:"tag_ids"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if err := dependencies.Library.AddPostTags(c.Request.Context(), body.PIDs, body.TagIDs); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"updated": len(uniqueInt32s(body.PIDs))})
+	}
+}
+
+type researchProjectRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+}
+
+func apiResearchProjects(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		rows, err := dependencies.Library.Projects(c.Request.Context())
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiCreateResearchProject(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		var body researchProjectRequest
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.CreateProject(c.Request.Context(), body.Name, body.Description, body.Color)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusCreated, row)
+	}
+}
+
+func apiUpdateResearchProject(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		id, ok := positiveUintParam(c, "id", "project id")
+		if !ok {
+			return
+		}
+		var body researchProjectRequest
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		row, err := dependencies.Library.UpdateProject(c.Request.Context(), id, body.Name, body.Description, body.Color)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, row)
+	}
+}
+
+func apiDeleteResearchProject(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		id, ok := positiveUintParam(c, "id", "project id")
+		if !ok {
+			return
+		}
+		if err := dependencies.Library.DeleteProject(c.Request.Context(), id); err != nil {
+			apiFailure(c, http.StatusBadRequest, "delete_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func apiResearchProjectPosts(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		id, ok := positiveUintParam(c, "id", "project id")
+		if !ok {
+			return
+		}
+		rows, err := dependencies.Library.ProjectPosts(c.Request.Context(), id)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiRemoveResearchProjectPosts(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		PIDs []int32 `json:"pids"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		id, ok := positiveUintParam(c, "id", "project id")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		updated, err := dependencies.Library.RemovePostsFromProject(c.Request.Context(), body.PIDs, id)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"updated": updated})
+	}
+}
+
+func apiPostProjects(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		rows, err := dependencies.Library.PostProjects(c.Request.Context(), pid)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiSetPostProjects(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		ProjectIDs []uint `json:"project_ids"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		pid, ok := positiveInt32Param(c, "pid")
+		if !ok {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if err := dependencies.Library.SetPostProjects(c.Request.Context(), pid, body.ProjectIDs); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		rows, err := dependencies.Library.PostProjects(c.Request.Context(), pid)
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "query_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, rows)
+	}
+}
+
+func apiAddPostsToProjects(dependencies Dependencies) gin.HandlerFunc {
+	type request struct {
+		PIDs       []int32 `json:"pids"`
+		ProjectIDs []uint  `json:"project_ids"`
+	}
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireLibrary(c, dependencies) {
+			return
+		}
+		var body request
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		if err := dependencies.Library.AddPostsToProjects(c.Request.Context(), body.PIDs, body.ProjectIDs); err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"updated": len(uniqueInt32s(body.PIDs))})
+	}
+}
+
+func uniqueInt32s(values []int32) []int32 {
+	result := make([]int32, 0, len(values))
+	seen := make(map[int32]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func apiPostNote(dependencies Dependencies) gin.HandlerFunc {
@@ -870,9 +1127,10 @@ func apiSendSessionSMS(dependencies Dependencies) gin.HandlerFunc {
 
 func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
-		Format          string  `json:"format"`
-		PIDs            []int32 `json:"pids,omitempty"`
-		IncludeComments *bool   `json:"include_comments,omitempty"`
+		Format                   string  `json:"format"`
+		PIDs                     []int32 `json:"pids,omitempty"`
+		IncludeComments          *bool   `json:"include_comments,omitempty"`
+		SyncObserverBeforeExport *bool   `json:"sync_observer_before_export,omitempty"`
 	}
 	return func(c *gin.Context) {
 		if dependencies.Archive == nil {
@@ -911,6 +1169,9 @@ func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
 		if body.IncludeComments != nil {
 			includeComments = *body.IncludeComments
 		}
+		if !syncObserverBeforeExport(c, dependencies, body.SyncObserverBeforeExport) {
+			return
+		}
 		exportDir := filepath.Join(dependencies.DataDir, "exports")
 		if err := os.MkdirAll(exportDir, 0o700); err != nil {
 			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
@@ -948,11 +1209,36 @@ type exportJobCheckpoint struct {
 }
 
 type exportJobRequest struct {
-	Format          archive.ExportFormat `json:"format"`
-	PIDs            []int32              `json:"pids"`
-	IncludeComments bool                 `json:"include_comments"`
-	CaptureLive     bool                 `json:"capture_live,omitempty"`
-	IncludeMedia    bool                 `json:"include_media,omitempty"`
+	Format                   archive.ExportFormat `json:"format"`
+	PIDs                     []int32              `json:"pids"`
+	IncludeComments          bool                 `json:"include_comments"`
+	CaptureLive              bool                 `json:"capture_live,omitempty"`
+	IncludeMedia             bool                 `json:"include_media,omitempty"`
+	SyncObserverBeforeExport *bool                `json:"sync_observer_before_export,omitempty"`
+}
+
+func syncObserverBeforeExport(c *gin.Context, dependencies Dependencies, requested *bool) bool {
+	shouldSync := requested != nil && *requested
+	if requested == nil && dependencies.Settings != nil {
+		view, err := dependencies.Settings.GetObserver(c.Request.Context())
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "settings_failed", err.Error(), nil)
+			return false
+		}
+		shouldSync = view.Enabled && view.SyncBeforeExport
+	}
+	if !shouldSync {
+		return true
+	}
+	if dependencies.Observer == nil {
+		apiFailure(c, http.StatusServiceUnavailable, "observer_sync_failed", "Observer sync is unavailable", gin.H{"can_export_local_snapshot": true})
+		return false
+	}
+	if _, err := dependencies.Observer.Sync(c.Request.Context()); err != nil {
+		apiFailure(c, http.StatusBadGateway, "observer_sync_failed", err.Error(), gin.H{"can_export_local_snapshot": true})
+		return false
+	}
+	return true
 }
 
 func normalizeExportJobRequest(body exportJobRequest) (exportJobRequest, error) {
@@ -987,6 +1273,33 @@ func normalizeExportJobRequest(body exportJobRequest) (exportJobRequest, error) 
 	return body, nil
 }
 
+func apiExportPreview(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) {
+			return
+		}
+		if dependencies.Archive == nil {
+			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "archive export preview is unavailable", nil)
+			return
+		}
+		var body exportJobRequest
+		if !decodeAPIJSON(c, &body) {
+			return
+		}
+		body, err := normalizeExportJobRequest(body)
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		report, err := dependencies.Archive.Preview(c.Request.Context(), archive.ExportRequest{Format: body.Format, PIDs: body.PIDs, IncludeComments: body.IncludeComments})
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "export_preview_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, report)
+	}
+}
+
 func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requireStudioBrowser(c) {
@@ -1003,6 +1316,9 @@ func apiCreateExportJob(dependencies Dependencies) gin.HandlerFunc {
 		body, err := normalizeExportJobRequest(body)
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
+			return
+		}
+		if !syncObserverBeforeExport(c, dependencies, body.SyncObserverBeforeExport) {
 			return
 		}
 		totalItems := 1
@@ -1044,6 +1360,9 @@ func apiRegenerateExport(dependencies Dependencies) gin.HandlerFunc {
 		body, err = normalizeExportJobRequest(body)
 		if err != nil {
 			apiFailure(c, http.StatusInternalServerError, "export_invalid", err.Error(), nil)
+			return
+		}
+		if !syncObserverBeforeExport(c, dependencies, body.SyncObserverBeforeExport) {
 			return
 		}
 		totalItems := 1
@@ -1321,10 +1640,11 @@ func requireStudioBrowser(c *gin.Context) bool {
 type aiAPIService interface {
 	service.AIService
 	Providers() []aipkg.ProviderInfo
-	CreateSession(ctx context.Context, mode, title string) (models.AISession, error)
+	CreateSession(ctx context.Context, mode, title string, scope models.AIScope) (models.AISession, error)
 	ListSessions(ctx context.Context, limit int) ([]models.AISession, error)
 	GetSession(ctx context.Context, id string) (aipkg.SessionDetail, error)
 	Events(ctx context.Context, sessionID string) (<-chan service.AIEvent, error)
+	EventsAfter(ctx context.Context, sessionID string, afterSequence int64) (<-chan service.AIEvent, error)
 	LiveSearchEnabled() bool
 }
 
@@ -1360,7 +1680,7 @@ func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
 			"archive_import": dependencies.Archive != nil, "archive_export": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
 			"archive_contract": archive.ContractCapabilities(),
-			"ai": aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
+			"ai":               aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
 		})
 	}
 }
@@ -1398,8 +1718,16 @@ func apiAISessions(dependencies Dependencies) gin.HandlerFunc {
 
 func apiCreateAISession(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
-		Mode  string `json:"mode"`
-		Title string `json:"title,omitempty"`
+		Mode     string   `json:"mode"`
+		Title    string   `json:"title,omitempty"`
+		PIDs     []int32  `json:"pids,omitempty"`
+		Course   string   `json:"course,omitempty"`
+		Teachers []string `json:"teachers,omitempty"`
+		From     int64    `json:"from,omitempty"`
+		To       int64    `json:"to,omitempty"`
+		TagIDs   []uint   `json:"tag_ids,omitempty"`
+		Origins  []string `json:"origins,omitempty"`
+		HasMedia *bool    `json:"has_media,omitempty"`
 	}
 	return func(c *gin.Context) {
 		aiService, ok := dependencies.AI.(aiAPIService)
@@ -1411,7 +1739,7 @@ func apiCreateAISession(dependencies Dependencies) gin.HandlerFunc {
 		if !decodeAPIJSON(c, &body) {
 			return
 		}
-		session, err := aiService.CreateSession(c.Request.Context(), body.Mode, body.Title)
+		session, err := aiService.CreateSession(c.Request.Context(), body.Mode, body.Title, models.AIScope{PIDs: body.PIDs, Course: body.Course, Teachers: body.Teachers, From: body.From, To: body.To, TagIDs: body.TagIDs, Origins: body.Origins, HasMedia: body.HasMedia})
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", err.Error(), nil)
 			return
@@ -1438,10 +1766,16 @@ func apiAISession(dependencies Dependencies) gin.HandlerFunc {
 
 func apiCreateAIMessage(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
-		Prompt   string   `json:"prompt"`
-		PIDs     []int32  `json:"pids,omitempty"`
-		Course   string   `json:"course,omitempty"`
-		Teachers []string `json:"teachers,omitempty"`
+		Prompt       string   `json:"prompt"`
+		ReplaceScope bool     `json:"replace_scope,omitempty"`
+		PIDs         []int32  `json:"pids,omitempty"`
+		Course       string   `json:"course,omitempty"`
+		Teachers     []string `json:"teachers,omitempty"`
+		From         int64    `json:"from,omitempty"`
+		To           int64    `json:"to,omitempty"`
+		TagIDs       []uint   `json:"tag_ids,omitempty"`
+		Origins      []string `json:"origins,omitempty"`
+		HasMedia     *bool    `json:"has_media,omitempty"`
 	}
 	return func(c *gin.Context) {
 		aiService, ok := dependencies.AI.(aiAPIService)
@@ -1464,7 +1798,7 @@ func apiCreateAIMessage(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusNotFound, "not_found", "AI session was not found", nil)
 			return
 		}
-		events, err := aiService.Run(context.Background(), service.AIRequest{SessionID: detail.Session.ID, Mode: detail.Session.Mode, Prompt: body.Prompt, PIDs: body.PIDs, Course: body.Course, Teachers: body.Teachers})
+		events, err := aiService.Run(context.Background(), service.AIRequest{SessionID: detail.Session.ID, Mode: detail.Session.Mode, Prompt: body.Prompt, ReplaceScope: body.ReplaceScope, PIDs: body.PIDs, Course: body.Course, Teachers: body.Teachers, From: body.From, To: body.To, TagIDs: body.TagIDs, Origins: body.Origins, HasMedia: body.HasMedia})
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "ai_rejected", err.Error(), nil)
 			return
@@ -1473,7 +1807,12 @@ func apiCreateAIMessage(dependencies Dependencies) gin.HandlerFunc {
 			for range events {
 			}
 		}()
-		apiRespond(c, http.StatusAccepted, gin.H{"session_id": detail.Session.ID, "status": "started"})
+		started, _ := aiService.GetSession(c.Request.Context(), detail.Session.ID)
+		runID := ""
+		if started.LatestRun != nil {
+			runID = started.LatestRun.ID
+		}
+		apiRespond(c, http.StatusAccepted, gin.H{"session_id": detail.Session.ID, "run_id": runID, "status": "started"})
 	}
 }
 
@@ -1484,7 +1823,16 @@ func apiAIEvents(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "AI service is unavailable", nil)
 			return
 		}
-		events, err := aiService.Events(c.Request.Context(), c.Param("id"))
+		afterSequence := int64(0)
+		if value := strings.TrimSpace(c.GetHeader("Last-Event-ID")); value != "" {
+			parsed, parseErr := strconv.ParseInt(value, 10, 64)
+			if parseErr != nil || parsed < 0 {
+				apiFailure(c, http.StatusBadRequest, "invalid_input", "Last-Event-ID must be a non-negative integer", nil)
+				return
+			}
+			afterSequence = parsed
+		}
+		events, err := aiService.EventsAfter(c.Request.Context(), c.Param("id"), afterSequence)
 		if err != nil {
 			apiFailure(c, http.StatusNotFound, "not_found", err.Error(), nil)
 			return
@@ -1502,6 +1850,9 @@ func apiAIEvents(dependencies Dependencies) gin.HandlerFunc {
 					return
 				}
 				encoded, _ := json.Marshal(event.Data)
+				if event.Sequence > 0 {
+					_, _ = fmt.Fprintf(c.Writer, "id: %d\n", event.Sequence)
+				}
 				_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, encoded)
 				c.Writer.Flush()
 			case <-c.Request.Context().Done():
@@ -1561,12 +1912,12 @@ func apiHotPosts(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "dashboard service is unavailable", nil)
 			return
 		}
-		items, err := dependencies.Dashboard.HotPosts(c.Request.Context(), 5, 12*time.Hour)
-		if err != nil {
-			apiFailure(c, http.StatusBadGateway, "hot_posts_unavailable", err.Error(), nil)
+		result, hotErr := dependencies.Dashboard.HotPosts(c.Request.Context(), 5, 12*time.Hour)
+		if hotErr != nil {
+			apiFailure(c, http.StatusBadGateway, "hot_posts_unavailable", hotErr.Error(), nil)
 			return
 		}
-		apiRespond(c, http.StatusOK, items)
+		apiRespond(c, http.StatusOK, result)
 	}
 }
 
@@ -1595,7 +1946,7 @@ func apiCreatePost(dependencies Dependencies) gin.HandlerFunc {
 		MediaIDs []string `json:"media_ids,omitempty"`
 	}
 	return func(c *gin.Context) {
-		if !requireOnlineWrite(c, dependencies) {
+		if !requireOnlineWrite(c, dependencies, "publish_post") {
 			return
 		}
 		var body request
@@ -1608,9 +1959,10 @@ func apiCreatePost(dependencies Dependencies) gin.HandlerFunc {
 		}
 		post, err := dependencies.Posts.PublishPost(c.Request.Context(), body.Text, body.MediaIDs, service.SourceLive)
 		if err != nil {
-			apiFailure(c, http.StatusBadGateway, "publish_failed", err.Error(), nil)
+			apiOnlineWriteFailure(c, "publish_post", "publish_failed", err, len(body.Text), len(body.MediaIDs))
 			return
 		}
+		logOnlineWrite(c, "publish_post", http.StatusCreated, nil, len(body.Text), len(body.MediaIDs))
 		apiRespond(c, http.StatusCreated, post)
 	}
 }
@@ -1622,7 +1974,7 @@ func apiCreateComment(dependencies Dependencies) gin.HandlerFunc {
 		MediaIDs []string `json:"media_ids,omitempty"`
 	}
 	return func(c *gin.Context) {
-		if !requireOnlineWrite(c, dependencies) {
+		if !requireOnlineWrite(c, dependencies, "publish_comment") {
 			return
 		}
 		pid, ok := positiveInt32Param(c, "pid")
@@ -1639,16 +1991,21 @@ func apiCreateComment(dependencies Dependencies) gin.HandlerFunc {
 		}
 		comment, err := dependencies.Posts.Reply(c.Request.Context(), pid, body.Text, body.QuoteCID, body.MediaIDs, service.SourceLive)
 		if err != nil {
-			apiFailure(c, http.StatusBadGateway, "reply_failed", err.Error(), nil)
+			apiOnlineWriteFailure(c, "publish_comment", "reply_failed", err, len(body.Text), len(body.MediaIDs))
 			return
 		}
+		logOnlineWrite(c, "publish_comment", http.StatusCreated, nil, len(body.Text), len(body.MediaIDs))
 		apiRespond(c, http.StatusCreated, comment)
 	}
 }
 
 func apiPostToggle(dependencies Dependencies, action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireOnlineWrite(c, dependencies) {
+		operation := "toggle_follow"
+		if action == "praise" {
+			operation = "toggle_praise"
+		}
+		if !requireOnlineWrite(c, dependencies, operation) {
 			return
 		}
 		pid, ok := positiveInt32Param(c, "pid")
@@ -1662,9 +2019,10 @@ func apiPostToggle(dependencies Dependencies, action string) gin.HandlerFunc {
 			err = dependencies.Posts.ToggleAttention(c.Request.Context(), pid, service.SourceLive)
 		}
 		if err != nil {
-			apiFailure(c, http.StatusBadGateway, "interaction_failed", err.Error(), nil)
+			apiOnlineWriteFailure(c, operation, "interaction_failed", err, 0, 0)
 			return
 		}
+		logOnlineWrite(c, operation, http.StatusOK, nil, 0, 0)
 		post, err := dependencies.Posts.RefreshPost(c.Request.Context(), pid, service.SourceLive)
 		if err != nil {
 			apiRespond(c, http.StatusOK, gin.H{"pid": pid, "updated": true})
@@ -1676,7 +2034,7 @@ func apiPostToggle(dependencies Dependencies, action string) gin.HandlerFunc {
 
 func apiUploadMedia(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireOnlineWrite(c, dependencies) {
+		if !requireOnlineWrite(c, dependencies, "upload_image") {
 			return
 		}
 		const maxUpload = int64(20 << 20)
@@ -1698,34 +2056,165 @@ func apiUploadMedia(dependencies Dependencies) gin.HandlerFunc {
 			return
 		}
 		path := staged.Name()
-		defer os.Remove(path)
+		defer func() { _ = os.Remove(path) }()
 		written, copyErr := io.Copy(staged, io.LimitReader(file, maxUpload+1))
 		closeErr := staged.Close()
 		if copyErr != nil || closeErr != nil || written <= 0 || written > maxUpload {
 			apiFailure(c, http.StatusBadRequest, "invalid_media", "image is empty, unreadable, or too large", nil)
 			return
 		}
-		content, err := os.ReadFile(path)
-		if err != nil || !strings.HasPrefix(http.DetectContentType(content), "image/") {
+		contentType, extension, err := detectUploadedImage(path)
+		if err != nil || extension == "" {
 			apiFailure(c, http.StatusBadRequest, "invalid_media", "uploaded file is not an image", gin.H{"filename": header.Filename})
 			return
 		}
-		id, err := dependencies.Posts.UploadMedia(c.Request.Context(), path, service.SourceLive)
-		if err != nil {
-			apiFailure(c, http.StatusBadGateway, "upload_failed", err.Error(), nil)
+		extendedPath := path + extension
+		if err := os.Rename(path, extendedPath); err != nil {
+			apiFailure(c, http.StatusInternalServerError, "storage_failed", err.Error(), nil)
 			return
 		}
-		apiRespond(c, http.StatusCreated, gin.H{"id": id, "filename": filepath.Base(header.Filename), "size": written})
+		path = extendedPath
+		id, err := dependencies.Posts.UploadMedia(c.Request.Context(), path, service.SourceLive)
+		if err != nil {
+			apiOnlineWriteFailure(c, "upload_image", "upload_failed", err, 0, 1)
+			return
+		}
+		logOnlineWrite(c, "upload_image", http.StatusCreated, nil, 0, 1)
+		apiRespond(c, http.StatusCreated, gin.H{"id": id, "filename": filepath.Base(header.Filename), "size": written, "content_type": contentType})
 	}
 }
 
-func requireOnlineWrite(c *gin.Context, dependencies Dependencies) bool {
+func requireOnlineWrite(c *gin.Context, dependencies Dependencies, operation string) bool {
 	if !requireStudioBrowser(c) {
 		return false
 	}
 	if dependencies.Posts == nil || !dependencies.Posts.CanWrite(c.Request.Context(), service.SourceLive) {
-		apiFailure(c, http.StatusUnauthorized, "online_login_required", "a writable Treehole session is required", nil)
+		logOnlineWrite(c, operation, http.StatusUnauthorized, errors.New("write credentials are unavailable"), 0, 0)
+		apiFailure(c, http.StatusUnauthorized, "online_login_required", "当前会话缺少树洞写入凭据，请重新检测或登录。", gin.H{"request_id": onlineWriteRequestID(c)})
 		return false
+	}
+	return true
+}
+
+func detectUploadedImage(path string) (contentType, extension string, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer file.Close()
+	header := make([]byte, 512)
+	read, err := file.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", "", err
+	}
+	contentType = http.DetectContentType(header[:read])
+	switch contentType {
+	case "image/jpeg":
+		extension = ".jpg"
+	case "image/png":
+		extension = ".png"
+	case "image/gif":
+		extension = ".gif"
+	case "image/webp":
+		extension = ".webp"
+	case "image/bmp":
+		extension = ".bmp"
+	}
+	return contentType, extension, nil
+}
+
+func apiOnlineWriteFailure(c *gin.Context, operation, fallbackCode string, err error, textLength, mediaCount int) {
+	status, code, message, details := classifyOnlineWriteError(err, fallbackCode)
+	details["request_id"] = onlineWriteRequestID(c)
+	logOnlineWrite(c, operation, status, err, textLength, mediaCount)
+	apiFailure(c, status, code, message, details)
+}
+
+func classifyOnlineWriteError(err error, fallbackCode string) (int, string, string, map[string]any) {
+	details := map[string]any{}
+	if err == nil {
+		return http.StatusBadGateway, fallbackCode, "online write failed", details
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusGatewayTimeout, "remote_timeout", "远端请求超时，提交结果可能尚未确认；请先刷新列表再决定是否重试。", details
+	}
+	if errors.Is(err, context.Canceled) {
+		return http.StatusRequestTimeout, "request_cancelled", "请求已取消，提交结果可能尚未确认；请先刷新列表再决定是否重试。", details
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return http.StatusGatewayTimeout, "remote_timeout", "远端请求超时，提交结果可能尚未确认；请先刷新列表再决定是否重试。", details
+	}
+	var remoteError *client.RemoteAPIError
+	if !errors.As(err, &remoteError) {
+		return http.StatusBadGateway, fallbackCode, err.Error(), details
+	}
+	if remoteError.Code != "" {
+		details["remote_code"] = remoteError.Code
+	}
+	if remoteError.HTTPStatus > 0 {
+		details["remote_status"] = remoteError.HTTPStatus
+	}
+	message := remoteError.Message
+	if message == "" {
+		message = err.Error()
+	}
+	lower := strings.ToLower(message)
+	authFailure := remoteError.HTTPStatus == http.StatusUnauthorized || remoteError.HTTPStatus == http.StatusForbidden || strings.Contains(lower, "login") || strings.Contains(lower, "token") || strings.Contains(message, "登录") || strings.Contains(message, "认证") || strings.Contains(message, "会话")
+	if authFailure {
+		return http.StatusUnauthorized, "online_session_expired", message, details
+	}
+	if remoteError.HTTPStatus == http.StatusTooManyRequests {
+		return http.StatusTooManyRequests, "remote_rate_limited", message, details
+	}
+	if remoteError.HTTPStatus == http.StatusRequestTimeout || remoteError.HTTPStatus == http.StatusGatewayTimeout {
+		return http.StatusGatewayTimeout, "remote_timeout", "远端请求超时，提交结果可能尚未确认；请先刷新列表再决定是否重试。", details
+	}
+	if remoteError.HTTPStatus == http.StatusOK || remoteError.HTTPStatus == http.StatusBadRequest || remoteError.HTTPStatus == http.StatusConflict || remoteError.HTTPStatus == http.StatusUnprocessableEntity {
+		return http.StatusUnprocessableEntity, "remote_rejected", message, details
+	}
+	return http.StatusBadGateway, fallbackCode, message, details
+}
+
+func logOnlineWrite(c *gin.Context, operation string, status int, err error, textLength, mediaCount int) {
+	requestID := onlineWriteRequestID(c)
+	remoteStatus := 0
+	remoteCode := ""
+	remoteEndpoint := ""
+	var remoteError *client.RemoteAPIError
+	if errors.As(err, &remoteError) {
+		remoteStatus = remoteError.HTTPStatus
+		remoteCode = remoteError.Code
+		remoteEndpoint = remoteError.Endpoint
+	}
+	result := "success"
+	if err != nil {
+		result = "failed"
+	}
+	log.Printf("[WebWrite] request_id=%s operation=%s result=%s status=%d remote_status=%d remote_code=%q remote_endpoint=%q text_length=%d media_count=%d", requestID, operation, result, status, remoteStatus, remoteCode, remoteEndpoint, textLength, mediaCount)
+}
+
+func onlineWriteRequestID(c *gin.Context) string {
+	if existing, ok := c.Get("online_write_request_id"); ok {
+		return existing.(string)
+	}
+	requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
+	if !safeRequestID(requestID) {
+		requestID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	c.Set("online_write_request_id", requestID)
+	c.Header("X-Request-ID", requestID)
+	return requestID
+}
+
+func safeRequestID(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '-' && char != '_' {
+			return false
+		}
 	}
 	return true
 }
@@ -2077,6 +2566,73 @@ func apiJobEvents(dependencies Dependencies) gin.HandlerFunc {
 	}
 }
 
+func apiPreflightImport(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			if dependencies.Bridge == nil {
+				apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "archive preflight is unavailable", nil)
+			}
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, archive.MaxArchiveBytes+(1<<20))
+		file, header, err := c.Request.FormFile("file")
+		if err != nil {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "multipart field file is required", gin.H{"field": "file"})
+			return
+		}
+		defer file.Close()
+		created, err := dependencies.Bridge.Create("")
+		if err != nil {
+			apiFailure(c, http.StatusInternalServerError, "preflight_failed", err.Error(), nil)
+			return
+		}
+		pairing, err := dependencies.Bridge.Upload(c.Request.Context(), created.Token, header.Filename, file)
+		if err != nil {
+			dependencies.Bridge.Cancel(created.Token)
+			apiFailure(c, http.StatusBadRequest, "invalid_archive", err.Error(), gin.H{"filename": header.Filename})
+			return
+		}
+		apiRespond(c, http.StatusOK, pairing)
+	}
+}
+
+func apiConfirmImportPreflight(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			if dependencies.Bridge == nil {
+				apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "archive preflight is unavailable", nil)
+			}
+			return
+		}
+		pairing, err := dependencies.Bridge.Confirm(c.Request.Context(), c.Param("token"))
+		if errors.Is(err, os.ErrNotExist) {
+			apiFailure(c, http.StatusNotFound, "preflight_not_found", "archive preview expired or was not found", nil)
+			return
+		}
+		if err != nil {
+			apiFailure(c, http.StatusConflict, "preflight_not_ready", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusAccepted, pairing)
+	}
+}
+
+func apiCancelImportPreflight(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.Bridge == nil || !requireStudioBrowser(c) {
+			if dependencies.Bridge == nil {
+				apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "archive preflight is unavailable", nil)
+			}
+			return
+		}
+		if !dependencies.Bridge.Cancel(c.Param("token")) {
+			apiFailure(c, http.StatusNotFound, "preflight_not_found", "archive preview expired or was not found", nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, gin.H{"status": "cancelled"})
+	}
+}
+
 func apiCreateImport(dependencies Dependencies) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if dependencies.Archive == nil || dependencies.Jobs == nil {
@@ -2261,6 +2817,15 @@ func positiveInt32Param(c *gin.Context, name string) (int32, bool) {
 	return int32(value), true
 }
 
+func positiveUintParam(c *gin.Context, name, label string) (uint, bool) {
+	value, err := strconv.ParseUint(c.Param(name), 10, 64)
+	if err != nil || value == 0 {
+		apiFailure(c, http.StatusBadRequest, "invalid_input", label+" must be a positive integer", gin.H{"field": name})
+		return 0, false
+	}
+	return uint(value), true
+}
+
 func boundedIntQuery(c *gin.Context, name string, fallback, minimum, maximum int) (int, bool) {
 	raw := c.Query(name)
 	if raw == "" {
@@ -2317,11 +2882,31 @@ func getAPIJob(c *gin.Context, dependencies Dependencies) (jobs.Job, bool) {
 
 func toPublicJob(job jobs.Job) publicJob {
 	return publicJob{
-		ID: job.ID, Type: job.Type, Status: job.Status, Checkpoint: job.Checkpoint,
+		ID: job.ID, Type: job.Type, Status: job.Status, Checkpoint: job.Checkpoint, Scope: safePublicJobScope(job),
 		CompletedItems: job.CompletedItems, FailedItems: job.FailedItems, TotalItems: job.TotalItems,
 		Attempts: job.Attempts, Error: job.Error, StartedAt: job.StartedAt, FinishedAt: job.FinishedAt,
 		CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
 	}
+}
+
+func safePublicJobScope(job jobs.Job) *publicJobScope {
+	if job.Type != jobs.TypeSyncPIDs {
+		return nil
+	}
+	var payload struct {
+		PIDs []int32 `json:"pids"`
+	}
+	if json.Unmarshal(job.Payload, &payload) != nil {
+		return nil
+	}
+	pids := uniqueInt32s(payload.PIDs)
+	if len(pids) == 0 {
+		return nil
+	}
+	if len(pids) > 2000 {
+		pids = pids[:2000]
+	}
+	return &publicJobScope{PIDs: pids}
 }
 
 func terminalEvent(eventType string) bool {

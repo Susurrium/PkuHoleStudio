@@ -20,6 +20,7 @@ type Dependencies struct {
 	Search        *service.SearchService
 	Media         *service.MediaService
 	Dashboard     *service.DashboardService
+	Observer      *service.ObserverService
 	Notifications *service.NotificationService
 	Logs          *service.LogService
 	Library       *service.LocalLibraryService

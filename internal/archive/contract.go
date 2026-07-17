@@ -13,6 +13,7 @@ const (
 	ArchiveExtensionMedia          = "io.github.susurrium.pkuhole.media"
 	ArchiveExtensionStudioMetadata = "io.github.susurrium.pkuhole.studio-metadata"
 	ArchiveExtensionStudioSources  = "io.github.susurrium.pkuhole.studio-sources"
+	ArchiveExtensionAvailability   = "io.github.susurrium.pkuhole.availability"
 )
 
 var (
@@ -22,6 +23,7 @@ var (
 		ArchiveExtensionMedia:          1,
 		ArchiveExtensionStudioMetadata: 1,
 		ArchiveExtensionStudioSources:  1,
+		ArchiveExtensionAvailability:   1,
 	}
 )
 

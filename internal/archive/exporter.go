@@ -22,11 +22,43 @@ import (
 )
 
 func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportRequest) (ExportReport, error) {
-	if i == nil || i.exportStore == nil {
-		return ExportReport{}, errors.New("archive export store is not configured")
-	}
 	if writer == nil {
 		return ExportReport{}, errors.New("archive export writer is required")
+	}
+	records, normalized, err := i.prepareExport(ctx, request)
+	if err != nil {
+		return ExportReport{}, err
+	}
+	if len(records) == 0 {
+		return ExportReport{}, errors.New("no posts matched the export request")
+	}
+	report, err := i.exportReport(ctx, normalized, records)
+	if err != nil {
+		return ExportReport{}, err
+	}
+	report.RunID = newExportRunID()
+	if normalized.Format == ExportFormatMarkdown {
+		err = writeMarkdownBundle(ctx, writer, records, report, i.dataDir)
+	} else {
+		err = writeTreeholeV2(ctx, writer, records, report, len(normalized.PIDs) > 0, i.dataDir, time.Now().UTC())
+	}
+	if err != nil {
+		return ExportReport{}, err
+	}
+	return report, nil
+}
+
+func (i *Importer) Preview(ctx context.Context, request ExportRequest) (ExportReport, error) {
+	records, normalized, err := i.prepareExport(ctx, request)
+	if err != nil {
+		return ExportReport{}, err
+	}
+	return i.exportReport(ctx, normalized, records)
+}
+
+func (i *Importer) prepareExport(ctx context.Context, request ExportRequest) ([]ExportRecord, ExportRequest, error) {
+	if i == nil || i.exportStore == nil {
+		return nil, request, errors.New("archive export store is not configured")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -35,40 +67,66 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 		request.Format = ExportFormatTreeholeV2
 	}
 	if request.Format != ExportFormatTreeholeV2 && request.Format != ExportFormatMarkdown {
-		return ExportReport{}, fmt.Errorf("unsupported export format %q", request.Format)
+		return nil, request, fmt.Errorf("unsupported export format %q", request.Format)
 	}
 	records, err := i.exportStore.ArchiveExportSnapshot(ctx, request.PIDs)
 	if err != nil {
-		return ExportReport{}, err
-	}
-	if len(records) == 0 {
-		return ExportReport{}, errors.New("no posts matched the export request")
+		return nil, request, err
 	}
 	if !request.IncludeComments {
-		for index := range records {
-			records[index].Comments = nil
+		filtered := make([]ExportRecord, len(records))
+		for index, record := range records {
+			filtered[index] = record
+			filtered[index].Comments = nil
+			media := make([]models.Media, 0, len(record.Media))
+			for _, item := range record.Media {
+				if item.OwnerType != "comment" {
+					media = append(media, item)
+				}
+			}
+			filtered[index].Media = media
 		}
+		records = filtered
 	}
-	runID := newExportRunID()
-	report := ExportReport{Format: request.Format, Posts: len(records), RunID: runID}
+	return records, request, nil
+}
+
+func (i *Importer) exportReport(ctx context.Context, request ExportRequest, records []ExportRecord) (ExportReport, error) {
+	report := ExportReport{Format: request.Format, Posts: len(records)}
 	for _, record := range records {
+		if err := ctx.Err(); err != nil {
+			return ExportReport{}, err
+		}
 		report.Comments += len(record.Comments)
 		report.Media += len(record.Media)
 		for _, item := range record.Media {
-			if item.Status != "available" || strings.TrimSpace(item.Path) == "" {
+			if !exportMediaAvailable(item, i.dataDir) {
 				report.MissingMedia++
 			}
 		}
 	}
-	if request.Format == ExportFormatMarkdown {
-		err = writeMarkdownBundle(ctx, writer, records, report, i.dataDir)
-	} else {
-		err = writeTreeholeV2(ctx, writer, records, report, len(request.PIDs) > 0, i.dataDir, time.Now().UTC())
-	}
-	if err != nil {
-		return ExportReport{}, err
-	}
 	return report, nil
+}
+
+func exportMediaAvailable(item models.Media, dataDir string) bool {
+	if strings.TrimSpace(item.Path) == "" {
+		return false
+	}
+	path := strings.TrimSpace(item.Path)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dataDir, filepath.FromSlash(path))
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	buffer := make([]byte, 512)
+	read, err := file.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false
+	}
+	return read > 0 && strings.HasPrefix(http.DetectContentType(buffer[:read]), "image/")
 }
 
 func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool, dataDir string, exportedAt time.Time) error {
@@ -102,6 +160,7 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		"extensions": map[string]any{
 			ArchiveExtensionStudioMetadata: map[string]any{"version": 1, "required": false},
 			ArchiveExtensionStudioSources:  map[string]any{"version": 1, "required": false},
+			ArchiveExtensionAvailability:   map[string]any{"version": 1, "required": false},
 		},
 		"requiredExtensions": []string{}, "errors": []any{},
 	}
@@ -124,11 +183,15 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 		for _, comment := range record.Comments {
 			comments = append(comments, exportComment(comment))
 		}
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"pid": strconv.FormatInt(int64(record.Post.Pid), 10), "source": preferredExportSource(record.Sources),
 			"hole": record.Post, "comments": comments, "fetchStatus": "ok", "studioSources": portableStudioSources(record.Sources),
 			"studioMetadata": record.Studio,
-		})
+		}
+		if record.Availability != nil {
+			item["extensions"] = map[string]any{ArchiveExtensionAvailability: record.Availability}
+		}
+		items = append(items, item)
 	}
 	if err := json.NewEncoder(dataEntry).Encode(map[string]any{"items": items}); err != nil {
 		return closeWithError(err)

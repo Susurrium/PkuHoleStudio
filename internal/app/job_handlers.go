@@ -55,11 +55,12 @@ type importArchivePayload struct {
 }
 
 type exportArchivePayload struct {
-	Format          archive.ExportFormat `json:"format"`
-	PIDs            []int32              `json:"pids,omitempty"`
-	IncludeComments bool                 `json:"include_comments"`
-	CaptureLive     bool                 `json:"capture_live,omitempty"`
-	IncludeMedia    bool                 `json:"include_media,omitempty"`
+	Format                   archive.ExportFormat `json:"format"`
+	PIDs                     []int32              `json:"pids,omitempty"`
+	IncludeComments          bool                 `json:"include_comments"`
+	CaptureLive              bool                 `json:"capture_live,omitempty"`
+	IncludeMedia             bool                 `json:"include_media,omitempty"`
+	SyncObserverBeforeExport *bool                `json:"sync_observer_before_export,omitempty"`
 }
 
 type capturePIDResult struct {
