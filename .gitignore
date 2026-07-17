@@ -6,6 +6,7 @@ build
 data/
 .out
 scripts/
+/*.exe
 
 *.html
 *.json
