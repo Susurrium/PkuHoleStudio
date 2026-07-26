@@ -86,7 +86,7 @@ export function OnboardingGuide() {
         <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">PkuHoleStudio 有两个相互独立、随时可切换的工作区。选择当前需求即可，以后不会限制你的使用方式。</p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <ChoiceCard selected={destination === 'online'} icon={Radio} title="在线树洞" description="实时浏览最新、热榜和关注，登录后可以发洞、评论和互动。" note="在线内容不会自动保存到本机" onClick={() => setDestination('online')} />
-          <ChoiceCard selected={destination === 'library'} icon={Archive} title="本地资料库" description="导入 Toolkit 或 Studio 归档，离线搜索、标记、整理项目和导出。" note="资料与个人标记保存在本机" onClick={() => setDestination('library')} />
+          <ChoiceCard selected={destination === 'library'} icon={Archive} title="本地资料库" description="导入任何兼容归档；也可选用独立 Toolkit 从官方树洞导出，然后离线搜索、标记和整理。" note="不要求登录 Studio，也不依赖 Toolkit 运行" onClick={() => setDestination('library')} />
         </div>
       </> : <>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">在线模式用于发现和互动；只有明确保存或同步后，内容才会进入本地资料库。</p>

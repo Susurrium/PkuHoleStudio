@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Copy, Download, FileArchive, FileText, ImageDown, Link2, UploadCloud, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Copy, Download, ExternalLink, FileArchive, FileText, ImageDown, Link2, UploadCloud, XCircle } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { APIError, api } from '../lib/api'
 import type { ArchivePreflight, BridgePairing, ImportCreated, Job } from '../lib/types'
@@ -10,6 +10,9 @@ import { JobRow } from '../components/JobRow'
 import { preferredScrollBehavior } from '../lib/motion'
 import { readLocalSelection, type LocalSelectionSnapshot } from '../features/library/selection'
 import { errorDescription, useFeedback } from '../components/Feedback'
+
+const TOOLKIT_RELEASE_URL = 'https://github.com/Susurrium/PkuHoleToolkit/releases/latest'
+const TREEHOLE_WEB_URL = 'https://treehole.pku.edu.cn/web/'
 
 export function ImportsPage() {
   const client = useQueryClient()
@@ -77,7 +80,10 @@ export function ImportsPage() {
 	}
   function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
   return <>
-	<PageHeader eyebrow="TRANSFER" title="导入与导出" description="从文件或 Toolkit 导入已有资料，也可以把本地资料打包为可迁移归档或 Markdown。" />
+	<PageHeader eyebrow="TRANSFER" title="导入与导出" description="从任何兼容归档文件导入资料；也可以选择独立的 Toolkit 从官方树洞下载归档或发送到 Studio。" actions={<>
+		<a className="button-secondary" href={TOOLKIT_RELEASE_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />获取独立 Toolkit</a>
+		<a className="button-secondary" href={TREEHOLE_WEB_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />打开官方树洞</a>
+	</>} />
 	<nav className="mb-6 grid grid-cols-3 rounded-xl border border-line bg-white/45 p-1" aria-label="导入与导出方式">
 		<TransferTab active={view === 'import'} icon={UploadCloud} label="导入文件" shortLabel="文件" onClick={() => setParams({ view: 'import' })} />
 		<TransferTab active={view === 'bridge'} icon={Link2} label="Toolkit 传输" shortLabel="Toolkit" onClick={() => setParams({ view: 'bridge' })} />
@@ -171,7 +177,8 @@ function ToolkitBridgePanel() {
   const waiting = current?.status === 'waiting_upload' || current?.status === 'uploading'
   return <section className="panel mb-6 p-5 md:p-7">
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-      <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-soft text-teal"><Link2 size={20} /></div><div><p className="eyebrow">TRUSTED LOCAL BRIDGE</p><h2 className="mt-1 text-xl font-semibold">关联一次，之后直接发送</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">先在树洞网页的 Toolkit 点击“关联本机 Studio”，再核对这里出现的六位码。Studio 只保存 Toolkit 公钥；每次归档仍使用绑定文件哈希的短期一次性票据，不传输树洞登录凭据。</p></div></div>
+      <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-soft text-teal"><Link2 size={20} /></div><div><p className="eyebrow">OPTIONAL LOCAL BRIDGE</p><h2 className="mt-1 text-xl font-semibold">关联独立 Toolkit</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">Toolkit 是独立、可选的浏览器归档工具：不使用 Studio 也能下载本地归档，Studio 也不依赖 Toolkit 启动或读取其他兼容归档。需要直接传输时，先在官方树洞中的 Toolkit 点击“关联本机 Studio”，再核对这里出现的六位码。</p><p className="mt-2 max-w-2xl text-xs leading-5 text-ink-soft">Studio 只保存 Toolkit 公钥；每次归档仍使用绑定文件哈希的短期一次性票据，不传输树洞登录凭据。</p></div></div>
+      <div className="flex shrink-0 flex-wrap gap-2"><a className="button-secondary" href={TOOLKIT_RELEASE_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />安装 Toolkit</a><a className="button-primary" href={TREEHOLE_WEB_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />前往官方树洞</a></div>
     </div>
     <div className="mt-5 grid gap-4 lg:grid-cols-2">
       <div className="rounded-2xl border border-line bg-white/55 p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium text-ink-soft">等待确认的关联</p><p className="mt-1 text-sm text-ink-soft">只确认你刚在 Toolkit 发起、且核对码一致的请求。</p></div><span className="badge">{deviceRequests.data?.length ?? 0}</span></div><div className="mt-4 grid gap-3">{deviceRequests.data?.length ? deviceRequests.data.map((item) => <div key={item.token} className="rounded-xl border border-line bg-paper/55 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">{item.name}</p><p className="mt-1 text-xs text-ink-soft">有效至 {new Date(item.expires_at).toLocaleTimeString()}</p></div><code className="rounded-lg bg-ink px-3 py-2 text-base tracking-[0.2em] text-white">{item.verification_code}</code></div><div className="mt-3 flex gap-2"><button className="button-primary !py-1.5" disabled={approveDevice.isPending} onClick={() => approveDevice.mutate(item.token)}>码一致，确认关联</button><button className="button-secondary !py-1.5" disabled={rejectDevice.isPending} onClick={() => rejectDevice.mutate(item.token)}>拒绝</button></div></div>) : <p className="rounded-xl border border-dashed border-line p-4 text-center text-sm text-ink-soft">请先从 Toolkit 发起关联，本页会自动出现请求。</p>}</div></div>

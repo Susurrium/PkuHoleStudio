@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 导入与导出页明确 Toolkit 是独立、可选的浏览器归档工具，并提供其正式 Release 与官方树洞入口；Studio 仍可独立导入任何兼容归档、登录同步或连接 Observer。
+- 空资料库与首次使用引导不再把 Toolkit 描述为运行依赖，并将文件导入、可选 Toolkit 和 Studio 原生同步作为并列的数据进入方式。
+
 ## v0.1.0-alpha.4 - 2026-07-17
 
 - archive v2 接入中立的 PkuHole Archive Contract 2.1.0：Studio 原生写入 producer/extension 声明，按共享 fixtures 验证兼容性，并拒绝未知必需扩展；运行时不依赖 Toolkit。

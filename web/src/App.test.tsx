@@ -628,6 +628,8 @@ describe('PkuHoleStudio Web', () => {
     const user = userEvent.setup()
     const { container } = renderApp('/imports')
 	await screen.findByRole('heading', { name: '导入与导出' })
+	expect(screen.getByRole('link', { name: '获取独立 Toolkit' })).toHaveAttribute('href', 'https://github.com/Susurrium/PkuHoleToolkit/releases/latest')
+	expect(screen.getByRole('link', { name: '打开官方树洞' })).toHaveAttribute('href', 'https://treehole.pku.edu.cn/web/')
     const input = container.querySelector('input[type=file]') as HTMLInputElement
     await user.upload(input, new File(['{"holes":[]}'], 'archive.json', { type: 'application/json' }))
 	await user.click(screen.getByRole('button', { name: '预检文件' }))

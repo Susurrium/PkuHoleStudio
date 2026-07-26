@@ -35,7 +35,7 @@ export function DashboardPage() {
         <Metric icon={RefreshCw} label="活动任务" value={(jobs.data ?? []).filter((job) => ['queued', 'running'].includes(job.status)).length} note="刷新页面不会丢失" />
       </section>
 
-      {empty && <section className="mt-7"><EmptyState title="资料库还是空的" description="可以直接导入 Studio/Toolkit 兼容归档，也可以登录后同步关注洞或指定 PID。" action={<div className="flex flex-wrap justify-center gap-2"><Link className="button-primary" to="/imports"><Import size={16} />导入归档</Link><Link className="button-secondary" to="/sync"><RefreshCw size={16} />开始同步</Link></div>} /></section>}
+      {empty && <section className="mt-7"><EmptyState title="资料库还是空的" description="可以导入任何兼容归档；也可以选用独立 Toolkit 从官方树洞下载或传输资料，或者登录后由 Studio 自己同步。" action={<div className="flex flex-wrap justify-center gap-2"><Link className="button-primary" to="/imports"><Import size={16} />导入归档</Link><Link className="button-secondary" to="/imports?view=bridge"><Import size={16} />了解 Toolkit</Link><Link className="button-secondary" to="/sync"><RefreshCw size={16} />开始同步</Link></div>} /></section>}
 
       <section className="mt-7 grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
         <div className="panel p-5 md:p-6">
