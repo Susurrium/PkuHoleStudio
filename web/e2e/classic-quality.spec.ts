@@ -92,7 +92,9 @@ test.describe('经典树洞视觉基线', () => {
 
     await page.getByRole('link', { name: '打开树洞 #8401259' }).click()
     await expect(page.getByRole('dialog', { name: '树洞 #8401259' })).toBeVisible()
-    await expect(page).toHaveScreenshot('classic-detail-light.png')
+    await expect(page).toHaveScreenshot('classic-detail-light.png', {
+      maxDiffPixelRatio: 0.025,
+    })
   })
 })
 

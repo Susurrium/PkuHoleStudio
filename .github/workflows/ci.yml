@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Test Web client
+        working-directory: web
+        run: npm test
+      - name: Build embedded Web client
+        working-directory: web
+        run: npm run build
+      - name: Test Go packages
+        run: go test -tags sqlite_fts5 ./...
+      - name: Vet Go packages
+        run: go vet -tags sqlite_fts5 ./...
+      - name: Compile application
+        run: go build -tags sqlite_fts5 ./cmd
+
+  web-e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install browser
+        working-directory: web
+        run: npx playwright install chromium
+      - name: Run Web end-to-end tests
+        working-directory: web
+        run: npm run e2e
