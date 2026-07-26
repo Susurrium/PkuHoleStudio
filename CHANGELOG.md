@@ -2,11 +2,11 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.4 - 2026-07-26
+
 - 导入与导出页明确 Toolkit 是独立、可选的浏览器归档工具，并提供其正式 Release 与官方树洞入口；Studio 仍可独立导入任何兼容归档、登录同步或连接 Observer。
 - 空资料库与首次使用引导不再把 Toolkit 描述为运行依赖，并将文件导入、可选 Toolkit 和 Studio 原生同步作为并列的数据进入方式。
-
-## v0.1.0-alpha.4 - 2026-07-17
-
+- 固定已修复的 PostCSS 版本；React Router 仅用于浏览器 SPA，未启用安全公告涉及的 RSC 服务端动作。
 - archive v2 接入中立的 PkuHole Archive Contract 2.1.0：Studio 原生写入 producer/extension 声明，按共享 fixtures 验证兼容性，并拒绝未知必需扩展；运行时不依赖 Toolkit。
 - Studio 能力接口公开归档 schema、扩展与大小限制，Toolkit 会在签名和上传前完成兼容协商；`studioSources` 改用稳定字段、兼容旧 snake_case，并通过去重、条数上限和归档哈希过滤防止往返历史无限增长。
 - Archive 2.1 写入统一使用 ZIP STORE，读取端继续接受旧 DEFLATE；新增 Toolkit/Studio 真实 ZIP 黄金包双向测试，预检报告公开已验证的生产者、协议版本和扩展信息。
