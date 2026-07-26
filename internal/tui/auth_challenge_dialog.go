@@ -66,8 +66,8 @@ func (m *AuthChallengeDialogModel) ApplyState(state SessionState) {
 		m.input.EchoMode = textinput.EchoNormal
 		m.focusSend = true
 	case AuthChallengeTypeOTP:
-		m.title = "令牌验证"
-		m.input.Placeholder = "输入手机令牌"
+		m.title = "手机令牌验证"
+		m.input.Placeholder = "输入 6 位动态口令"
 		m.input.EchoMode = textinput.EchoNormal
 		m.focusSend = false
 	default:
@@ -146,6 +146,10 @@ func (m AuthChallengeDialogModel) View(width int) string {
 	b.WriteString("\n\n")
 	if m.message != "" {
 		b.WriteString(fillRenderedBackground(fill.Render(m.message), contentWidth, fill))
+	}
+	if m.kind == AuthChallengeTypeOTP {
+		b.WriteString("\n\n")
+		b.WriteString(fillRenderedBackground(vHelpStyle.Render("打开“北京大学”App → 我的 → 手机令牌；此方式不会发送短信。"), contentWidth, fill))
 	}
 	if m.kind == AuthChallengeTypeSMS {
 		btn := vButtonDefault.Render("发送验证码")

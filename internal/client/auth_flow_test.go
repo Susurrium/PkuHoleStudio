@@ -122,15 +122,25 @@ func (rt *bootstrapPasswordRoundTripper) RoundTrip(req *http.Request) (*http.Res
 }
 
 type iaaaSMSRoundTripper struct {
-	sendCalls   int
-	oauthCalls  int
-	lastSMSCode string
+	sendCalls    int
+	modeCalls    int
+	oauthCalls   int
+	lastSMSCode  string
+	authMode     string
+	oauthMessage string
 }
 
 func (rt *iaaaSMSRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	body := `{"success":false,"message":"登录态不可用"}`
 	switch {
 	case strings.Contains(req.URL.String(), string(UN_READ)):
+	case strings.Contains(req.URL.String(), string(IAAA_AUTH_MODE)):
+		rt.modeCalls++
+		if rt.authMode == "OTP" {
+			body = `{"success":true,"isMobileAuthen":true,"authenMode":"OTP","isBind":true}`
+		} else {
+			body = `{"success":true,"isMobileAuthen":true,"authenMode":"SMS","isBind":true}`
+		}
 	case strings.Contains(req.URL.String(), string(IAAA_SEND_SMS)):
 		rt.sendCalls++
 		body = `{"success":true,"mobileMask":"138****0000"}`
@@ -140,7 +150,13 @@ func (rt *iaaaSMSRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 			return nil, err
 		}
 		rt.lastSMSCode = req.Form.Get("smsCode")
-		if rt.lastSMSCode == "" {
+		if rt.oauthMessage != "" {
+			payload, err := json.Marshal(map[string]interface{}{"success": false, "errors": map[string]interface{}{"msg": rt.oauthMessage}})
+			if err != nil {
+				return nil, err
+			}
+			body = string(payload)
+		} else if rt.lastSMSCode == "" {
 			body = `{"success":false,"errors":{"msg":"请使用短信验证"}}`
 		} else {
 			body = `{"success":true,"token":"oauth-token"}`
@@ -223,6 +239,40 @@ func TestBootstrapSessionSendsIAAASMSWhenOAuthRequiresIt(t *testing.T) {
 	}
 	if rt.sendCalls != 1 || !strings.Contains(result.Status.Message, "138****0000") {
 		t.Fatalf("send calls/message = %d/%q", rt.sendCalls, result.Status.Message)
+	}
+	if rt.modeCalls != 1 {
+		t.Fatalf("auth mode calls = %d, want 1", rt.modeCalls)
+	}
+}
+
+func TestBootstrapSessionUsesIAAAModeToDistinguishOTPFromSMS(t *testing.T) {
+	rt := &iaaaSMSRoundTripper{authMode: "OTP"}
+	c := newIAAASMSTestClient(t, rt)
+
+	result := c.BootstrapSessionWithPassword(&config.Config{Username: "1234567890"}, "secret")
+
+	if result.Challenge != AuthChallengeOTP || result.ChallengeStage != AuthChallengeStageIAAA {
+		t.Fatalf("challenge/stage = %q/%q, want otp/iaaa", result.Challenge, result.ChallengeStage)
+	}
+	if rt.sendCalls != 0 {
+		t.Fatalf("SMS send calls = %d, want 0 for OTP", rt.sendCalls)
+	}
+	if !strings.Contains(result.Status.Message, "北京大学") || !strings.Contains(result.Status.Message, "6 位动态口令") {
+		t.Fatalf("message = %q, want explicit PKU App OTP guidance", result.Status.Message)
+	}
+}
+
+func TestBootstrapSessionDoesNotHideExplicitPasswordFailureBehindOTP(t *testing.T) {
+	rt := &iaaaSMSRoundTripper{authMode: "OTP", oauthMessage: "用户名或密码错误"}
+	c := newIAAASMSTestClient(t, rt)
+
+	result := c.BootstrapSessionWithPassword(&config.Config{Username: "1234567890"}, "wrong")
+
+	if result.Challenge != AuthChallengePassword {
+		t.Fatalf("challenge = %q, want password", result.Challenge)
+	}
+	if rt.modeCalls != 0 {
+		t.Fatalf("auth mode calls = %d, want 0 for explicit credential failure", rt.modeCalls)
 	}
 }
 

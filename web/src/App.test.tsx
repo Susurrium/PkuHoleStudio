@@ -963,10 +963,38 @@ describe('PkuHoleStudio Web', () => {
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
-		await user.type(await screen.findByPlaceholderText('验证码'), '654321')
+		await user.type(await screen.findByPlaceholderText('短信验证码'), '654321')
 		await user.click(screen.getByRole('button', { name: '继续登录' }))
 		await waitFor(() => expect(challengeBody).not.toBe(''))
 		expect(JSON.parse(challengeBody)).toEqual({ stage: 'iaaa', challenge: 'sms', username: '1234567890', password: 'secret', code: '654321' })
+	})
+
+	it('identifies an IAAA mobile-token challenge without offering SMS resend', async () => {
+		let challengeBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session')) return json({ checked: false, has_session: false, can_read_online: false, can_write_online: false })
+			if (path.endsWith('/session/login')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false, challenge: 'otp', challenge_stage: 'iaaa', message: '统一身份认证要求手机令牌验证' })
+			if (path.endsWith('/session/challenge')) {
+				challengeBody = String(init?.body)
+				return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
+			}
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.click(await screen.findByRole('button', { name: '使用学号在这里登录' }))
+		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
+		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
+		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		expect(await screen.findByText('输入手机令牌（6 位动态口令）')).toBeInTheDocument()
+		expect(screen.getByText(/北京大学.*手机令牌.*不会发送短信/)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: '没有收到？重新发送验证码' })).not.toBeInTheDocument()
+		await user.type(screen.getByPlaceholderText('6 位动态口令'), '123456')
+		await user.click(screen.getByRole('button', { name: '继续登录' }))
+		await waitFor(() => expect(challengeBody).not.toBe(''))
+		expect(JSON.parse(challengeBody)).toEqual({ stage: 'iaaa', challenge: 'otp', username: '1234567890', password: 'secret', code: '123456' })
 	})
 
 	it('uses the Treehole SMS endpoint for a Treehole-stage challenge', async () => {
