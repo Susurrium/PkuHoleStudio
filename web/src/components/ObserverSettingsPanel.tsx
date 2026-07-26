@@ -56,7 +56,8 @@ export function ObserverSettingsPanel() {
 		mutationFn: api.testObserverConnection,
 		onSuccess: (result) => {
 			void refreshStatus()
-			notify({ tone: result.ok ? 'success' : 'error', title: result.ok ? 'Observer 连接成功' : 'Observer 连接失败', description: result.message || [result.instance_id, result.api_version].filter(Boolean).join(' · ') })
+			const identity = [result.service_version, shortCommit(result.commit), result.instance_id, result.api_version].filter(Boolean).join(' · ')
+			notify({ tone: result.ok ? 'success' : 'error', title: result.ok ? 'Observer 连接成功' : 'Observer 连接失败', description: result.ok ? identity || result.message : result.message || identity })
 		},
 		onError: (error) => notify({ tone: 'error', title: 'Observer 连接测试失败', description: errorDescription(error) }),
 	})
@@ -167,6 +168,11 @@ function observerTrafficReason(reason: string) {
 		upstream_transport_error: '上游连续发生网络连接或超时错误',
 		treehole_sso_missing_token: '树洞登录响应缺少会话令牌',
 	} as Record<string, string>)[reason] || reason
+}
+
+function shortCommit(commit?: string) {
+	if (!commit || commit === 'unknown') return undefined
+	return commit.slice(0, 12)
 }
 
 function observerAuthLabel(state?: string) {

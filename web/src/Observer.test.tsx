@@ -81,6 +81,27 @@ describe('Observer UI', () => {
 		expect(await screen.findByText('Observer 已恢复登录')).toBeInTheDocument()
 	})
 
+	it('shows the Observer release and commit after a successful connection test', async () => {
+		const observerSettings = { enabled: true, base_url: 'https://observer.example.com', api_token_configured: true, request_timeout_seconds: 15, auto_sync_on_start: true, sync_interval_minutes: 5, sync_before_export: true }
+		const status = { configured: true, enabled: true, connected: true, stale: false, instance_id: 'observer-build', api_version: 'v1', auth_state: 'authenticated', challenge_required: false, coverage_degraded: false, baseline_completed: true, queue_depth: 0 }
+		const localSettings = { database_type: 'sqlite3', database_file: './treehole.db', ai_enabled: false, ai_live_search: false, ai_provider_name: 'Local', ai_base_url: 'http://127.0.0.1', ai_model: 'test', ai_temperature: 0.2, ai_max_output_tokens: 4096, ai_request_timeout_seconds: 120, ai_max_search_rounds: 3, ai_api_key_configured: false, restart_required: false, ai_active_provider: 'local', ai_providers: [] }
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.endsWith('/jobs?limit=50')) return json([])
+			if (path.endsWith('/capabilities')) return json({ api_version: 'v1', schema_version: 12, fts5: true, archive_import: true, archive_export: true, jobs: true, ai: true, live_search: true })
+			if (path.endsWith('/ai/providers') || path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/settings/observer/test')) return json({ ok: true, instance_id: 'observer-build', api_version: 'v1', service_version: 'v0.1.0-alpha.1', commit: '0123456789abcdef', build_date: '2026-07-17T04:00:00Z', auth_state: 'authenticated', message: 'Observer connection succeeded' })
+			if (path.endsWith('/settings/observer')) return json(observerSettings)
+			if (path.endsWith('/observer/status')) return json(status)
+			if (path.endsWith('/settings')) return json(localSettings)
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/settings')
+		await user.click(await screen.findByRole('button', { name: '测试已保存连接' }))
+		expect(await screen.findByText('v0.1.0-alpha.1 · 0123456789ab · observer-build · v1')).toBeInTheDocument()
+	})
+
 	it('labels a Treehole OTP challenge accurately and does not offer SMS resend', async () => {
 		const observerSettings = { enabled: true, base_url: 'https://observer.example.com', api_token_configured: true, request_timeout_seconds: 15, auto_sync_on_start: true, sync_interval_minutes: 5, sync_before_export: true }
 		const challenged = { configured: true, enabled: true, connected: true, stale: false, instance_id: 'observer-1', api_version: 'v1', auth_state: 'challenge_required', challenge_required: true, challenge: 'otp', challenge_stage: 'treehole', auth_reason: '需要令牌验证', coverage_degraded: false, baseline_completed: true, queue_depth: 0 }

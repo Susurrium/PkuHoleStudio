@@ -135,6 +135,9 @@ export interface ObserverConnectionProbe {
   ok: boolean
   instance_id?: string
   api_version?: string
+  service_version?: string
+  commit?: string
+  build_date?: string
   auth_state?: ObserverAuthState
   message?: string
 }

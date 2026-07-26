@@ -6,7 +6,7 @@ PkuHoleStudio 的 Observer 集成只连接你自己部署的 HTTPS 服务，不�
 
 1. 按 `PkuHoleObserver` 仓库中的 `README.md` 在服务器部署服务，妥善保存生成的 API Token。
 2. 打开 Studio Web 的“设置 → Observer”。
-3. 填写 Observer 的 HTTPS 地址和 API Token，先执行“测试连接”。Token 保存后只显示“已配置”，API 不会回显原值。
+3. 填写 Observer 的 HTTPS 地址和 API Token，先执行“测试连接”，并核对提示中的服务版本和 commit 是否与准备部署的 Release 一致。Token 保存后只显示“已配置”，API 不会回显原值；旧版 Observer 没有构建身份字段时仍可连接，但不会显示版本。
 4. 启用 Observer，并按需启用“启动时同步”“定时同步”和“导出前同步”。
 5. 查看状态中的登录、扫描时间、分页覆盖、队列深度、流量保护和基线状态。默认需要连续 12 小时覆盖完整的热点扫描来建立安全基线；中途长时间断档会重新累计。基线完成前只保存内容，不根据列表缺失确认删除。
 

@@ -93,6 +93,34 @@ func TestObserverStatusPreservesChallengeAndBaselineDetails(t *testing.T) {
 	}
 }
 
+func TestObserverConnectionReportsOptionalBuildIdentity(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/capabilities":
+			_, _ = io.WriteString(writer, `{"api_version":"v1","instance_id":"instance-build","service_version":"v0.1.0-alpha.1","commit":"0123456789abcdef","build_date":"2026-07-17T04:00:00Z"}`)
+		case "/api/v1/status":
+			_, _ = io.WriteString(writer, `{"api_version":"v1","instance_id":"instance-build","auth_state":"authenticated","challenge_required":false,"baseline_completed":true,"queue_depth":0}`)
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	service, err := NewObserverService(&observerRepositoryStub{receipts: map[int64]string{}}, &observerArchiveStub{}, t.TempDir(), config.ObserverConfig{Enabled: true, BaseURL: server.URL, APIToken: "token", RequestTimeout: 15, SyncIntervalMins: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.client.mu.Lock()
+	service.client.client.Transport = server.Client().Transport
+	service.client.mu.Unlock()
+	result, err := service.Test(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.ServiceVersion != "v0.1.0-alpha.1" || result.Commit != "0123456789abcdef" || result.BuildDate != "2026-07-17T04:00:00Z" || result.AuthState != "authenticated" {
+		t.Fatalf("connection result = %+v", result)
+	}
+}
+
 func TestObserverStatusMapsOptionalGlobalTrafficGuard(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/status" {

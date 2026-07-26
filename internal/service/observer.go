@@ -330,11 +330,14 @@ type ObserverTrafficStatus struct {
 }
 
 type ObserverConnectionTest struct {
-	OK         bool   `json:"ok"`
-	InstanceID string `json:"instance_id,omitempty"`
-	APIVersion string `json:"api_version,omitempty"`
-	AuthState  string `json:"auth_state,omitempty"`
-	Message    string `json:"message"`
+	OK             bool   `json:"ok"`
+	InstanceID     string `json:"instance_id,omitempty"`
+	APIVersion     string `json:"api_version,omitempty"`
+	ServiceVersion string `json:"service_version,omitempty"`
+	Commit         string `json:"commit,omitempty"`
+	BuildDate      string `json:"build_date,omitempty"`
+	AuthState      string `json:"auth_state,omitempty"`
+	Message        string `json:"message"`
 }
 
 type ObserverSyncResult struct {
@@ -521,17 +524,31 @@ func (s *ObserverService) Status(ctx context.Context) (ObserverStatusResult, err
 
 func (s *ObserverService) Test(ctx context.Context) (ObserverConnectionTest, error) {
 	var capabilities struct {
-		APIVersion string `json:"api_version"`
-		InstanceID string `json:"instance_id"`
+		APIVersion     string `json:"api_version"`
+		InstanceID     string `json:"instance_id"`
+		ServiceVersion string `json:"service_version"`
+		Commit         string `json:"commit"`
+		BuildDate      string `json:"build_date"`
 	}
 	if err := s.client.DoJSON(ctx, http.MethodGet, "/api/v1/capabilities", nil, &capabilities); err != nil {
 		return ObserverConnectionTest{Message: err.Error()}, err
 	}
+	result := ObserverConnectionTest{
+		InstanceID:     capabilities.InstanceID,
+		APIVersion:     capabilities.APIVersion,
+		ServiceVersion: capabilities.ServiceVersion,
+		Commit:         capabilities.Commit,
+		BuildDate:      capabilities.BuildDate,
+	}
 	status, err := s.Status(ctx)
 	if err != nil {
-		return ObserverConnectionTest{InstanceID: capabilities.InstanceID, APIVersion: capabilities.APIVersion, Message: err.Error()}, err
+		result.Message = err.Error()
+		return result, err
 	}
-	return ObserverConnectionTest{OK: true, InstanceID: capabilities.InstanceID, APIVersion: capabilities.APIVersion, AuthState: status.AuthState, Message: "Observer connection succeeded"}, nil
+	result.OK = true
+	result.AuthState = status.AuthState
+	result.Message = "Observer connection succeeded"
+	return result, nil
 }
 
 func (s *ObserverService) HotPosts(ctx context.Context, limit int, window time.Duration) (HotPostsResult, error) {
