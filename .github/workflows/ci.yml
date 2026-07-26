@@ -35,7 +35,7 @@ jobs:
       - name: Vet Go packages
         run: go vet -tags sqlite_fts5 ./...
       - name: Compile application
-        run: go build -tags sqlite_fts5 ./cmd
+        run: go build -tags sqlite_fts5 -o /tmp/treehole-ci ./cmd
 
   web-e2e:
     runs-on: windows-latest
