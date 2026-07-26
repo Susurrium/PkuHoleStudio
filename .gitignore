@@ -16,6 +16,8 @@ scripts/
 **/data
 **/download
 *.db
+*.db-wal
+*.db-shm
 .omx
 
 !web/**/*.html
