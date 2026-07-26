@@ -4,7 +4,7 @@
 
 PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
 
-当前预览版：`v0.1.0-alpha.4`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.4 发布说明](docs/releases/v0.1.0-alpha.4.md)。
+当前预览版：`v0.1.0-alpha.5`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.5 发布说明](docs/releases/v0.1.0-alpha.5.md)。
 
 上游锚点为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`，本仓库标签为 `upstream-pkuholetui-f9d6221`。
 
@@ -203,7 +203,7 @@ npm run e2e
 
 Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程，以及经典树洞/GitHub 布局的响应式、键盘与视觉回归场景。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
 
-alpha.4 的发布门槛与已知限制见 [alpha.4 发布说明](docs/releases/v0.1.0-alpha.4.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
+alpha.5 的发布门槛与已知限制见 [alpha.5 发布说明](docs/releases/v0.1.0-alpha.5.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
 
 ## 安全与隐私
 
