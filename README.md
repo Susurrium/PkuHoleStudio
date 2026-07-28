@@ -4,7 +4,7 @@
 
 PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的完整历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
 
-当前预览版：`v0.1.0-alpha.6`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.6 发布说明](docs/releases/v0.1.0-alpha.6.md)。
+当前预览版：`v0.1.0-alpha.7`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.7 发布说明](docs/releases/v0.1.0-alpha.7.md)。
 
 上游锚点为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`，本仓库标签为 `upstream-pkuholetui-f9d6221`。
 
@@ -85,6 +85,13 @@ go build -tags sqlite_fts5 -o treehole ./cmd
 ./treehole rebuild-search-index
 ```
 
+如确需在局域网监听 API-only 服务，必须显式启用远程访问并提供至少 24 个字符的 Bearer Token。PowerShell 示例：
+
+```powershell
+$env:PKUHOLE_SERVER_API_TOKEN = "请替换为至少24字符的随机值"
+./treehole server --host 0.0.0.0 --port 8081 --allow-remote
+```
+
 Web 默认只监听 `127.0.0.1`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。`--data-dir` 和 `--db-path` 是所有子命令共享的持久参数；同时运行 TUI 与 Web 时，Web 独占持久任务执行器，TUI 不会争抢队列。
 
 若 TUI 已能正常登录，请让 TUI 与 Web 使用同一 `--data-dir`，然后在 Web“同步中心”点击“载入 TUI 已登录会话”；Web 会重新读取共享的 `cookies.json`，不需要再次输入密码或验证码。也可直接在 Web 登录，IAAA 与树洞二次短信验证会调用各自正确的端点。密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。浏览器树洞页面的 HttpOnly Cookie 不会被 Studio 网页读取；Toolkit 只作为独立的简易归档导出/迁移工具，不是 Studio 同步、导入或导出的依赖。
@@ -131,6 +138,7 @@ npm run dev
 GET  /health
 GET  /capabilities
 GET  /posts
+GET  /posts/hot?limit=10
 GET  /posts/:pid
 GET  /posts/:pid/comments
 GET  /search
@@ -203,11 +211,12 @@ npm run e2e
 
 Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程，以及经典树洞/GitHub 布局的响应式、键盘与视觉回归场景。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
 
-alpha.6 的发布门槛与已知限制见 [alpha.6 发布说明](docs/releases/v0.1.0-alpha.6.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
+alpha.7 的发布门槛与已知限制见 [alpha.7 发布说明](docs/releases/v0.1.0-alpha.7.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
 
 ## 安全与隐私
 
 - Web 默认仅绑定本机回环地址。
+- 兼容 `server` 命令同样默认绑定 `127.0.0.1`；非回环监听必须同时显式启用远程访问并使用 Bearer Token。
 - 密码与验证码接口拒绝非回环来源；密码不会持久化或出现在 API 响应中。
 - 归档上传采用随机暂存文件、大小限制、ZIP 路径/CRC/展开体积校验。
 - `referenced` 归档内容作为上下文保存，但默认不出现在普通资料库列表和搜索中。
@@ -216,4 +225,4 @@ alpha.6 的发布门槛与已知限制见 [alpha.6 发布说明](docs/releases/v
 
 ## License
 
-本仓库由 PKUHoleTUI 的历史代码演进而来，但上游仓库和本仓库目前均未提供明确的开源许可证。因此，当前源码与二进制不自动获得复制、修改、再发布或商用授权；在完成代码来源与许可审计前，保留各权利人的全部权利。第三方依赖继续适用各自的许可证。
+本仓库由 PKUHoleTUI 的历史代码演进而来，但上游仓库和本仓库目前均未提供明确的开源许可证。因此，当前源码与二进制不自动获得复制、修改、再发布或商用授权；在取得并记录上游权利人的许可或其他有效授权依据前，保留各权利人的全部权利。代码来源、上游基线与当前分发边界见 [NOTICE.md](NOTICE.md)；第三方依赖继续适用各自的许可证。

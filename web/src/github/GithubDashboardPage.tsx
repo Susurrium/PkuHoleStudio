@@ -18,7 +18,7 @@ export function GithubDashboardPage() {
   const health = useQuery({ queryKey: ['health'], queryFn: api.health })
   const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: api.capabilities })
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 10_000 })
-  const hotPosts = useQuery({ queryKey: ['hot-posts'], queryFn: api.hotPosts, retry: false, staleTime: 60_000 })
+  const hotPosts = useQuery({ queryKey: ['hot-posts', 10], queryFn: () => api.hotPosts(10), retry: false, staleTime: 60_000 })
   const session = useQuery({ queryKey: ['session'], queryFn: api.session })
 
   if (health.isLoading || jobs.isLoading) return <GithubLoading label="正在打开工作台…" />
@@ -76,6 +76,7 @@ export function GithubDashboardPage() {
       <div className="github-hot-list">
         {hotPosts.isLoading ? <GithubLoading label="正在读取热榜…" /> : hotPosts.error ? <GithubState tone="danger" title="热榜暂时不可用" description={hotPosts.error.message} /> : hotPosts.data?.items.length ? hotPosts.data.items.slice(0, 6).map((post) => { const unavailable = post.availability_state === 'confirmed_unavailable'; return <Link key={post.id} to={unavailable ? `/removed/${post.id}` : `/posts/${post.id}?source=live`}><CommentDiscussionIcon size={16} /><div><strong>{post.text || '（无正文）'}</strong><small>#{post.id} · {post.reply ?? 0} 条评论 · {unavailable ? '删除前归档' : `热度 ${post.score !== undefined ? post.score.toFixed(1) : post.follownum}`}</small></div></Link> }) : <p>当前时间范围内没有热榜数据。</p>}
       </div>
+      {(hotPosts.data?.items.length ?? 0) > 6 && <div className="mt-3 flex justify-end"><Link className="github-link-button" to="/online#hot">查看完整 Top 10 →</Link></div>}
     </section>
 
     {session.data?.has_session && <Link className="github-notification-strip" to="/notifications"><BellIcon size={17} /><span>在线会话已连接，打开通知中心查看最新互动。</span><strong>查看通知</strong></Link>}

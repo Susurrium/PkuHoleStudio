@@ -1912,7 +1912,11 @@ func apiHotPosts(dependencies Dependencies) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "dashboard service is unavailable", nil)
 			return
 		}
-		result, hotErr := dependencies.Dashboard.HotPosts(c.Request.Context(), 5, 12*time.Hour)
+		limit, ok := boundedIntQuery(c, "limit", 5, 1, 20)
+		if !ok {
+			return
+		}
+		result, hotErr := dependencies.Dashboard.HotPosts(c.Request.Context(), limit, 12*time.Hour)
 		if hotErr != nil {
 			apiFailure(c, http.StatusBadGateway, "hot_posts_unavailable", hotErr.Error(), nil)
 			return

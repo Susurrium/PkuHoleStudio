@@ -80,10 +80,7 @@ export function ImportsPage() {
 	}
   function drop(event: DragEvent) { event.preventDefault(); pick(event.dataTransfer.files) }
   return <>
-	<PageHeader eyebrow="TRANSFER" title="导入与导出" description="从任何兼容归档文件导入资料；也可以选择独立的 Toolkit 从官方树洞下载归档或发送到 Studio。" actions={<>
-		<a className="button-secondary" href={TOOLKIT_RELEASE_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />获取独立 Toolkit</a>
-		<a className="button-secondary" href={TREEHOLE_WEB_URL} target="_blank" rel="noreferrer"><ExternalLink size={15} />打开官方树洞</a>
-	</>} />
+	<PageHeader eyebrow="TRANSFER" title="导入与导出" description="导入任何兼容归档，或把本地资料导出为可迁移、可阅读的文件；Toolkit 传输是独立的可选方式。" />
 	<nav className="mb-6 grid grid-cols-3 rounded-xl border border-line bg-white/45 p-1" aria-label="导入与导出方式">
 		<TransferTab active={view === 'import'} icon={UploadCloud} label="导入文件" shortLabel="文件" onClick={() => setParams({ view: 'import' })} />
 		<TransferTab active={view === 'bridge'} icon={Link2} label="Toolkit 传输" shortLabel="Toolkit" onClick={() => setParams({ view: 'bridge' })} />
@@ -239,7 +236,7 @@ function ExportPanel({ initialSelection }: { initialSelection?: LocalSelectionSn
 
   return <section className="panel mt-7 p-5 md:p-7">
     <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-coral-soft text-coral"><Download size={20} /></div><div><p className="eyebrow">EXPORT</p><h2 className="mt-1 text-xl font-semibold">打包本地资料</h2><p className="mt-2 text-sm leading-6 text-ink-soft">留空 PID 会导出全部本地资料；填写 PID 则只导出选中的帖子。任务完成后再下载文件。</p></div></div>
-    {initialSelection && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal/25 bg-teal-soft/35 px-4 py-3"><div><p className="text-sm font-semibold text-teal">已从浏览资料带入 {initialSelection.pids.length} 个树洞</p><p className="mt-1 text-xs text-ink-soft">可以在下方继续调整范围；返回列表时仍会保留当前选择。</p></div><Link className="button-secondary !min-h-9 !px-3 text-xs" to={initialSelection.returnTo}><ArrowLeft size={14} />返回继续选择</Link></div>}
+    {initialSelection && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal/25 bg-teal-soft/35 px-4 py-3"><div><p className="text-sm font-semibold text-teal">已带入 {initialSelection.pids.length} 个树洞</p><p className="mt-1 text-xs text-ink-soft">可以在下方继续调整范围；返回来源页面时仍会保留当前选择。</p></div><Link className="button-secondary !min-h-9 !px-3 text-xs" to={initialSelection.returnTo}><ArrowLeft size={14} />返回来源页面</Link></div>}
     <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_340px]">
       <div><label className="text-xs font-medium text-ink-soft">导出范围<textarea className="field mt-1.5 min-h-24 resize-y" value={pidsValue} onChange={(event) => setPidsValue(event.target.value)} placeholder="留空导出全部；或输入 1234567, 2345678" /></label><p className={`mt-2 text-xs ${selectedPIDs.length > 2000 ? 'text-coral' : 'text-ink-soft'}`}>{selectedPIDs.length ? `已选择 ${selectedPIDs.length} 个 PID` : '当前将导出全部本地帖子'}{selectedPIDs.length > 2000 ? '，超过 2000 个上限' : ''}</p><label className="mt-4 inline-flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" checked={includeComments} onChange={(event) => setIncludeComments(event.target.checked)} />包含评论</label><details className="mt-4 rounded-xl border border-line bg-white/45 p-4"><summary className="cursor-pointer text-sm font-semibold">导出前需要在线更新？</summary><p className="mt-2 text-xs leading-5 text-ink-soft">仅适用于指定 PID。Studio 会先从树洞获取最新正文、评论和图片，再生成文件。</p><label className="mt-3 flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" checked={captureLive} onChange={(event) => setCaptureLive(event.target.checked)} aria-label="导出前在线更新指定 PID" />先在线更新指定 PID</label><label className="mt-3 flex items-center gap-2 text-sm text-ink-soft"><input type="checkbox" disabled={!captureLive} checked={includeMedia} onChange={(event) => setIncludeMedia(event.target.checked)} />下载并打包图片</label>{captureLive && selectedPIDs.length === 0 && <p className="mt-2 text-xs text-coral">在线更新时必须填写至少一个 PID。</p>}</details></div>
       <div className="rounded-2xl border border-line bg-paper/55 p-5">

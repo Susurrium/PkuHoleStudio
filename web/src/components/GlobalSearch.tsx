@@ -28,10 +28,10 @@ export function GlobalSearch({ compact = false }: { compact?: boolean }) {
         className="field !min-h-10 !pl-10 !pr-24"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder={activeWorkspace === 'online' ? '搜索在线树洞，或输入 #PID 直接打开' : '搜索本地资料，或输入 #PID 直接打开'}
-        aria-label="全局搜索"
+        placeholder={activeWorkspace === 'online' ? '快速搜索在线树洞，或输入 #PID 跳转' : '快速搜索本地资料，或输入 #PID 跳转'}
+        aria-label="快速全局搜索"
       />
-      <button className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1.5 text-xs font-semibold text-teal hover:bg-teal-soft" type="submit" aria-label="提交全局搜索">
+      <button className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1.5 text-xs font-semibold text-teal hover:bg-teal-soft" type="submit" aria-label="提交快速搜索">
         搜索
       </button>
     </form>

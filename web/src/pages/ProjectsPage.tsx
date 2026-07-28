@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Bot, CheckSquare2, FolderKanban, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Bot, CheckSquare2, FileOutput, FolderKanban, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { errorDescription, useFeedback } from '../components/Feedback'
 import { PageHeader } from '../components/PageHeader'
 import { PostCard } from '../components/PostCard'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import { writeLocalSelection } from '../features/library/selection'
 import { api } from '../lib/api'
 import type { ResearchProject } from '../lib/types'
 
 export function ProjectsPage() {
   const client = useQueryClient()
+  const navigate = useNavigate()
   const { notify, confirm } = useFeedback()
   const [searchParams, setSearchParams] = useSearchParams()
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
@@ -136,7 +138,7 @@ export function ProjectsPage() {
 
       {!selected ? <EmptyState title="选择或创建一个研究项目" description="项目会保存树洞成员关系，但不会复制或删除原始资料。" action={<FolderKanban size={20} />} /> : <section className="min-w-0">
         <section className="panel p-5 md:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4"><div className="flex gap-3"><span className="mt-1 size-3 shrink-0 rounded-full" style={{ background: selected.color || '#0f766e' }} /><div><p className="eyebrow">RESEARCH PROJECT</p><h2 className="mt-1 text-2xl font-semibold">{selected.name}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-ink-soft">{selected.description || '尚未填写项目说明。'}</p></div></div><div className="flex flex-wrap gap-2">{posts.data?.length ? <Link className="button-primary" to={`/ai?mode=selected&pids=${posts.data.slice(0, 200).map((post) => post.pid).join(',')}`}><Bot size={15} />研究项目内容</Link> : null}<button className="button-secondary" onClick={() => setEditing((value) => !value)}><Pencil size={15} />{editing ? '取消编辑' : '编辑项目'}</button><button className="button-secondary !text-coral" disabled={removeProject.isPending} onClick={async () => { const accepted = await confirm({ title: `删除研究项目“${selected.name}”？`, description: '项目中的树洞仍会保留在本地资料库，只删除项目及成员关系。', confirmLabel: '删除项目', tone: 'danger' }); if (accepted) removeProject.mutate(selected.id) }}><Trash2 size={15} />删除项目</button></div></div>
+          <div className="flex flex-wrap items-start justify-between gap-4"><div className="flex gap-3"><span className="mt-1 size-3 shrink-0 rounded-full" style={{ background: selected.color || '#0f766e' }} /><div><p className="eyebrow">RESEARCH PROJECT</p><h2 className="mt-1 text-2xl font-semibold">{selected.name}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-ink-soft">{selected.description || '尚未填写项目说明。'}</p></div></div><div className="flex flex-wrap gap-2">{posts.data?.length ? <><Link className="button-primary" to={`/ai?mode=selected&pids=${posts.data.slice(0, 200).map((post) => post.pid).join(',')}`}><Bot size={15} />研究项目内容</Link><button className="button-secondary" disabled={posts.data.length > 2_000} title={posts.data.length > 2_000 ? '单次最多导出 2000 个树洞' : undefined} onClick={() => { writeLocalSelection(`/projects?project=${selected.id}`, posts.data!.map((post) => post.pid)); navigate('/imports?view=export&from=selection') }}><FileOutput size={15} />导出项目</button></> : null}<button className="button-secondary" onClick={() => setEditing((value) => !value)}><Pencil size={15} />{editing ? '取消编辑' : '编辑项目'}</button><button className="button-secondary !text-coral" disabled={removeProject.isPending} onClick={async () => { const accepted = await confirm({ title: `删除研究项目“${selected.name}”？`, description: '项目中的树洞仍会保留在本地资料库，只删除项目及成员关系。', confirmLabel: '删除项目', tone: 'danger' }); if (accepted) removeProject.mutate(selected.id) }}><Trash2 size={15} />删除项目</button></div></div>
           {editing && <form className="mt-5 grid gap-3 rounded-xl border border-line bg-paper/45 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); if (editName.trim()) updateProject.mutate() }}><div className="grid gap-3"><label className="text-xs font-medium text-ink-soft">项目名称<input className="field mt-1.5" value={editName} maxLength={160} onChange={(event) => setEditName(event.target.value)} /></label><label className="text-xs font-medium text-ink-soft">项目说明<textarea className="field mt-1.5 min-h-20" value={editDescription} maxLength={10000} onChange={(event) => setEditDescription(event.target.value)} /></label></div><div className="flex items-end gap-2 sm:flex-col sm:items-stretch sm:justify-end"><label className="flex items-center gap-2 text-xs font-medium text-ink-soft">颜色<input type="color" value={editColor} onChange={(event) => setEditColor(event.target.value)} /></label><button className="button-primary" disabled={!editName.trim() || updateProject.isPending}><Save size={15} />{updateProject.isPending ? '保存中…' : '保存修改'}</button></div></form>}
           <form className="mt-5 flex flex-wrap gap-2 border-t border-line pt-5" onSubmit={(event) => { event.preventDefault(); const value = Number(pid); if (Number.isInteger(value) && value > 0) addPost.mutate(value) }}><input className="field min-w-[220px] flex-1" value={pid} onChange={(event) => setPID(event.target.value.replace(/\D/g, ''))} placeholder="输入已保存到本地的 PID" aria-label="加入项目的 PID" /><button className="button-secondary" disabled={addPost.isPending || !Number(pid)}><Plus size={15} />加入项目</button></form>
         </section>

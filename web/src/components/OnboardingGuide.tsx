@@ -80,7 +80,7 @@ export function OnboardingGuide() {
 
   return <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm">
     <section ref={dialog} className="my-auto w-full max-w-3xl rounded-3xl border border-line bg-paper p-5 shadow-2xl sm:p-8" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
-      <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">WELCOME · {step + 1}/2</p><h2 ref={heading} tabIndex={-1} id="onboarding-title" className="mt-2 text-2xl font-semibold outline-none sm:text-3xl">{step === 0 ? '先选择你现在要做的事' : '理解在线与本地的关系'}</h2></div><button className="button-secondary !size-9 !p-0" aria-label="暂时跳过入门引导" onClick={() => complete()}><X size={16} /></button></div>
+      <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">WELCOME · {step + 1}/2</p><h2 ref={heading} tabIndex={-1} id="onboarding-title" className="mt-2 text-2xl font-semibold outline-none sm:text-3xl">{step === 0 ? '先选择你现在要做的事' : '理解在线与本地的关系'}</h2></div><button className="button-secondary !size-9 !p-0" aria-label="关闭并不再自动显示入门引导" onClick={() => complete()}><X size={16} /></button></div>
 
       {step === 0 ? <>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">PkuHoleStudio 有两个相互独立、随时可切换的工作区。选择当前需求即可，以后不会限制你的使用方式。</p>
@@ -100,7 +100,7 @@ export function OnboardingGuide() {
         <div className="mt-5 rounded-2xl border border-teal/25 bg-teal-soft/30 p-4 text-sm leading-6 text-ink-soft">左侧工作区开关可随时切换，也可以使用 <kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+1</kbd> 打开在线树洞、<kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+2</kbd> 返回本地资料库。</div>
       </>}
 
-      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>暂时跳过</button><div className="flex gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : <button className="button-primary" onClick={() => complete(destination)}>{destination === 'online' ? '进入在线树洞' : '前往导入资料'}<ArrowRight size={15} /></button>}</div></div>
+      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>不再自动显示</button><div className="flex gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : <button className="button-primary" onClick={() => complete(destination)}>{destination === 'online' ? '进入在线树洞' : '前往导入资料'}<ArrowRight size={15} /></button>}</div></div>
     </section>
   </div>
 }
