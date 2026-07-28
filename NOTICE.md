@@ -2,9 +2,11 @@
 
 PkuHoleStudio evolved from the public history of
 [dfshfghj/PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI). The imported
-upstream baseline is commit
-`f9d6221e16b1659a453866f3980c30c0cb8067e6`, recorded locally by the tag
-`upstream-pkuholetui-f9d6221`.
+external upstream baseline was commit
+`f9d6221e16b1659a453866f3980c30c0cb8067e6`. On 2026-07-28 this repository
+rewrote its imported history to remove a document containing real campus
+records. The local tag `upstream-pkuholetui-f9d6221` now identifies the
+sanitized equivalent rather than the original object ID.
 
 As of 2026-07-28, the upstream repository does not publish an explicit
 open-source license, and this repository has not received or recorded a
