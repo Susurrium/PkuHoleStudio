@@ -30,14 +30,14 @@ const moreNavigation = [
 ]
 
 const systemNavigation = [
-  { to: '/sync', label: '保存到本地', icon: RefreshCw },
+  { to: '/sync', label: '登录与保存', icon: RefreshCw },
 	{ to: '/tasks', label: '任务中心', icon: ListTodo },
 	{ to: '/logs', label: '运行日志', icon: FileText },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 
 export function Shell() {
-  const { navOpen, setNavOpen, setLayoutPreset, activeWorkspace } = useUIStore()
+  const { navOpen, setNavOpen, activeWorkspace } = useUIStore()
   const location = useLocation()
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const utilityMode = ['/sync', '/tasks', '/logs', '/settings'].some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
@@ -48,7 +48,7 @@ export function Shell() {
   return (
     <div className="paper-grid min-h-screen bg-paper text-ink">
       <a className="studio-skip-link" href="#studio-main">跳到主要内容</a>
-      <header className="sticky top-0 z-50 flex h-16 items-center gap-3 border-b border-line bg-paper/90 px-4 backdrop-blur md:hidden">
+      <header className="sticky top-0 z-50 flex h-16 items-center gap-3 border-b border-line bg-paper/90 px-4 backdrop-blur lg:hidden">
         <Brand compact />
         <button type="button" className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-white/65 px-3 text-sm font-semibold text-ink shadow-sm" aria-expanded={workspaceOpen} aria-controls="studio-mobile-workspaces" onClick={() => { setWorkspaceOpen((value) => !value); setNavOpen(false) }}>
           {activeWorkspace === 'online' ? <Radio className="shrink-0 text-teal" size={16} /> : <Archive className="shrink-0 text-teal" size={16} />}
@@ -57,30 +57,27 @@ export function Shell() {
         </button>
         <div className="flex shrink-0 gap-2"><Link className="button-secondary !size-10 !p-0" to={activeWorkspace === 'online' ? '/posts?source=live&focus=search' : '/posts?focus=search'} aria-label="搜索"><Search size={18} /></Link><button className="button-secondary !size-10 !p-0" onClick={() => { setWorkspaceOpen(false); setNavOpen(!navOpen) }} aria-label={navOpen ? '关闭导航' : '打开导航'}>{navOpen ? <X size={19} /> : <Menu size={19} />}</button></div>
       </header>
-      {workspaceOpen && <><button className="fixed inset-0 top-16 z-40 bg-ink/20 md:hidden" aria-label="关闭工作区选择" onClick={() => setWorkspaceOpen(false)} /><section id="studio-mobile-workspaces" className="fixed inset-x-4 top-[4.5rem] z-50 rounded-2xl border border-line bg-paper p-3 shadow-2xl md:hidden" aria-label="切换工作区"><p className="mb-2 px-1 text-xs font-semibold text-ink-soft">选择工作区</p><WorkspaceSwitcher onSelect={() => setWorkspaceOpen(false)} /></section></>}
-      {navOpen && <button className="fixed inset-0 z-30 bg-ink/20 md:hidden" aria-label="关闭导航遮罩" onClick={() => setNavOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-[60] flex w-72 flex-col border-r border-line bg-[#ede7dc] px-5 py-6 transition-transform md:z-40 md:translate-x-0 ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      {workspaceOpen && <><button className="fixed inset-0 top-16 z-40 bg-ink/20 lg:hidden" aria-label="关闭工作区选择" onClick={() => setWorkspaceOpen(false)} /><section id="studio-mobile-workspaces" className="fixed inset-x-4 top-[4.5rem] z-50 rounded-2xl border border-line bg-paper p-3 shadow-2xl lg:hidden" aria-label="切换工作区"><p className="mb-2 px-1 text-xs font-semibold text-ink-soft">选择工作区</p><WorkspaceSwitcher onSelect={() => setWorkspaceOpen(false)} /></section></>}
+      {navOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" aria-label="关闭导航遮罩" onClick={() => setNavOpen(false)} />}
+      <aside className={`fixed inset-y-0 left-0 z-[60] flex w-72 flex-col border-r border-line bg-[#ede7dc] px-5 py-6 transition-transform lg:z-40 lg:translate-x-0 ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <Brand />
         <WorkspaceSwitcher className="mt-6" />
         <nav className="mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto pr-1" aria-label="主导航">
           {utilityMode ? <NavigationGroup label="通用工具" items={systemNavigation} close={() => setNavOpen(false)} /> : <><NavigationGroup label={activeWorkspace === 'online' ? '在线树洞' : '本地资料库'} items={primaryNavigation} close={() => setNavOpen(false)} /><NavigationGroup label="更多" items={moreNavigation} close={() => setNavOpen(false)} className="mt-6" /><NavigationGroup label="系统" items={systemNavigation} close={() => setNavOpen(false)} className="mt-6" compact /></>}
-          <div className="mt-6 grid gap-2" aria-label="切换界面">
-            <button className="flex min-h-10 items-center gap-3 rounded-xl border border-line bg-white/45 px-3.5 text-left text-xs font-semibold text-ink-soft transition hover:border-teal hover:bg-white/70 hover:text-teal" onClick={() => setLayoutPreset('classic')}>
-              <PanelsTopLeft size={16} />切换到经典树洞界面
-            </button>
-            <button className="flex min-h-10 items-center gap-3 rounded-xl border border-line bg-white/45 px-3.5 text-left text-xs font-semibold text-ink-soft transition hover:border-teal hover:bg-white/70 hover:text-teal" onClick={() => setLayoutPreset('github')}>
-              <PanelsTopLeft size={16} />切换到 GitHub 风格界面
-            </button>
+          <div className="mt-6 grid gap-2" aria-label="界面设置">
+            <Link className="flex min-h-10 items-center gap-3 rounded-xl border border-line bg-white/45 px-3.5 text-left text-xs font-semibold text-ink-soft transition hover:border-teal hover:bg-white/70 hover:text-teal" to="/settings#usage-and-interface" onClick={() => setNavOpen(false)}>
+              <PanelsTopLeft size={16} />界面与工作区设置
+            </Link>
           </div>
         </nav>
       </aside>
-      <div className="sticky top-0 z-20 hidden h-16 items-center border-b border-line bg-paper/90 px-8 backdrop-blur md:ml-72 md:flex"><GlobalSearch compact /><div className="ml-auto flex items-center gap-2"><Link className="button-secondary !min-h-9 !px-3" to="/tasks"><ListTodo size={15} />任务</Link><Link className="button-secondary !size-9 !p-0" to="/notifications" aria-label="通知"><Bell size={16} /></Link></div></div>
-      <main id="studio-main" className="studio-mobile-main min-h-screen md:pl-72 md:pb-0">
+      <div className="sticky top-0 z-20 hidden h-16 items-center border-b border-line bg-paper/90 px-8 backdrop-blur lg:ml-72 lg:flex"><GlobalSearch compact /><div className="ml-auto flex items-center gap-2"><Link className="button-secondary !min-h-9 !px-3" to="/tasks"><ListTodo size={15} />任务</Link><Link className="button-secondary !size-9 !p-0" to="/notifications" aria-label="通知"><Bell size={16} /></Link></div></div>
+      <main id="studio-main" className="studio-mobile-main min-h-screen lg:pl-72 lg:pb-0">
         <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-7 md:py-8 lg:px-10">
           <Outlet />
         </div>
       </main>
-      <nav className="studio-mobile-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-paper/95 px-1 backdrop-blur md:hidden" aria-label="移动端主导航">
+      <nav className="studio-mobile-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-paper/95 px-1 backdrop-blur lg:hidden" aria-label="移动端主导航">
         {mobileNavigation.map((item) => { const { to, label, icon: Icon } = item; const end = 'end' in item && typeof item.end === 'boolean' ? item.end : undefined; return <NavLink key={to} to={to} end={end} className={() => `flex flex-col items-center justify-center gap-1 text-[10px] font-medium ${navigationTargetIsActive(location.pathname, location.search, location.hash, to, end) ? 'text-teal' : 'text-ink-soft'}`}><Icon size={19} /><span>{label}</span></NavLink> })}
         <button className="flex flex-col items-center justify-center gap-1 text-[10px] font-medium text-ink-soft" onClick={() => setNavOpen(true)}><Menu size={19} /><span>更多</span></button>
       </nav>

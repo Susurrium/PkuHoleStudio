@@ -118,6 +118,14 @@ func (c *Client) bootstrapSessionWithIAAAVerification(cfg *config.Config, passwo
 		result.Status.FailureKind = SessionFailureLogin
 		result.Status.Message = oauthFailureMessage(oauthResult)
 		result.Challenge = DetectAuthChallenge(result.Status.Message)
+		if result.Challenge != AuthChallengeNone || !isExplicitIAAACredentialFailure(result.Status.Message) {
+			if mode, modeErr := c.lookupIAAAVerificationMode(cfg.Username); modeErr == nil && mode != AuthChallengeNone {
+				if mode != result.Challenge && mode == AuthChallengeOTP {
+					result.Status.Message = "统一身份认证要求手机令牌验证；请打开“北京大学”App，在“我的 → 手机令牌”中获取当前 6 位动态口令"
+				}
+				result.Challenge = mode
+			}
+		}
 		if result.Challenge == AuthChallengeNone {
 			result.Challenge = AuthChallengePassword
 		} else {
@@ -163,6 +171,15 @@ func (c *Client) bootstrapSessionWithIAAAVerification(cfg *config.Config, passwo
 	submit := c.ContinueAuthChallenge(AuthChallengeOTP, code)
 	submit.LoginAttempted = true
 	return submit
+}
+
+func isExplicitIAAACredentialFailure(message string) bool {
+	for _, marker := range []string{"用户名", "密码", "未激活", "不存在", "冻结", "锁定", "图形验证码", "验证码错误"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func oauthFailureMessage(result map[string]interface{}) string {

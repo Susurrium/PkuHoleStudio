@@ -230,9 +230,23 @@ func TestSessionPromptAppendsOTPChallengeInputAndButton(t *testing.T) {
 	})
 
 	output := stripANSI(dialog.View(80))
-	for _, want := range []string{"用户名", "密码", "手机令牌", "输入手机令牌", "提交令牌"} {
+	for _, want := range []string{"用户名", "密码", "手机令牌", "输入手机令牌", "提交令牌", "北京大学", "不会发送短信"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("otp challenge form missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestAuthChallengeDialogExplainsOTPSource(t *testing.T) {
+	dialog := NewAuthChallengeDialog(SessionState{
+		Challenge:        AuthChallengeTypeOTP,
+		ChallengeMessage: "需要手机令牌",
+	})
+
+	output := stripANSI(dialog.View(80))
+	for _, want := range []string{"手机令牌验证", "输入 6 位动态口令", "北京大学", "不会发送短信"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("otp dialog missing %q:\n%s", want, output)
 		}
 	}
 }

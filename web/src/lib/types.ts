@@ -255,7 +255,7 @@ export interface ArchivePreflight {
 
 export interface ImportCreated { job?: Job; preflight: ArchivePreflight }
 export interface ExportDownload { blob: Blob; filename: string }
-export interface ArchiveExportPreview { format: 'treehole-v2' | 'markdown'; posts: number; comments: number; media: number; missing_media: number; run_id?: string }
+export interface ArchiveExportPreview { format: 'treehole-v2' | 'markdown'; posts: number; requested?: number; found?: number; missing?: number; missing_pids?: number[]; comments: number; media: number; missing_media: number; run_id?: string }
 export interface BridgePairing {
   token: string
   code?: string

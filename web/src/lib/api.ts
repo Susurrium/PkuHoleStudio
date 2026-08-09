@@ -52,7 +52,7 @@ async function uploadMediaIDs(files: File[]) {
 
 export const api = {
   health: () => request<Health>('/health'),
-	hotPosts: () => request<HotPostsResult>('/posts/hot'),
+	hotPosts: (limit = 5) => request<HotPostsResult>(`/posts/hot${queryString({ limit })}`),
   capabilities: () => request<Capabilities>('/capabilities'),
   posts: (params: Record<string, string | number | boolean | undefined | null>) => request<PostPage>(`/posts${queryString(params)}`),
 	search: (params: Record<string, string | number | boolean | undefined | null>) => request<PostPage>(`/search${queryString(params)}`),

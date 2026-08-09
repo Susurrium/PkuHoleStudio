@@ -290,6 +290,10 @@ func (m SessionPromptDialogModel) View(width int) string {
 				label = "手机令牌"
 			}
 			b.WriteString(m.renderCredentialField(label, m.renderFramedInput(challengeInput.View(), inputOuterWidth, inputInnerWidth, m.focusIndex == 2), m.focusIndex == 2, contentWidth, fill))
+			if m.challenge == AuthChallengeTypeOTP {
+				b.WriteString("\n")
+				b.WriteString(fillRenderedBackground(vHelpStyle.Render("  打开“北京大学”App → 我的 → 手机令牌；此方式不会发送短信。"), contentWidth, fill))
+			}
 			b.WriteString("\n")
 			button := vButtonDefault.Render(m.ChallengeButtonLabel())
 			if m.focusIndex == 3 {

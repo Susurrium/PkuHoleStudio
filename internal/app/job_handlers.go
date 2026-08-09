@@ -39,12 +39,6 @@ type thumbnailJobPayload struct {
 	ConvertWebP bool `json:"convert_webp"`
 }
 
-type monitorJobPayload struct {
-	Pages           int                  `json:"pages"`
-	IntervalSeconds int                  `json:"interval_seconds"`
-	Options         service.CrawlOptions `json:"options"`
-}
-
 type cleanupJobPayload struct {
 	RetentionDays int `json:"retention_days"`
 }
@@ -572,56 +566,7 @@ func (a *App) handleRebuildReferences(ctx context.Context, execution *jobs.Execu
 }
 
 func (a *App) handleMonitorLatest(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
-	var payload monitorJobPayload
-	if len(job.Payload) > 0 {
-		if err := json.Unmarshal(job.Payload, &payload); err != nil {
-			return err
-		}
-	}
-	if payload.Pages <= 0 || payload.Pages > 50 {
-		payload.Pages = 3
-	}
-	if payload.IntervalSeconds < 15 {
-		payload.IntervalSeconds = 60
-	}
-	if payload.Options.PostLimit <= 0 {
-		payload.Options.PostLimit = 200
-	}
-	if payload.Options.CommentLimit <= 0 {
-		payload.Options.CommentLimit = 200
-	}
-	if err := execution.SetTotal(ctx, payload.Pages); err != nil {
-		return err
-	}
-	cycle := 0
-	for {
-		cycle++
-		for page := 1; page <= payload.Pages; page++ {
-			result, err := a.Sync.FetchPage(ctx, page, payload.Options)
-			key := "page:" + strconv.Itoa(page)
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				_ = execution.ItemFailed(ctx, key, err)
-				continue
-			}
-			checkpoint := map[string]any{"cycle": cycle, "page": page, "posts": result.PostCount, "comments": result.CommentCount}
-			if err := execution.ItemSucceeded(ctx, key, checkpoint); err != nil {
-				return err
-			}
-			if err := execution.Checkpoint(ctx, checkpoint); err != nil {
-				return err
-			}
-		}
-		timer := time.NewTimer(time.Duration(payload.IntervalSeconds) * time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
+	return errors.New("local continuous monitoring has been retired; use sync_latest or Observer")
 }
 
 func (a *App) handleRepairThumbnails(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {

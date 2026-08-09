@@ -74,6 +74,44 @@ func TestExporterTreeholeV2RoundTripsThroughParser(t *testing.T) {
 	}
 }
 
+func TestExporterReportsMissingSelectedPIDsWithoutShrinkingManifestScope(t *testing.T) {
+	store := &fakeExportStore{fakeArchiveStore: &fakeArchiveStore{}, records: []ExportRecord{{
+		Post: models.Post{Pid: 123456, Text: "matched post"},
+	}}}
+	exporter := NewImporter(store)
+	request := ExportRequest{Format: ExportFormatTreeholeV2, PIDs: []int32{123456, 234567, 123456}, IncludeComments: true}
+
+	preview, err := exporter.Preview(context.Background(), request)
+	if err != nil || preview.Requested != 2 || preview.Found != 1 || preview.Missing != 1 || len(preview.MissingPIDs) != 1 || preview.MissingPIDs[0] != 234567 {
+		t.Fatalf("Preview() = %+v, %v", preview, err)
+	}
+
+	var output bytes.Buffer
+	report, err := exporter.Export(context.Background(), &output, request)
+	if err != nil || report.Requested != 2 || report.Found != 1 || report.Missing != 1 {
+		t.Fatalf("Export() = %+v, %v", report, err)
+	}
+	parsed, err := Parse(context.Background(), bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil || parsed.Status != StatusPartial || parsed.Manifest == nil {
+		t.Fatalf("Parse(export) = %+v, %v", parsed, err)
+	}
+	manifest := parsed.Manifest
+	if manifest.Complete || manifest.Counts.ExpectedHoles == nil || *manifest.Counts.ExpectedHoles != 2 || manifest.Counts.ExportedHoles == nil || *manifest.Counts.ExportedHoles != 1 || manifest.Counts.Failed == nil || *manifest.Counts.Failed != 1 || len(manifest.Errors) != 1 {
+		t.Fatalf("manifest = %+v", manifest)
+	}
+	var scope struct {
+		Type string   `json:"type"`
+		PIDs []string `json:"pids"`
+	}
+	if err := json.Unmarshal(manifest.Scope, &scope); err != nil || scope.Type != "pids" || len(scope.PIDs) != 2 || scope.PIDs[0] != "123456" || scope.PIDs[1] != "234567" {
+		t.Fatalf("manifest scope = %+v, %v", scope, err)
+	}
+	var missing map[string]any
+	if err := json.Unmarshal(manifest.Errors[0], &missing); err != nil || missing["code"] != "missing_pid" || missing["pid"] != float64(234567) {
+		t.Fatalf("manifest missing PID error = %#v, %v", missing, err)
+	}
+}
+
 func TestPortableStudioSourcesStayBoundedAndSemantic(t *testing.T) {
 	sources := portableStudioSources([]models.PostSource{
 		{Source: "followed", SourceRef: strings.Repeat("b", 64)},
@@ -169,9 +207,9 @@ func TestExporterWritesPerPostMarkdownBundle(t *testing.T) {
 		Comments: []models.Comment{{Cid: 2001, Pid: 234567, NameTag: "Bob", Text: "second reply"}},
 	}}}
 	var output bytes.Buffer
-	_, err := NewImporter(store).Export(context.Background(), &output, ExportRequest{Format: ExportFormatMarkdown, IncludeComments: true})
-	if err != nil {
-		t.Fatal(err)
+	report, err := NewImporter(store).Export(context.Background(), &output, ExportRequest{Format: ExportFormatMarkdown, PIDs: []int32{123456, 234567, 345678}, IncludeComments: true})
+	if err != nil || report.Missing != 1 {
+		t.Fatalf("Export() = %+v, %v", report, err)
 	}
 	reader, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
 	if err != nil {
@@ -190,7 +228,7 @@ func TestExporterWritesPerPostMarkdownBundle(t *testing.T) {
 		}
 		entries[file.Name] = string(content)
 	}
-	if !strings.Contains(entries["index.md"], "[#123456](posts/123456.md)") || !strings.Contains(entries["index.md"], "[#234567](posts/234567.md)") || !strings.Contains(entries["posts/123456.md"], "reply text") || !strings.Contains(entries["posts/234567.md"], "second reply") {
+	if !strings.Contains(entries["index.md"], "[#123456](posts/123456.md)") || !strings.Contains(entries["index.md"], "[#234567](posts/234567.md)") || !strings.Contains(entries["index.md"], "请求 3 个 PID，找到 2 个，缺失 1 个") || !strings.Contains(entries["index.md"], "未找到：#345678") || !strings.Contains(entries["posts/123456.md"], "reply text") || !strings.Contains(entries["posts/234567.md"], "second reply") {
 		t.Fatalf("markdown entries = %#v", entries)
 	}
 }

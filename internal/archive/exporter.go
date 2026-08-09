@@ -40,7 +40,7 @@ func (i *Importer) Export(ctx context.Context, writer io.Writer, request ExportR
 	if normalized.Format == ExportFormatMarkdown {
 		err = writeMarkdownBundle(ctx, writer, records, report, i.dataDir)
 	} else {
-		err = writeTreeholeV2(ctx, writer, records, report, len(normalized.PIDs) > 0, i.dataDir, time.Now().UTC())
+		err = writeTreeholeV2(ctx, writer, records, report, normalized.PIDs, i.dataDir, time.Now().UTC())
 	}
 	if err != nil {
 		return ExportReport{}, err
@@ -69,6 +69,7 @@ func (i *Importer) prepareExport(ctx context.Context, request ExportRequest) ([]
 	if request.Format != ExportFormatTreeholeV2 && request.Format != ExportFormatMarkdown {
 		return nil, request, fmt.Errorf("unsupported export format %q", request.Format)
 	}
+	request.PIDs = uniqueExportPIDs(request.PIDs)
 	records, err := i.exportStore.ArchiveExportSnapshot(ctx, request.PIDs)
 	if err != nil {
 		return nil, request, err
@@ -92,7 +93,22 @@ func (i *Importer) prepareExport(ctx context.Context, request ExportRequest) ([]
 }
 
 func (i *Importer) exportReport(ctx context.Context, request ExportRequest, records []ExportRecord) (ExportReport, error) {
-	report := ExportReport{Format: request.Format, Posts: len(records)}
+	report := ExportReport{Format: request.Format, Posts: len(records), Found: len(records)}
+	if len(request.PIDs) == 0 {
+		report.Requested = len(records)
+	} else {
+		report.Requested = len(request.PIDs)
+		found := make(map[int32]struct{}, len(records))
+		for _, record := range records {
+			found[record.Post.Pid] = struct{}{}
+		}
+		for _, pid := range request.PIDs {
+			if _, ok := found[pid]; !ok {
+				report.MissingPIDs = append(report.MissingPIDs, pid)
+			}
+		}
+		report.Missing = len(report.MissingPIDs)
+	}
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			return ExportReport{}, err
@@ -106,6 +122,22 @@ func (i *Importer) exportReport(ctx context.Context, request ExportRequest, reco
 		}
 	}
 	return report, nil
+}
+
+func uniqueExportPIDs(pids []int32) []int32 {
+	if len(pids) < 2 {
+		return pids
+	}
+	seen := make(map[int32]struct{}, len(pids))
+	unique := make([]int32, 0, len(pids))
+	for _, pid := range pids {
+		if _, ok := seen[pid]; ok {
+			continue
+		}
+		seen[pid] = struct{}{}
+		unique = append(unique, pid)
+	}
+	return unique
 }
 
 func exportMediaAvailable(item models.Media, dataDir string) bool {
@@ -129,7 +161,7 @@ func exportMediaAvailable(item models.Media, dataDir string) bool {
 	return read > 0 && strings.HasPrefix(http.DetectContentType(buffer[:read]), "image/")
 }
 
-func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selected bool, dataDir string, exportedAt time.Time) error {
+func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportRecord, report ExportReport, selectedPIDs []int32, dataDir string, exportedAt time.Time) error {
 	archiveWriter := zip.NewWriter(output)
 	closeWithError := func(err error) error {
 		return errors.Join(err, archiveWriter.Close())
@@ -138,9 +170,14 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 	if err != nil {
 		return closeWithError(err)
 	}
-	scopeType := "library"
-	if selected {
-		scopeType = "pids"
+	scope := map[string]any{"type": "library"}
+	if len(selectedPIDs) > 0 {
+		scope["type"] = "pids"
+		pids := make([]string, len(selectedPIDs))
+		for index, pid := range selectedPIDs {
+			pids[index] = strconv.FormatInt(int64(pid), 10)
+		}
+		scope["pids"] = pids
 	}
 	mediaIndex, mediaFiles := prepareExportMedia(ctx, records, dataDir)
 	report.MissingMedia = 0
@@ -149,20 +186,26 @@ func writeTreeholeV2(ctx context.Context, output io.Writer, records []ExportReco
 			report.MissingMedia++
 		}
 	}
+	manifestErrors := make([]any, 0, len(report.MissingPIDs))
+	for _, pid := range report.MissingPIDs {
+		manifestErrors = append(manifestErrors, map[string]any{
+			"code": "missing_pid", "message": "requested PID was not found in the local library", "pid": pid,
+		})
+	}
 	manifest := map[string]any{
 		"schemaVersion": 2, "specVersion": ArchiveSpecVersion,
 		"toolVersion": "PkuHoleStudio", "producer": map[string]any{"name": "PkuHoleStudio"}, "runId": report.RunID,
-		"exportedAt": exportedAt.UTC().Format(time.RFC3339), "scope": map[string]any{"type": scopeType},
-		"complete": true, "counts": map[string]any{
-			"expectedHoles": report.Posts, "exportedHoles": report.Posts, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia,
-			"localTags": countExportTags(records), "localNotes": countExportNotes(records), "failed": 0,
+		"exportedAt": exportedAt.UTC().Format(time.RFC3339), "scope": scope,
+		"complete": report.Missing == 0, "counts": map[string]any{
+			"expectedHoles": report.Requested, "exportedHoles": report.Found, "comments": report.Comments, "media": len(mediaIndex), "missingMedia": report.MissingMedia,
+			"localTags": countExportTags(records), "localNotes": countExportNotes(records), "failed": report.Missing,
 		},
 		"extensions": map[string]any{
 			ArchiveExtensionStudioMetadata: map[string]any{"version": 1, "required": false},
 			ArchiveExtensionStudioSources:  map[string]any{"version": 1, "required": false},
 			ArchiveExtensionAvailability:   map[string]any{"version": 1, "required": false},
 		},
-		"requiredExtensions": []string{}, "errors": []any{},
+		"requiredExtensions": []string{}, "errors": manifestErrors,
 	}
 	if len(mediaIndex) > 0 {
 		manifest["extensions"].(map[string]any)[ArchiveExtensionMedia] = map[string]any{"version": 1, "required": false}
@@ -281,7 +324,19 @@ func writeMarkdownBundle(ctx context.Context, output io.Writer, records []Export
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(index, "# PkuHoleStudio 资料导出\n\n- 帖子：%d\n- 评论：%d\n- 导出时间：%s\n\n## 帖子索引\n\n", report.Posts, report.Comments, time.Now().Format("2006-01-02 15:04:05")); err != nil {
+	if _, err := fmt.Fprintf(index, "# PkuHoleStudio 资料导出\n\n- 帖子：%d\n- 评论：%d\n- 导出时间：%s\n\n", report.Posts, report.Comments, time.Now().Format("2006-01-02 15:04:05")); err != nil {
+		return err
+	}
+	if report.Missing > 0 {
+		missing := make([]string, len(report.MissingPIDs))
+		for index, pid := range report.MissingPIDs {
+			missing[index] = "#" + strconv.FormatInt(int64(pid), 10)
+		}
+		if _, err := fmt.Fprintf(index, "> 导出范围不完整：请求 %d 个 PID，找到 %d 个，缺失 %d 个。\n> 未找到：%s\n\n", report.Requested, report.Found, report.Missing, strings.Join(missing, "、")); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprint(index, "## 帖子索引\n\n"); err != nil {
 		return err
 	}
 	for _, record := range records {

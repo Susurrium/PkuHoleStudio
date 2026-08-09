@@ -62,7 +62,7 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
 		else if (path === '/api/v1/ai/providers') data = [{ name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: false }]
 		else if (path === '/api/v1/ai/sessions') data = []
 		else if (path === '/api/v1/session/probe') data = { checked: true, has_session: false, can_read_online: false, can_write_online: false, message: '请先登录' }
-    else if (path === '/api/v1/posts/hot') data = { items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true }
+    else if (path.startsWith('/api/v1/posts/hot')) data = { items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true }
 	else if (path === '/api/v1/imports/preflight' && route.request().method() === 'POST') data = {
 		token: 'preview-1', status: 'awaiting_confirmation', expires_at: '2026-01-01T01:00:00Z', filename: 'sample.treehole.zip',
 		preflight: { format: 'v2', status: 'completed', hash: 'abc', run_id: 'run-1', counts: { items: 1, valid_items: 1, comments: 1 }, issues: [] },
@@ -145,7 +145,7 @@ test('Studio local selection organizes in place and carries context into export'
 	await expect(page.getByRole('heading', { name: '打包本地资料' })).toBeVisible()
 	await expect(page.getByLabel('导出范围')).toHaveValue('701, 702')
 	await expect(page.getByText('预计导出范围').locator('..').getByText('2', { exact: true })).toBeVisible()
-	await page.getByRole('link', { name: '返回继续选择' }).click()
+	await page.getByRole('link', { name: '返回来源页面' }).click()
 	await expect(page.getByText('已选择 2 个树洞')).toBeVisible()
 })
 
