@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 type captureRoundTripper struct {
@@ -22,6 +24,51 @@ func (c *captureRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		Body:       io.NopCloser(strings.NewReader(c.body)),
 		Request:    req,
 	}, nil
+}
+
+func TestNewClientUsesSystemTLSValidation(t *testing.T) {
+	config.SetRuntimeDataDir(t.TempDir())
+	t.Cleanup(func() { config.SetRuntimeDataDir("") })
+
+	c, err := NewClient("test-device")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	transport, ok := c.httpClient.Transport.(*userAgentRoundTripper)
+	if !ok {
+		t.Fatalf("transport = %T, want *userAgentRoundTripper", c.httpClient.Transport)
+	}
+	if transport.transport != nil {
+		t.Fatalf("base transport = %T, want nil so requests use http.DefaultTransport with system certificate validation", transport.transport)
+	}
+}
+
+func TestSSOLoginStartsWithHTTPS(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New: %v", err)
+	}
+	capture := &captureRoundTripper{}
+	c := &Client{
+		httpClient: &http.Client{Jar: jar, Transport: capture},
+		deviceUUID: "test-device",
+	}
+
+	if err := c.SSOLogin("oauth-token"); err != nil {
+		t.Fatalf("SSOLogin: %v", err)
+	}
+	if capture.last == nil {
+		t.Fatal("expected request capture")
+	}
+	if got := capture.last.URL.Scheme; got != "https" {
+		t.Fatalf("SSO request scheme = %q, want https", got)
+	}
+	if got := capture.last.URL.Host; got != "treehole.pku.edu.cn" {
+		t.Fatalf("SSO request host = %q, want treehole.pku.edu.cn", got)
+	}
+	if c.authorization != "oauth-token" || c.GetPkuToken() != "oauth-token" {
+		t.Fatalf("saved SSO token = authorization %q, cookie %q; want exact query value", c.authorization, c.GetPkuToken())
+	}
 }
 
 func TestApplyTreeholeHeadersSetsUUIDAuthorizationAndXSRF(t *testing.T) {

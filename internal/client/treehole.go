@@ -1,7 +1,6 @@
 package client
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +25,7 @@ const (
 	IAAA_AUTH_MODE    TreeHoleWeb = "https://iaaa.pku.edu.cn/iaaa/isMobileAuthen.do"
 	IAAA_SEND_SMS     TreeHoleWeb = "https://iaaa.pku.edu.cn/iaaa/sendSMSCode.do"
 	REDIR_URL         TreeHoleWeb = "https://treehole.pku.edu.cn/cas_iaaa_login?uuid=fc71db5799cf&plat=web"
-	SSO_LOGIN         TreeHoleWeb = "http://treehole.pku.edu.cn/cas_iaaa_login"
+	SSO_LOGIN         TreeHoleWeb = "https://treehole.pku.edu.cn/cas_iaaa_login"
 	UN_READ           TreeHoleWeb = "https://treehole.pku.edu.cn/api/mail/un_read"
 	SEARCH            TreeHoleWeb = "https://treehole.pku.edu.cn/api/pku_hole"
 	COMMENT           TreeHoleWeb = "https://treehole.pku.edu.cn/api/pku_comment_v3"
@@ -59,10 +57,7 @@ func NewClient(deviceUUID string) (*Client, error) {
 	}
 
 	client := &http.Client{
-		Jar: jar,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Jar:     jar,
 		Timeout: 300 * time.Second,
 	}
 
@@ -286,13 +281,12 @@ func (c *Client) SSOLogin(token string) error {
 		return fmt.Errorf("sso login failed with status: %d", resp.StatusCode)
 	}
 
-	re := regexp.MustCompile(`token=(.*)`)
-	matches := re.FindStringSubmatch(resp.Request.URL.String())
-	if len(matches) < 2 {
+	redirectToken := strings.TrimSpace(resp.Request.URL.Query().Get("token"))
+	if redirectToken == "" {
 		return fmt.Errorf("failed to extract token from redirect URL")
 	}
 
-	c.authorization = matches[1]
+	c.authorization = redirectToken
 	c.SetPkuToken(c.authorization)
 
 	return nil

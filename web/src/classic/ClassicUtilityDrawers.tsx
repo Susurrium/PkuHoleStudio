@@ -87,10 +87,10 @@ export function ClassicAccountDrawer({ onClose }: { onClose: () => void }) {
 }
 
 export function ClassicTasksDrawer({ onClose }: { onClose: () => void }) {
-  const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 5_000 })
-  const rows = jobs.data ?? []
-  const active = rows.filter((job) => ['queued', 'running', 'paused'].includes(job.status))
-  const attention = rows.filter((job) => ['failed', 'partial'].includes(job.status))
+	const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 5_000 })
+	const rows = jobs.data ?? []
+	const active = rows.filter((job) => ['queued', 'running', 'paused'].includes(job.status) && !isRetiredMonitor(job))
+	const attention = rows.filter((job) => ['failed', 'partial'].includes(job.status) || isRetiredMonitor(job))
   const shown = [...active, ...attention, ...rows.filter((job) => job.status === 'completed')].filter((job, index, all) => all.findIndex((item) => item.id === job.id) === index).slice(0, 8)
 
   return <ClassicDrawerFrame title="后台任务" onClose={onClose} compact>
@@ -101,9 +101,14 @@ export function ClassicTasksDrawer({ onClose }: { onClose: () => void }) {
 }
 
 function ClassicTaskRow({ job }: { job: Job }) {
-  const total = Math.max(job.total_items, 1)
-  const progress = Math.min(100, Math.round(((job.completed_items + job.failed_items) / total) * 100))
-  return <article className={`classic-task-row classic-task-row--${job.status}`}><header><strong>{jobTypeLabel(job.type)}</strong><span>{jobStatusLabel(job.status)}</span></header><div><i style={{ width: `${progress}%` }} /></div><footer><span>{job.completed_items} 完成 · {job.failed_items} 失败</span><span>{progress}%</span></footer>{job.error && <p>{job.error}</p>}</article>
+	const total = Math.max(job.total_items, 1)
+	const progress = Math.min(100, Math.round(((job.completed_items + job.failed_items) / total) * 100))
+	const retiredMonitor = isRetiredMonitor(job)
+	return <article className={`classic-task-row classic-task-row--${job.status}`}><header><strong>{jobTypeLabel(job.type)}</strong><span>{retiredMonitor ? '已停用' : jobStatusLabel(job.status)}</span></header>{retiredMonitor ? <p>请到完整任务中心取消旧任务，并改用 Observer 或按需同步。</p> : <><div><i style={{ width: `${progress}%` }} /></div><footer><span>{job.completed_items} 完成 · {job.failed_items} 失败</span><span>{progress}%</span></footer>{job.error && <p>{job.error}</p>}</>}</article>
+}
+
+function isRetiredMonitor(job: Job) {
+	return job.type === 'monitor_latest' && ['queued', 'running', 'paused'].includes(job.status)
 }
 
 export function ClassicDrawerFrame({ title, onClose, children, compact = false }: { title: string; onClose: () => void; children: ReactNode; compact?: boolean }) {

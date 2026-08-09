@@ -443,7 +443,7 @@ describe('PkuHoleStudio Web', () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
 			const path = String(input)
 			if (path.includes('/posts?')) return json({ items: [{ pid: 801, text: '准备导出一' }, { pid: 802, text: '准备导出二' }], has_more: false })
-			if (path.endsWith('/exports/preview')) return json({ format: 'treehole-v2', posts: 2, comments: 5, media: 3, missing_media: 1 })
+			if (path.endsWith('/exports/preview')) return json({ format: 'treehole-v2', posts: 1, requested: 2, found: 1, missing: 1, missing_pids: [802], comments: 5, media: 3, missing_media: 1 })
 			if (path.endsWith('/jobs') && init?.method === 'POST') {
 				repairBody = String(init.body)
 				return json({ id: 'repair-media-1', type: 'repair_media', status: 'queued', completed_items: 0, failed_items: 0, total_items: 1, attempts: 0, created_at: '2026-07-16T00:00:00Z', updated_at: '2026-07-16T00:00:00Z' }, 202)
@@ -460,6 +460,9 @@ describe('PkuHoleStudio Web', () => {
 		expect(await screen.findByRole('heading', { name: '打包本地资料' })).toBeInTheDocument()
 		expect(screen.getByLabelText('导出范围')).toHaveValue('801, 802')
 		expect(screen.getByText('已带入 2 个树洞')).toBeInTheDocument()
+		expect(await screen.findByText('指定范围：请求 2 · 找到 1 · 缺失 1')).toBeInTheDocument()
+		expect(screen.getByText('未找到 PID：#802')).toBeInTheDocument()
+		expect(screen.getByText('用于迁移或再次导入 Studio。')).toBeInTheDocument()
 		const missingMediaLabel = await screen.findByText('缺失图片')
 		expect(missingMediaLabel.previousElementSibling).toHaveTextContent('1')
 		await user.click(screen.getByRole('button', { name: '先补全缺失图片' }))
@@ -485,16 +488,30 @@ describe('PkuHoleStudio Web', () => {
 		expect(screen.getByText('交接二')).toBeInTheDocument()
 	})
 
-	it('shows continuous monitoring as resumable state instead of fake 100 percent progress', async () => {
+	it('shows retired continuous monitoring without a resume action', async () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
 			if (path.includes('/jobs?limit=50')) return json([{ id: 'monitor-1', type: 'monitor_latest', status: 'paused', checkpoint: { cycle: 3, page: 2 }, completed_items: 3, failed_items: 0, total_items: 3, attempts: 1, error: 'process restarted', created_at: '2026-07-15T10:00:00Z', updated_at: '2026-07-15T10:05:00Z' }])
 			throw new Error(`unexpected request ${path}`)
 		}))
 		renderApp('/tasks')
-		expect(await screen.findByText('需要恢复')).toBeInTheDocument()
+		expect(await screen.findByText('已停用')).toBeInTheDocument()
 		expect(screen.getByText('已进行 3 轮 · 最近检查第 2 页')).toBeInTheDocument()
+		expect(screen.getByText(/本地持续监控已停用/)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: '继续' })).not.toBeInTheDocument()
 		expect(screen.queryByText('100%')).not.toBeInTheDocument()
+	})
+
+	it('requires an interrupted import to be uploaded again', async () => {
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/jobs?limit=50')) return json([{ id: 'import-1', type: 'import_archive', status: 'paused', completed_items: 0, failed_items: 0, total_items: 1, attempts: 1, error: 'process restarted', created_at: '2026-07-15T10:00:00Z', updated_at: '2026-07-15T10:05:00Z' }])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/tasks')
+		expect(await screen.findByText('需要重新上传')).toBeInTheDocument()
+		expect(screen.getByText(/导入中断后不能继续/)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: '继续' })).not.toBeInTheDocument()
 	})
 
 	it('restores the last online page and its publish draft after visiting the library workspace', async () => {
@@ -569,6 +586,22 @@ describe('PkuHoleStudio Web', () => {
 		expect(await screen.findByRole('heading', { name: '选课研究' })).toBeInTheDocument()
 		expect(await screen.findByText('项目中的树洞')).toBeInTheDocument()
 		expect(screen.getByRole('link', { name: '研究项目内容' })).toHaveAttribute('href', '/ai?mode=selected&pids=8133824')
+	})
+
+	it('limits a large research project AI scope to its 100 most recently added posts', async () => {
+		const projectPosts = Array.from({ length: 101 }, (_, index) => ({ pid: 8_200_000 + index, text: `项目资料 ${index + 1}`, reply: 0 }))
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.endsWith('/projects')) return json([{ id: 1, name: '大型研究项目', description: '', color: '#0f766e', post_count: projectPosts.length, created_at: '2026-07-16T00:00:00Z', updated_at: '2026-07-16T00:00:00Z' }])
+			if (path.endsWith('/projects/1/posts')) return json(projectPosts)
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/projects?project=1')
+		const link = await screen.findByRole('link', { name: '研究项目内容' })
+		const target = new URL(link.getAttribute('href') ?? '', 'http://studio.local')
+		expect(target.searchParams.get('pids')?.split(',')).toEqual(projectPosts.slice(0, 100).map((post) => String(post.pid)))
+		expect(link).toHaveAttribute('aria-describedby', 'project-ai-scope-note')
+		expect(screen.getByText('本次 AI 研究将使用最近加入的 100 个树洞（项目共 101 个）。')).toBeInTheDocument()
 	})
 
 	it('searches, sorts, and batch removes posts inside a project', async () => {
@@ -701,6 +734,24 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(await screen.findByRole('button', { name: '创建 archive v2 任务' }))
 		expect(await screen.findByText('export-1')).toBeInTheDocument()
 		expect(screen.getByText('等待中')).toBeInTheDocument()
+	})
+
+	it('restores missing selected PIDs from a completed export report', async () => {
+		const job = {
+			id: 'export-partial-scope', type: 'export_archive', status: 'completed', completed_items: 1, failed_items: 0, total_items: 1, attempts: 1,
+			checkpoint: { filename: 'export-partial-scope.treehole.zip', report: { format: 'treehole-v2', posts: 1, requested: 2, found: 1, missing: 1, missing_pids: [802], comments: 5, media: 0, missing_media: 0 } },
+			created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:01Z',
+		}
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/imports?')) return json([])
+			if (path.endsWith('/exports/preview')) return json({ format: 'treehole-v2', posts: 1, requested: 1, found: 1, missing: 0, comments: 5, media: 0, missing_media: 0 })
+			if (path.endsWith('/exports/jobs')) return json([job])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/imports?view=export')
+		expect(await screen.findByText('指定范围：请求 2 · 找到 1 · 缺失 1。文件已按实际结果生成，并标记为不完整。')).toBeInTheDocument()
+		expect(screen.getByText('未找到 PID：#802')).toBeInTheDocument()
 	})
 
 	it('restores completed import history and report after a page refresh', async () => {
@@ -1090,6 +1141,67 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(screen.getByRole('button', { name: '发送问题' }))
 		await waitFor(() => expect(createdBody).toContain('"pids":[12345]'))
 		expect(messageBody).toContain('"replace_scope":true')
+	})
+
+	it('blocks selected AI scopes larger than 100 PIDs before creating a session', async () => {
+		const pids = Array.from({ length: 101 }, (_, index) => 8_300_000 + index)
+		let createRequests = 0
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/ai/providers')) return json([{ name: 'fake', base_url: 'http://127.0.0.1:11434', model: 'fake-model', configured: true, active: true }])
+			if (path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/ai/sessions') && init?.method === 'POST') { createRequests++; return json({}, 201) }
+			if (path.includes('/ai/sessions')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp(`/ai?mode=selected&pids=${pids.join(',')}`)
+		const pidInput = await screen.findByPlaceholderText('选中 PID，例如 123456, 234567')
+		expect(pidInput).toHaveAttribute('aria-invalid', 'true')
+		await user.type(screen.getByLabelText('研究问题'), '分析这些资料')
+		expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
+		expect(screen.getByRole('alert')).toHaveTextContent('最多选择 100 个 PID；当前共 101 个，请删减后再发送。')
+		expect(createRequests).toBe(0)
+	})
+
+	it('shows an inline error when the initial AI session cannot be created', async () => {
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/ai/providers')) return json([{ name: 'fake', base_url: 'http://127.0.0.1:11434', model: 'fake-model', configured: true, active: true }])
+			if (path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/ai/sessions') && init?.method === 'POST') return failure('invalid_input', '无法创建研究会话', 400)
+			if (path.includes('/ai/sessions')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/ai?mode=selected&pids=12345')
+		await user.type(await screen.findByLabelText('研究问题'), '分析这个洞')
+		await user.click(screen.getByRole('button', { name: '发送问题' }))
+		expect(await screen.findByText('无法创建研究会话')).toBeInTheDocument()
+	})
+
+	it('locks AI submission while the initial session request is pending', async () => {
+		let createRequests = 0
+		let rejectCreate: (() => void) | undefined
+		const pendingCreate = new Promise<Response>((resolve) => { rejectCreate = () => resolve(failure('temporary_error', '暂时无法创建研究会话', 503)) })
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/ai/providers')) return json([{ name: 'fake', base_url: 'http://127.0.0.1:11434', model: 'fake-model', configured: true, active: true }])
+			if (path.endsWith('/local-tags')) return json([])
+			if (path.endsWith('/ai/sessions') && init?.method === 'POST') { createRequests++; return pendingCreate }
+			if (path.includes('/ai/sessions')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/ai?mode=selected&pids=12345')
+		await user.type(await screen.findByLabelText('研究问题'), '分析这个洞')
+		const send = screen.getByRole('button', { name: '发送问题' })
+		await user.click(send)
+		expect(send).toBeDisabled()
+		await user.click(send)
+		expect(createRequests).toBe(1)
+		rejectCreate?.()
+		expect(await screen.findByText('暂时无法创建研究会话')).toBeInTheDocument()
 	})
 })
 

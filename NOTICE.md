@@ -8,18 +8,18 @@ rewrote its imported history to remove a document containing real campus
 records. The local tag `upstream-pkuholetui-f9d6221` now identifies the
 sanitized equivalent rather than the original object ID.
 
-As of 2026-07-28, the upstream repository does not publish an explicit
-open-source license, and this repository has not received or recorded a
-separate redistribution grant from the upstream rightsholder. Public source
-availability alone does not grant permission to copy, modify, redistribute, or
-commercialize the upstream-derived code.
+The upstream repository does not publish an explicit open-source license. As
+of 2026-08-09, the PkuHoleStudio maintainer has received permission from the
+upstream rightsholder to use and modify the upstream-derived code in this
+project. The maintainer retains the authorization record privately.
 
 Accordingly:
 
-- no open-source license is asserted for the repository as a whole;
-- all rights of the respective rightsholders are reserved;
-- public binary/source redistribution should wait for a documented permission
-  or another valid licensing basis;
+- no general open-source license is asserted for the repository as a whole;
+- the maintainer's permission does not by itself grant downstream users a
+  sublicense;
+- all rights outside that permission remain reserved by their respective
+  rightsholders;
 - third-party dependencies and incorporated assets remain subject to their own
   licenses and notices.
 

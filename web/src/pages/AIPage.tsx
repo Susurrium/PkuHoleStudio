@@ -28,8 +28,9 @@ export function AIPage() {
   const [fromDate, setFromDate] = useState(searchParams.get('from') ?? '')
   const [toDate, setToDate] = useState(searchParams.get('to') ?? '')
   const [selectedTagIDs, setSelectedTagIDs] = useState<number[]>([])
-  const [mediaFilter, setMediaFilter] = useState<'any' | 'with' | 'without'>('any')
-  const [running, setRunning] = useState(false)
+	const [mediaFilter, setMediaFilter] = useState<'any' | 'with' | 'without'>('any')
+	const [starting, setStarting] = useState(false)
+	const [running, setRunning] = useState(false)
   const [draftAnswer, setDraftAnswer] = useState('')
   const [trace, setTrace] = useState<string[]>([])
 	const [liveSources, setLiveSources] = useState<AISource[]>([])
@@ -37,6 +38,7 @@ export function AIPage() {
 	const [runError, setRunError] = useState('')
 	const promptInput = useRef<HTMLTextAreaElement>(null)
 	const attachedRun = useRef('')
+	const submitLock = useRef(false)
   const detail = useQuery({ queryKey: ['ai-session', selectedID], queryFn: () => api.aiSession(selectedID), enabled: Boolean(selectedID) })
   const configured = providers.data?.some((provider) => provider.configured) ?? false
   const activeProvider = providers.data?.find((provider) => provider.active) ?? providers.data?.find((provider) => provider.configured)
@@ -74,6 +76,7 @@ export function AIPage() {
 
   const cancel = useMutation({ mutationFn: () => api.cancelAI(selectedID), onSuccess: () => setRunning(false) })
 	const parsedPIDs = useMemo(() => [...new Set(pids.split(/[\s,，]+/).map(Number).filter((value) => Number.isInteger(value) && value > 0))], [pids])
+	const selectedPIDLimitExceeded = parsedPIDs.length > 100
 	const parsedTeachers = useMemo(() => teachers.split(/[、,，]+/).map((value) => value.trim()).filter(Boolean), [teachers])
 
 	function startNew() {
@@ -87,24 +90,28 @@ export function AIPage() {
 		setSearchParams({}, { replace: true })
 	}
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    if (!prompt.trim() || !configured || running) return
-    let sessionID = selectedID
-    let sessionMode = detail.data?.session.mode ?? mode
-    const scope = buildScope(sessionMode, parsedPIDs, course, parsedTeachers, fromDate, toDate, selectedTagIDs, mediaFilter)
-    if (!sessionID) {
-	  const created = await api.createAISession(mode, prompt.trim().slice(0, 36), scope)
-      sessionID = created.id
-      sessionMode = created.mode
-      setSelectedID(created.id)
+	async function submit(event: FormEvent) {
+		event.preventDefault()
+		if (!prompt.trim() || !configured || running || starting || submitLock.current || (Boolean(selectedID) && !detail.data?.session)) return
+		let sessionID = selectedID
+		let sessionMode = detail.data?.session.mode ?? mode
+		if (sessionMode === 'selected' && selectedPIDLimitExceeded) return
+		const scope = buildScope(sessionMode, parsedPIDs, course, parsedTeachers, fromDate, toDate, selectedTagIDs, mediaFilter)
+		submitLock.current = true
+		setStarting(true)
+		try {
+	  if (!sessionID) {
+		const created = await api.createAISession(mode, prompt.trim().slice(0, 36), scope)
+		sessionID = created.id
+		sessionMode = created.mode
+		setSelectedID(created.id)
 		setSearchParams({}, { replace: true })
-      await client.invalidateQueries({ queryKey: ['ai-sessions'] })
-    }
-		setDraftAnswer(''); setTrace([]); setLiveSources([]); setLiveEvidence(undefined); setRunError(''); setRunning(true)
-    try {
-      const started = await api.startAIMessage(sessionID, { prompt: prompt.trim(), replace_scope: true, ...scope })
-	  if (started.run_id) attachedRun.current = started.run_id
+		await client.invalidateQueries({ queryKey: ['ai-sessions'] })
+	  }
+		  setDraftAnswer(''); setTrace([]); setLiveSources([]); setLiveEvidence(undefined); setRunError('')
+		  const started = await api.startAIMessage(sessionID, { prompt: prompt.trim(), replace_scope: true, ...scope })
+		  if (started.run_id) attachedRun.current = started.run_id
+		  setRunning(true)
       openAIStream(sessionID, {
         delta: (value) => setDraftAnswer((current) => current + value),
         trace: (value) => setTrace((current) => [...current, value]),
@@ -112,16 +119,22 @@ export function AIPage() {
 		evidence: setLiveEvidence,
 			done: async (completed) => { if (!started.run_id || attachedRun.current === started.run_id) attachedRun.current = ''; setRunning(false); if (completed) setPrompt(''); setCreatingNew(false); await client.invalidateQueries({ queryKey: ['ai-session', sessionID] }); await client.invalidateQueries({ queryKey: ['ai-sessions'] }) },
 			error: (message) => setRunError(message),
-		})
-	} catch (error) {
-		setRunning(false)
+		  })
+		  submitLock.current = false
+		  setStarting(false)
+		} catch (error) {
+			submitLock.current = false
+			setStarting(false)
+			setRunning(false)
 		setRunError(error instanceof Error ? error.message : 'AI 请求启动失败')
 	}
   }
 
-  const currentMode = detail.data?.session.mode ?? mode
-  const messages = detail.data?.messages ?? []
-	const contextReady = currentMode === 'selected' ? parsedPIDs.length > 0 : currentMode === 'course' ? Boolean(course.trim()) : true
+	const currentMode = detail.data?.session.mode ?? mode
+	const messages = detail.data?.messages ?? []
+	const contextReady = currentMode === 'selected' ? parsedPIDs.length > 0 && !selectedPIDLimitExceeded : currentMode === 'course' ? Boolean(course.trim()) : true
+	const sessionDetailUnavailable = Boolean(selectedID) && !detail.data?.session
+	const busy = starting || running
   const shownMessages = useMemo(() => running ? [...messages, { id: 'stream', session_id: selectedID, role: 'assistant' as const, content: draftAnswer, evidence: liveEvidence, created_at: new Date().toISOString(), sources: liveSources }] : messages, [draftAnswer, liveEvidence, liveSources, messages, running, selectedID])
 	const latestRun = detail.data?.latest_run
 	const runNotice = !running && latestRun && (latestRun.status === 'failed' || latestRun.status === 'interrupted') ? <RunFailureNotice run={latestRun} /> : null
@@ -130,20 +143,20 @@ export function AIPage() {
   if (providers.error || sessions.error) return <ErrorState error={providers.error || sessions.error} />
 
   return <>
-	<PageHeader eyebrow="RESEARCH" title="AI 研究台" description="让 AI 从本地树洞资料中查找证据、整理观点，并把回答和引用来源一起保存。" actions={<button className="button-secondary" disabled={running} onClick={startNew}><MessageSquarePlus size={16} />新建研究</button>} />
+	<PageHeader eyebrow="RESEARCH" title="AI 研究台" description="让 AI 从本地树洞资料中查找证据、整理观点，并把回答和引用来源一起保存。" actions={<button className="button-secondary" disabled={busy} onClick={startNew}><MessageSquarePlus size={16} />新建研究</button>} />
 	{!configured && <div className="mb-6 rounded-2xl border border-coral/25 bg-coral-soft/45 p-5 text-sm leading-6"><p className="font-semibold text-coral">还没有可用的 AI 服务</p><p className="mt-1 text-ink-soft">先在设置中启用 AI 并选择服务商。保存后立即生效，不需要重启 Studio。</p><Link to="/settings" className="mt-3 inline-flex font-semibold text-teal hover:underline">前往 AI 设置 →</Link></div>}
 	{configured && activeProvider && <div className="mb-4 rounded-xl border border-line bg-white/40 px-4 py-3 text-xs leading-5 text-ink-soft"><span className="font-semibold text-ink">当前模型：{activeProvider.name} · {activeProvider.model}</span>{!isLocalProvider(activeProvider.base_url) && <span>；提问时，命中的树洞原文会发送到该远程服务进行分析。</span>}</div>}
     <div className="grid min-h-[650px] gap-5 xl:grid-cols-[260px_1fr]">
-	  <aside className="panel min-w-0 p-4"><div className="flex items-center justify-between px-1"><p className="eyebrow">RECENT</p><span className="badge">{sessions.data?.length ?? 0}</span></div><div className="mt-4 flex gap-2 overflow-x-auto pb-1 xl:grid xl:max-h-[570px] xl:overflow-y-auto xl:pb-0">{sessions.data?.map((session) => <button key={session.id} disabled={running} onClick={() => selectSession(session.id)} className={`w-56 shrink-0 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto ${selectedID === session.id && !creatingNew ? 'border-teal bg-teal-soft/45' : 'border-line bg-white/45 hover:border-teal/40'}`}><p className="truncate text-sm font-semibold">{session.title}</p><p className="mt-1 text-[10px] text-ink-soft">{modeLabel(session.mode)} · {session.model}</p></button>)}{!sessions.data?.length && <p className="w-full rounded-xl border border-dashed border-line p-5 text-center text-xs leading-5 text-ink-soft">发送第一个问题后，研究记录会保存在这里。</p>}</div></aside>
+	  <aside className="panel min-w-0 p-4"><div className="flex items-center justify-between px-1"><p className="eyebrow">RECENT</p><span className="badge">{sessions.data?.length ?? 0}</span></div><div className="mt-4 flex gap-2 overflow-x-auto pb-1 xl:grid xl:max-h-[570px] xl:overflow-y-auto xl:pb-0">{sessions.data?.map((session) => <button key={session.id} disabled={busy} onClick={() => selectSession(session.id)} className={`w-56 shrink-0 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto ${selectedID === session.id && !creatingNew ? 'border-teal bg-teal-soft/45' : 'border-line bg-white/45 hover:border-teal/40'}`}><p className="truncate text-sm font-semibold">{session.title}</p><p className="mt-1 text-[10px] text-ink-soft">{modeLabel(session.mode)} · {session.model}</p></button>)}{!sessions.data?.length && <p className="w-full rounded-xl border border-dashed border-line p-5 text-center text-xs leading-5 text-ink-soft">发送第一个问题后，研究记录会保存在这里。</p>}</div></aside>
       <section className="panel flex min-h-[650px] flex-col overflow-hidden">
 		<div className="flex-1 space-y-5 overflow-auto p-5 md:p-7">{runNotice}{selectedID && detail.isLoading ? <LoadingState /> : selectedID && detail.error ? <ErrorState error={detail.error} /> : shownMessages.length ? shownMessages.map((message) => <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 ${message.role === 'user' ? 'bg-ink text-white md:max-w-[78%]' : 'border border-line bg-white/65 md:max-w-[92%]'}`}><ResearchContent content={message.content || (message.id === 'stream' ? '正在查找资料…' : '')} sources={message.sources ?? []} />{message.evidence ? <EvidenceReport report={message.evidence} sources={message.sources ?? []} /> : null}{message.sources?.length ? <EvidenceList sources={message.sources} /> : null}{message.trace && <details className="mt-3 border-t border-line/60 pt-2 text-xs text-ink-soft"><summary className="cursor-pointer font-medium">查看检索过程</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-5">{formatTrace(message.trace)}</pre></details>}</div></div>) : <Welcome onChoose={(nextMode, value) => { setSelectedID(''); setMode(nextMode); setPrompt(value); setCreatingNew(true); requestAnimationFrame(() => promptInput.current?.focus()) }} />}{trace.length > 0 && <div className="rounded-xl border border-teal/20 bg-teal-soft/30 p-4"><p className="eyebrow">研究进度</p><ul className="mt-2 space-y-1 text-xs leading-5 text-ink-soft">{trace.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></div>}</div>
         <form className="border-t border-line bg-paper/75 p-4 md:p-5" onSubmit={submit}>
 		  {!selectedID && <div className="mb-3 grid grid-cols-3 gap-2">{(['local', 'selected', 'course'] as Mode[]).map((item) => <button type="button" key={item} onClick={() => setMode(item)} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === item ? 'border-ink bg-ink text-white' : 'border-line bg-white/60'}`}>{modeLabel(item)}</button>)}</div>}
-          {currentMode === 'selected' && <input className="field mb-3" value={pids} onChange={(event) => setPIDs(event.target.value)} placeholder="选中 PID，例如 123456, 234567" />}
+		  {currentMode === 'selected' && <input className="field mb-3" value={pids} aria-invalid={selectedPIDLimitExceeded} aria-describedby={selectedPIDLimitExceeded ? 'selected-pid-limit' : undefined} onChange={(event) => setPIDs(event.target.value)} placeholder="选中 PID，例如 123456, 234567" />}
           {currentMode === 'course' && <div className="mb-3 grid gap-2 sm:grid-cols-2"><input className="field" value={course} onChange={(event) => setCourse(event.target.value)} placeholder="课程名或别名" /><input className="field" value={teachers} onChange={(event) => setTeachers(event.target.value)} placeholder="教师，可用逗号分隔" /></div>}
 		  {(currentMode === 'local' || currentMode === 'course') && <ScopeFilters fromDate={fromDate} toDate={toDate} selectedTagIDs={selectedTagIDs} mediaFilter={mediaFilter} tags={localTags.data ?? []} setFromDate={setFromDate} setToDate={setToDate} setSelectedTagIDs={setSelectedTagIDs} setMediaFilter={setMediaFilter} />}
-		  <div className="flex items-end gap-2"><textarea ref={promptInput} aria-label="研究问题" className="field min-h-24 flex-1 resize-y py-3" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={currentMode === 'course' ? '想重点比较哪些方面？' : '基于本地资料提出问题…'} /><button className="button-primary !size-11 !p-0" type="submit" disabled={!configured || !contextReady || !prompt.trim() || running} aria-label="发送问题"><Send size={17} /></button>{running && <button type="button" className="button-secondary !size-11 !p-0 text-coral" onClick={() => cancel.mutate()} aria-label="停止生成"><CircleStop size={18} /></button>}</div>
-		  {!contextReady && <p className="mt-2 text-xs text-coral">{currentMode === 'selected' ? '请先填写至少一个 PID。' : '请先填写课程名或别名。'}</p>}
+		  <div className="flex items-end gap-2"><textarea ref={promptInput} aria-label="研究问题" className="field min-h-24 flex-1 resize-y py-3" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={currentMode === 'course' ? '想重点比较哪些方面？' : '基于本地资料提出问题…'} /><button className="button-primary !size-11 !p-0" type="submit" disabled={!configured || !contextReady || !prompt.trim() || busy || sessionDetailUnavailable} aria-label="发送问题"><Send size={17} /></button>{running && <button type="button" className="button-secondary !size-11 !p-0 text-coral" onClick={() => cancel.mutate()} aria-label="停止生成"><CircleStop size={18} /></button>}</div>
+		  {currentMode === 'selected' && selectedPIDLimitExceeded ? <p id="selected-pid-limit" role="alert" className="mt-2 text-xs text-coral">最多选择 100 个 PID；当前共 {parsedPIDs.length} 个，请删减后再发送。</p> : !contextReady && <p className="mt-2 text-xs text-coral">{currentMode === 'selected' ? '请先填写至少一个 PID。' : '请先填写课程名或别名。'}</p>}
 		<p className="mt-2 text-[11px] text-ink-soft">{modeLabel(currentMode)} · 回答可能出错，请打开资料来源核对原文</p>
 		{runError && <p className="mt-2 text-xs text-coral">{runError}</p>}
         </form>

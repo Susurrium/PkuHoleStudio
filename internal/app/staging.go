@@ -27,7 +27,7 @@ func cleanupExpiredImportStaging(ctx context.Context, dataDir string, manager *j
 			return listErr
 		}
 		for _, row := range rows {
-			if row.Type != jobs.TypeImportArchive || row.Status.Terminal() {
+			if row.Type != jobs.TypeImportArchive || row.Status.Terminal() || row.Status == jobs.StatusPaused {
 				continue
 			}
 			var payload importArchivePayload

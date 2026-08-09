@@ -35,9 +35,9 @@ func TestUpdateArchiveContractGolden(t *testing.T) {
 		Media:    []models.Media{{OwnerType: "post", OwnerID: 123456, Variant: "original", Path: "images/123456.png", Status: "available"}},
 		Studio:   StudioMetadata{Tags: []PortableLocalTag{{Name: "contract", Color: "#2563eb"}}, Note: "portable note"},
 	}}
-	report := ExportReport{Format: ExportFormatTreeholeV2, Posts: 1, Comments: 1, Media: 1, RunID: "studio-golden-v2"}
+	report := ExportReport{Format: ExportFormatTreeholeV2, Posts: 1, Requested: 1, Found: 1, Comments: 1, Media: 1, RunID: "studio-golden-v2"}
 	var archive bytes.Buffer
-	if err := writeTreeholeV2(context.Background(), &archive, records, report, true, dataDir, time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := writeTreeholeV2(context.Background(), &archive, records, report, []int32{123456}, dataDir, time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {

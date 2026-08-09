@@ -1192,6 +1192,9 @@ func apiCreateExport(dependencies Dependencies) gin.HandlerFunc {
 		}
 		c.Header("X-Export-Posts", strconv.Itoa(report.Posts))
 		c.Header("X-Export-Comments", strconv.Itoa(report.Comments))
+		c.Header("X-Export-Requested", strconv.Itoa(report.Requested))
+		c.Header("X-Export-Found", strconv.Itoa(report.Found))
+		c.Header("X-Export-Missing", strconv.Itoa(report.Missing))
 		name := "pkuhole-studio-" + time.Now().Format("20060102-150405")
 		if format == archive.ExportFormatMarkdown {
 			name += "-markdown.zip"
@@ -2436,7 +2439,7 @@ func apiCreateJob(dependencies Dependencies) gin.HandlerFunc {
 		if !decodeAPIJSON(c, &body) {
 			return
 		}
-		if !body.Type.Valid() || body.Type == jobs.TypeImportArchive {
+		if !body.Type.Valid() || body.Type == jobs.TypeImportArchive || body.Type == jobs.TypeMonitorLatest {
 			apiFailure(c, http.StatusBadRequest, "invalid_input", "unsupported job type", gin.H{"field": "type"})
 			return
 		}
@@ -2468,8 +2471,24 @@ func apiJobAction(dependencies Dependencies, action string) gin.HandlerFunc {
 			apiFailure(c, http.StatusServiceUnavailable, "capability_unavailable", "job manager is unavailable", nil)
 			return
 		}
+		current, err := dependencies.Jobs.Get(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			status, code := http.StatusConflict, "invalid_state"
+			if errors.Is(err, jobs.ErrNotFound) {
+				status, code = http.StatusNotFound, "not_found"
+			}
+			apiFailure(c, status, code, err.Error(), nil)
+			return
+		}
+		if action != "cancel" && (current.Type == jobs.TypeImportArchive || current.Type == jobs.TypeMonitorLatest) {
+			message := "this job cannot be paused, resumed, or retried; start it again"
+			if current.Type == jobs.TypeMonitorLatest {
+				message = "local continuous monitoring has been retired; use sync_latest or Observer"
+			}
+			apiFailure(c, http.StatusConflict, "unsupported_action", message, gin.H{"action": action, "type": current.Type})
+			return
+		}
 		var job jobs.Job
-		var err error
 		switch action {
 		case "pause":
 			job, err = dependencies.Jobs.Pause(c.Request.Context(), c.Param("id"))

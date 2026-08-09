@@ -351,6 +351,61 @@ func TestAPIV1JobLifecycleAndSSEReplay(t *testing.T) {
 	}
 }
 
+func TestAPIV1RejectsRetiredMonitorAndImportControlActions(t *testing.T) {
+	database, router, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	response := performRequest(router, http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"type":"monitor_latest"}`), "application/json")
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_input"`) {
+		t.Fatalf("create retired monitor = %d %s", response.Code, response.Body.String())
+	}
+
+	now := time.Now().UTC()
+	if err := database.CreateJob(context.Background(), jobs.Job{ID: "legacy-monitor", Type: jobs.TypeMonitorLatest, Status: jobs.StatusPaused, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	response = performRequest(router, http.MethodPost, "/api/v1/jobs/legacy-monitor/resume", nil, "")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"code":"unsupported_action"`) {
+		t.Fatalf("resume retired monitor = %d %s", response.Code, response.Body.String())
+	}
+
+	legacy := `{"holes":[{"pid":123456,"text":"archive"}],"comments":[[]]}`
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "retry-by-upload.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	response = performRequest(router, http.MethodPost, "/api/v1/imports", &body, writer.FormDataContentType())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("create import = %d %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Data struct {
+			Job publicJob `json:"job"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Data.Job.ID == "" {
+		t.Fatalf("decode import job = %+v, %v", created, err)
+	}
+	for _, action := range []string{"pause", "resume", "retry"} {
+		response = performRequest(router, http.MethodPost, "/api/v1/jobs/"+created.Data.Job.ID+"/"+action, nil, "")
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"code":"unsupported_action"`) {
+			t.Fatalf("%s import = %d %s", action, response.Code, response.Body.String())
+		}
+	}
+	response = performRequest(router, http.MethodPost, "/api/v1/jobs/"+created.Data.Job.ID+"/cancel", nil, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("cancel import = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAPIV1ArchiveUploadPreflightAndQueue(t *testing.T) {
 	_, router, cleanup := setupTestEnv(t)
 	defer cleanup()

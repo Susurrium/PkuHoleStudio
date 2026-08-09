@@ -24,6 +24,10 @@ type ExportRequest struct {
 type ExportReport struct {
 	Format       ExportFormat `json:"format"`
 	Posts        int          `json:"posts"`
+	Requested    int          `json:"requested"`
+	Found        int          `json:"found"`
+	Missing      int          `json:"missing"`
+	MissingPIDs  []int32      `json:"missing_pids,omitempty"`
 	Comments     int          `json:"comments"`
 	Media        int          `json:"media"`
 	MissingMedia int          `json:"missing_media"`
