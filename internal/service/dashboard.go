@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -10,13 +11,16 @@ import (
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
+const engagementV2ScoreVersion = "engagement-v2"
+
 type HotPost struct {
 	ID                int32   `json:"id"`
 	Text              string  `json:"text"`
 	FollowNum         int     `json:"follownum"`
-	ReplyNum          int     `json:"reply,omitempty"`
+	PraiseNum         int     `json:"praise_num"`
+	ReplyNum          int     `json:"reply"`
 	Timestamp         int64   `json:"timestamp,omitempty"`
-	Score             float64 `json:"score,omitempty"`
+	Score             float64 `json:"score"`
 	AvailabilityState string  `json:"availability_state,omitempty"`
 }
 
@@ -95,7 +99,7 @@ func (s *DashboardService) HotPosts(ctx context.Context, limit int, window time.
 		if len(cached.Items) > 0 {
 			cached.Stale = true
 			cached.Source = "observer_cache"
-			cached.Message = "Observer is temporarily unavailable; showing its last cached result."
+			cached.Message = "热榜服务暂时不可用，正在显示最近一次缓存结果。"
 			return cached, nil
 		}
 		return HotPostsResult{}, observerErr
@@ -112,40 +116,55 @@ func (s *DashboardService) ApproximateFromRecent(posts []models.Post, limit int,
 	}
 	now := time.Now()
 	cutoff := now.Add(-window).Unix()
-	candidates := make([]models.Post, 0, len(posts))
+	items := make([]HotPost, 0, len(posts))
 	for _, post := range posts {
 		if post.Pid > 0 && int64(post.Timestamp) >= cutoff {
-			candidates = append(candidates, post)
+			items = append(items, HotPost{
+				ID:        post.Pid,
+				Text:      post.Text,
+				FollowNum: int(post.Likenum),
+				PraiseNum: int(post.PraiseNum),
+				ReplyNum:  int(post.Reply),
+				Timestamp: int64(post.Timestamp),
+				Score:     engagementV2Score(post),
+			})
 		}
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		leftPraise := max(int(candidates[i].PraiseNum), int(candidates[i].Likenum))
-		rightPraise := max(int(candidates[j].PraiseNum), int(candidates[j].Likenum))
-		if leftPraise != rightPraise {
-			return leftPraise > rightPraise
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Score != items[j].Score {
+			return items[i].Score > items[j].Score
 		}
-		if candidates[i].Reply != candidates[j].Reply {
-			return candidates[i].Reply > candidates[j].Reply
+		if items[i].FollowNum != items[j].FollowNum {
+			return items[i].FollowNum > items[j].FollowNum
 		}
-		return candidates[i].Timestamp > candidates[j].Timestamp
+		if items[i].ReplyNum != items[j].ReplyNum {
+			return items[i].ReplyNum > items[j].ReplyNum
+		}
+		if items[i].Timestamp != items[j].Timestamp {
+			return items[i].Timestamp > items[j].Timestamp
+		}
+		return items[i].ID > items[j].ID
 	})
-	if len(candidates) > limit {
-		candidates = candidates[:limit]
-	}
-	items := make([]HotPost, 0, len(candidates))
-	for _, post := range candidates {
-		items = append(items, HotPost{
-			ID:        post.Pid,
-			Text:      post.Text,
-			FollowNum: max(int(post.PraiseNum), int(post.Likenum)),
-			ReplyNum:  int(post.Reply),
-			Timestamp: int64(post.Timestamp),
-		})
+	if len(items) > limit {
+		items = items[:limit]
 	}
 	result := hotPostsResult(items, "live_recent", window, now)
 	result.Approximate = true
-	result.Message = "Observer 热榜不可用，已根据在线时间线的近期内容按点赞和评论近似排序。"
+	result.ScoreVersion = engagementV2ScoreVersion
+	result.Message = "Observer 热榜不可用，已根据在线时间线的近期内容按关注和评论活跃度近似排序。"
 	return result
+}
+
+// engagementV2Score mirrors Observer's collection-first ranking. Likenum is
+// the upstream collection/follow count; praise is deliberately excluded.
+func engagementV2Score(post models.Post) float64 {
+	follows := max(0, int(post.Likenum))
+	replies := max(0, int(post.Reply))
+	if replies == 0 {
+		return float64(follows)
+	}
+	r := float64(replies)
+	return float64(follows) + 3.6*math.Pow(r, 1.5)/(r+20)
 }
 
 func hotPostsResult(items []HotPost, source string, window time.Duration, now time.Time) HotPostsResult {

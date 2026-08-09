@@ -364,7 +364,7 @@ func (d *Database) GetCommentCount() (int, error) {
 
 func (d *Database) GetPostByPid(pid int32) (*models.Post, error) {
 	var post models.Post
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE pid = ?", pid).First(&post).Error
+	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, praise_num, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE pid = ?", pid).First(&post).Error
 	if err != nil {
 		return nil, err
 	}
@@ -433,10 +433,10 @@ func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models
 	}
 
 	if cursor != 0 {
-		err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" AND pid "+comparator+" ? ORDER BY pid "+order+" LIMIT ?", cursor, limit).Scan(&posts).Error
+		err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, praise_num, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" AND pid "+comparator+" ? ORDER BY pid "+order+" LIMIT ?", cursor, limit).Scan(&posts).Error
 		return posts, err
 	}
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" ORDER BY pid "+order+" LIMIT ?", limit).Scan(&posts).Error
+	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, praise_num, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE "+visibleLibraryPostSQL+" ORDER BY pid "+order+" LIMIT ?", limit).Scan(&posts).Error
 	return posts, err
 }
 
@@ -444,7 +444,7 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 	var posts []models.Post
 	order := "DESC"
 	query := d.db.Model(&models.Post{}).
-		Select("pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids").
+		Select("pid, text, anonymous, type, extra, timestamp, reply, likenum, praise_num, status, is_comment, is_protect, is_top, label, media_ids").
 		Where(visibleLibraryPostSQL)
 	if sortAsc {
 		order = "ASC"

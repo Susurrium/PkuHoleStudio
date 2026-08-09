@@ -69,11 +69,12 @@ export function OnboardingGuide() {
     }
   }, [open, layoutPreset])
 
-  function complete(target?: Workspace) {
+  function complete(target?: Workspace | 'import') {
     rememberOnboardingCompleted()
     setOpen(false)
     if (target === 'online') navigate('/online')
-    if (target === 'library') navigate('/imports')
+    if (target === 'library') navigate('/sync')
+    if (target === 'import') navigate('/imports')
   }
 
   if (!open || layoutPreset !== 'studio') return null
@@ -86,7 +87,7 @@ export function OnboardingGuide() {
         <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">PkuHoleStudio 有两个相互独立、随时可切换的工作区。选择当前需求即可，以后不会限制你的使用方式。</p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <ChoiceCard selected={destination === 'online'} icon={Radio} title="在线树洞" description="实时浏览最新、热榜和关注，登录后可以发洞、评论和互动。" note="在线内容不会自动保存到本机" onClick={() => setDestination('online')} />
-          <ChoiceCard selected={destination === 'library'} icon={Archive} title="本地资料库" description="导入任何兼容归档；也可选用独立 Toolkit 从官方树洞导出，然后离线搜索、标记和整理。" note="不要求登录 Studio，也不依赖 Toolkit 运行" onClick={() => setDestination('library')} />
+          <ChoiceCard selected={destination === 'library'} icon={Archive} title="本地资料库" description="把需要的树洞保存到本机，然后离线搜索、添加标签并整理到研究项目。" note="也可以直接导入已有文件" onClick={() => setDestination('library')} />
         </div>
       </> : <>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">在线模式用于发现和互动；只有明确保存或同步后，内容才会进入本地资料库。</p>
@@ -100,7 +101,7 @@ export function OnboardingGuide() {
         <div className="mt-5 rounded-2xl border border-teal/25 bg-teal-soft/30 p-4 text-sm leading-6 text-ink-soft">左侧工作区开关可随时切换，也可以使用 <kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+1</kbd> 打开在线树洞、<kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+2</kbd> 返回本地资料库。</div>
       </>}
 
-      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>不再自动显示</button><div className="flex gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : <button className="button-primary" onClick={() => complete(destination)}>{destination === 'online' ? '进入在线树洞' : '前往导入资料'}<ArrowRight size={15} /></button>}</div></div>
+      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>不再自动显示</button><div className="flex flex-wrap justify-end gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : destination === 'online' ? <button className="button-primary" onClick={() => complete('online')}>进入在线树洞<ArrowRight size={15} /></button> : <><button className="button-secondary" onClick={() => complete('import')}>导入已有文件</button><button className="button-primary" onClick={() => complete('library')}>登录并保存内容<ArrowRight size={15} /></button></>}</div></div>
     </section>
   </div>
 }

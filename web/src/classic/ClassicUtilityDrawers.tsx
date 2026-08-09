@@ -7,6 +7,7 @@ import { formatTime } from '../lib/format'
 import type { AuthStatus, Job, Notification } from '../lib/types'
 import { useUIStore, type ClassicBackground, type ClassicColorMode } from '../store/ui'
 import { errorDescription, useFeedback } from '../components/Feedback'
+import { jobTypeLabel } from '../components/JobRow'
 import { invalidateOnlineSession, setOnlineSession, useOnlineSession } from '../features/online/session'
 
 type NotificationType = 'interactive' | 'system'
@@ -37,7 +38,7 @@ export function ClassicNotificationsDrawer({ returnTo, onClose }: { returnTo: st
       <button type="button" disabled={!online || markAll.isPending || unread === 0} onClick={() => markAll.mutate()}><CheckCheck size={14} />{unread ? `全部已读（${unread}）` : '没有未读'}</button>
       <Link to="/notifications"><ExternalLink size={14} />完整通知页</Link>
     </div>
-      {session.isLoading ? <ClassicDrawerState>正在验证在线会话…</ClassicDrawerState> : session.error ? <ClassicDrawerState tone="error">{session.error.message}</ClassicDrawerState> : !online ? <ClassicDrawerState icon={<LogIn size={22} />}><strong>登录后查看消息</strong><span>{session.data?.message || '当前本机会话无法读取在线通知。'}</span><Link to="/sync">前往同步中心登录</Link></ClassicDrawerState> : <>
+      {session.isLoading ? <ClassicDrawerState>正在验证在线会话…</ClassicDrawerState> : session.error ? <ClassicDrawerState tone="error">{session.error.message}</ClassicDrawerState> : !online ? <ClassicDrawerState icon={<LogIn size={22} />}><strong>登录后查看消息</strong><span>{session.data?.message || '当前本机会话无法读取在线通知。'}</span><Link to="/sync">前往登录</Link></ClassicDrawerState> : <>
       <nav className="classic-utility-tabs" aria-label="通知类型"><button className={type === 'interactive' ? 'is-active' : ''} onClick={() => setType('interactive')}>互动通知</button><button className={type === 'system' ? 'is-active' : ''} onClick={() => setType('system')}>系统通知</button></nav>
       {notifications.isLoading ? <ClassicDrawerState>正在读取通知…</ClassicDrawerState> : notifications.error ? <ClassicDrawerState tone="error">{notifications.error.message}</ClassicDrawerState> : items.length ? <div className="classic-notification-list">{items.map((item) => <ClassicNotificationRow key={item.id} item={item} type={type} busy={markRead.isPending && markRead.variables === item.id} open={() => openPost(item)} mark={() => markRead.mutate(item.id)} />)}</div> : <ClassicDrawerState icon={<Bell size={22} />}><strong>{type === 'interactive' ? '还没有互动通知' : '还没有系统通知'}</strong><span>新消息会显示在这里。</span></ClassicDrawerState>}
     </>}
@@ -71,7 +72,7 @@ export function ClassicAccountDrawer({ onClose }: { onClose: () => void }) {
     <section className="classic-account-section">
       <h2>树洞会话</h2>
       {session.isLoading ? <p>正在读取会话状态…</p> : session.error ? <p className="classic-error-text">{session.error.message}</p> : <div className={`classic-session-card${online ? ' is-online' : ''}`}><span>{online ? <CircleCheck size={20} /> : <AlertTriangle size={20} />}</span><div><strong>{online ? '在线读取已就绪' : session.data?.has_session ? '发现本机会话，尚未验证' : '尚未登录树洞'}</strong><p>{session.data?.message || '会话只保存在本机。'}</p></div></div>}
-      <div className="classic-account-actions"><button disabled={probe.isPending} onClick={() => probe.mutate()}><RefreshCw size={14} />{probe.isPending ? '检测中…' : '检测会话'}</button>{session.data?.has_session && <button disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? '退出中…' : '退出会话'}</button>}<Link to="/sync">{online ? '同步中心' : '登录与同步'}</Link></div>
+      <div className="classic-account-actions"><button disabled={probe.isPending} onClick={() => probe.mutate()}><RefreshCw size={14} />{probe.isPending ? '检测中…' : '检测会话'}</button>{session.data?.has_session && <button disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? '退出中…' : '退出会话'}</button>}<Link to="/sync">{online ? '保存在线内容' : '登录与保存'}</Link></div>
     </section>
     <section className="classic-account-section">
       <h2>经典界面</h2>
@@ -95,7 +96,7 @@ export function ClassicTasksDrawer({ onClose }: { onClose: () => void }) {
 
   return <ClassicDrawerFrame title="后台任务" onClose={onClose} compact>
     <div className="classic-task-summary"><span><strong>{active.length}</strong> 正在进行</span><span className={attention.length ? 'has-attention' : ''}><strong>{attention.length}</strong> 需要处理</span><button disabled={jobs.isFetching} onClick={() => jobs.refetch()}><RefreshCw size={14} />刷新</button></div>
-    {jobs.isLoading ? <ClassicDrawerState>正在读取任务…</ClassicDrawerState> : jobs.error ? <ClassicDrawerState tone="error">{jobs.error.message}</ClassicDrawerState> : shown.length ? <div className="classic-task-list">{shown.map((job) => <ClassicTaskRow key={job.id} job={job} />)}</div> : <ClassicDrawerState icon={<CircleCheck size={22} />}><strong>还没有后台任务</strong><span>同步、导入、导出和资料维护任务会显示在这里。</span></ClassicDrawerState>}
+    {jobs.isLoading ? <ClassicDrawerState>正在读取任务…</ClassicDrawerState> : jobs.error ? <ClassicDrawerState tone="error">{jobs.error.message}</ClassicDrawerState> : shown.length ? <div className="classic-task-list">{shown.map((job) => <ClassicTaskRow key={job.id} job={job} />)}</div> : <ClassicDrawerState icon={<CircleCheck size={22} />}><strong>还没有后台任务</strong><span>保存、导入、导出和资料维护任务会显示在这里。</span></ClassicDrawerState>}
     <Link className="classic-utility-footer-link" to="/tasks">打开完整任务中心 <ExternalLink size={13} /></Link>
   </ClassicDrawerFrame>
 }
@@ -104,7 +105,7 @@ function ClassicTaskRow({ job }: { job: Job }) {
 	const total = Math.max(job.total_items, 1)
 	const progress = Math.min(100, Math.round(((job.completed_items + job.failed_items) / total) * 100))
 	const retiredMonitor = isRetiredMonitor(job)
-	return <article className={`classic-task-row classic-task-row--${job.status}`}><header><strong>{jobTypeLabel(job.type)}</strong><span>{retiredMonitor ? '已停用' : jobStatusLabel(job.status)}</span></header>{retiredMonitor ? <p>请到完整任务中心取消旧任务，并改用 Observer 或按需同步。</p> : <><div><i style={{ width: `${progress}%` }} /></div><footer><span>{job.completed_items} 完成 · {job.failed_items} 失败</span><span>{progress}%</span></footer>{job.error && <p>{job.error}</p>}</>}</article>
+	return <article className={`classic-task-row classic-task-row--${job.status}`}><header><strong>{jobTypeLabel(job.type)}</strong><span>{retiredMonitor ? '已停用' : jobStatusLabel(job.status)}</span></header>{retiredMonitor ? <p>请到任务中心取消这个旧任务，需要时改用“保存最新时间线”。</p> : <><div><i style={{ width: `${progress}%` }} /></div><footer><span>{job.completed_items} 完成 · {job.failed_items} 失败</span><span>{progress}%</span></footer>{job.error && <details><summary>查看错误详情</summary><p>{job.error}</p></details>}</>}</article>
 }
 
 function isRetiredMonitor(job: Job) {
@@ -146,7 +147,5 @@ function ClassicDrawerState({ children, icon, tone = 'neutral' }: { children: Re
   return <div className={`classic-drawer-state classic-drawer-state--${tone}`}>{icon}{children}</div>
 }
 
-const jobTypes: Record<string, string> = { sync_followed: '同步关注', sync_pids: '同步指定 PID', sync_latest: '同步最新时间线', import_archive: '导入归档', export_archive: '导出归档', repair_comments: '补全评论', repair_media: '补全媒体', rebuild_search_index: '重建搜索索引', rebuild_references: '重建引用关系', sync_pages: '顺序采集', monitor_latest: '持续监控' }
 const jobStatuses: Record<string, string> = { queued: '等待中', running: '运行中', paused: '已暂停', completed: '已完成', partial: '部分完成', failed: '失败', cancelled: '已取消' }
-function jobTypeLabel(value: string) { return jobTypes[value] || value }
 function jobStatusLabel(value: string) { return jobStatuses[value] || value }

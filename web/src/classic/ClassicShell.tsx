@@ -5,10 +5,10 @@ import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
 
 const tools = [
   { to: '/tasks', label: '后台任务', icon: ListTodo },
-  { to: '/sync', label: '同步中心', icon: RefreshCw },
+  { to: '/sync', label: '登录与保存', icon: RefreshCw },
   { to: '/imports', label: '导入与导出', icon: Import },
   { to: '/projects', label: '研究项目', icon: FolderKanban },
-  { to: '/removed', label: '删除归档', icon: ShieldAlert },
+  { to: '/removed', label: '删除记录', icon: ShieldAlert },
   { to: '/campus', label: '课表与成绩', icon: GraduationCap },
   { to: '/maintenance', label: '资料库维护', icon: Wrench },
   { to: '/logs', label: '运行日志', icon: FileText },

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -41,11 +42,11 @@ func TestDashboardServiceFallsBackToRecentOnlinePosts(t *testing.T) {
 	observer := &dashboardObserverStub{err: errors.New("Observer unavailable")}
 	service := NewDashboardService(observer)
 	service.SetRecentLiveSource(dashboardRecentStub{posts: []models.Post{
-		{Pid: 2, Text: "comments", Timestamp: int32(time.Now().Add(-time.Minute).Unix()), PraiseNum: 3, Reply: 8},
-		{Pid: 3, Text: "likes", Timestamp: int32(time.Now().Add(-30 * time.Second).Unix()), PraiseNum: 8, Reply: 1},
+		{Pid: 2, Text: "praise is excluded", Timestamp: int32(time.Now().Add(-time.Minute).Unix()), Likenum: 5, PraiseNum: 999},
+		{Pid: 3, Text: "more follows", Timestamp: int32(time.Now().Add(-30 * time.Second).Unix()), Likenum: 8, PraiseNum: 1},
 	}})
 	result, err := service.HotPosts(context.Background(), 5, 12*time.Hour)
-	if err != nil || !result.Approximate || result.Source != "live_recent" || len(result.Items) != 2 || result.Items[0].ID != 3 {
+	if err != nil || !result.Approximate || result.Source != "live_recent" || result.ScoreVersion != engagementV2ScoreVersion || len(result.Items) != 2 || result.Items[0].ID != 3 {
 		t.Fatalf("HotPosts() = %+v, err=%v", result, err)
 	}
 }
@@ -68,11 +69,41 @@ func TestDashboardServiceApproximatesRecentLiveRanking(t *testing.T) {
 	now := int32(time.Now().Unix())
 	service := NewDashboardService()
 	result := service.ApproximateFromRecent([]models.Post{
-		{Pid: 1, Text: "older", Timestamp: now - int32((13 * time.Hour).Seconds()), PraiseNum: 99},
-		{Pid: 2, Text: "comments", Timestamp: now - 60, PraiseNum: 3, Reply: 8},
-		{Pid: 3, Text: "likes", Timestamp: now - 30, PraiseNum: 8, Reply: 1},
+		{Pid: 1, Text: "outside window", Timestamp: now - int32((13 * time.Hour).Seconds()), Likenum: 500, PraiseNum: 500, Reply: 500},
+		{Pid: 2, Text: "discussion", Timestamp: now - 60, Likenum: 7, PraiseNum: 999, Reply: 100},
+		{Pid: 3, Text: "follows", Timestamp: now - 30, Likenum: 40, PraiseNum: 1},
+		{Pid: 4, Text: "praise only", Timestamp: now - 10, PraiseNum: 5_000},
 	}, 5, 12*time.Hour)
-	if !result.Approximate || result.Source != "live_recent" || len(result.Items) != 2 || result.Items[0].ID != 3 || result.Items[1].ID != 2 {
+	if !result.Approximate || result.Source != "live_recent" || result.WindowHours != 12 || result.ScoreVersion != engagementV2ScoreVersion || len(result.Items) != 3 {
 		t.Fatalf("ApproximateFromRecent() = %+v", result)
+	}
+	if result.Items[0].ID != 3 || result.Items[0].FollowNum != 40 || result.Items[0].PraiseNum != 1 || result.Items[0].Score != 40 {
+		t.Fatalf("first item = %+v", result.Items[0])
+	}
+	if result.Items[1].ID != 2 || result.Items[1].FollowNum != 7 || result.Items[1].PraiseNum != 999 || result.Items[1].ReplyNum != 100 || math.Abs(result.Items[1].Score-37) > 0.001 {
+		t.Fatalf("second item = %+v", result.Items[1])
+	}
+	if result.Items[2].ID != 4 || result.Items[2].FollowNum != 0 || result.Items[2].PraiseNum != 5_000 || result.Items[2].Score != 0 {
+		t.Fatalf("third item = %+v", result.Items[2])
+	}
+}
+
+func TestEngagementV2ScoreMatchesObserverAnchorsAndExcludesPraise(t *testing.T) {
+	tests := []struct {
+		name string
+		post models.Post
+		want float64
+	}{
+		{name: "forty replies", post: models.Post{Reply: 40, PraiseNum: 999}, want: 15.1789},
+		{name: "hundred replies", post: models.Post{Reply: 100, PraiseNum: 999}, want: 30},
+		{name: "follows and replies", post: models.Post{Likenum: 7, Reply: 100, PraiseNum: 999}, want: 37},
+		{name: "follows only", post: models.Post{Likenum: 40, PraiseNum: 999}, want: 40},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := engagementV2Score(test.post); math.Abs(got-test.want) > 0.001 {
+				t.Fatalf("engagementV2Score() = %f, want %f", got, test.want)
+			}
+		})
 	}
 }

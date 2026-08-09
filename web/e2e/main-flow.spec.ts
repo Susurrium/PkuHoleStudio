@@ -18,8 +18,9 @@ test('empty first run explains both workspaces and remembers completion', async 
 	await dialog.getByRole('button', { name: /本地资料库/ }).click()
 	await dialog.getByRole('button', { name: '继续' }).click()
 	await expect(page.getByRole('heading', { name: '理解在线与本地的关系' })).toBeVisible()
-	await page.getByRole('button', { name: '前往导入资料' }).click()
-	await expect(page.getByRole('heading', { name: '导入与导出' })).toBeVisible()
+	await expect(page.getByRole('button', { name: '导入已有文件' })).toBeVisible()
+	await page.getByRole('button', { name: '登录并保存内容' }).click()
+	await expect(page.getByRole('heading', { name: '保存在线内容' })).toBeVisible()
 	expect(await page.evaluate(() => localStorage.getItem('pkustudio:onboarding:v1'))).toBe('completed')
 	await page.goto('/')
 	await expect(page.getByRole('heading', { name: '本地资料库' })).toBeVisible()
@@ -43,7 +44,7 @@ test('global task feedback hands completed saves to an already open local list',
 
 	await page.goto('/posts')
 	await expect(page.getByText('等待任务交接一')).toBeVisible()
-	await expect(page.getByText('同步指定 PID 已完成')).toBeVisible({ timeout: 7_000 })
+	await expect(page.getByText('保存指定 PID 已完成')).toBeVisible({ timeout: 7_000 })
 	await page.getByRole('link', { name: '整理这些树洞' }).click()
 	await expect(page.getByText('已选择 2 个树洞')).toBeVisible()
 })
@@ -87,11 +88,11 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
 
   await page.getByRole('link', { name: '导入与导出' }).click()
   await page.locator('input[type=file]').setInputFiles({ name: 'sample.treehole.zip', mimeType: 'application/zip', buffer: Buffer.from('PK test') })
-	await page.getByRole('button', { name: '预检文件' }).click()
+	await page.getByRole('button', { name: '检查文件' }).click()
 	await expect(page.getByText('文件检查通过')).toBeVisible()
 	await expect(page.getByText('import-1')).toHaveCount(0)
 	await page.getByRole('button', { name: '确认导入' }).click()
-	await expect(page.getByText('任务已持久保存，正在等待本机执行器；刷新页面或重新启动程序不会丢失。')).toBeVisible()
+	await expect(page.getByText('任务正在等待开始。可以离开本页，稍后回来查看。')).toBeVisible()
 
   await page.getByRole('link', { name: '全部资料', exact: true }).click()
   await page.getByRole('textbox', { name: '搜索关键词' }).fill('数据结构')
@@ -183,7 +184,7 @@ test('classic layout keeps search, list, and detail in one context', async ({ pa
 	await expect(page.getByText('横向回复一')).toBeVisible()
 	await page.getByRole('button', { name: /后台任务/ }).click()
 	await expect(page.getByRole('dialog', { name: '后台任务' })).toBeVisible()
-	await expect(page.getByText('同步指定 PID')).toBeVisible()
+	await expect(page.getByText('保存指定 PID')).toBeVisible()
 	await page.goBack()
 	await expect(page.getByRole('dialog', { name: '后台任务' })).toBeHidden()
 

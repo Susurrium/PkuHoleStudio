@@ -233,6 +233,36 @@ func TestDisabledObserverDoesNotFetchHotPosts(t *testing.T) {
 	}
 }
 
+func TestObserverHotPostsKeepsPraiseAndFollowCountsDistinct(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/hot" || request.URL.Query().Get("limit") != "5" || request.URL.Query().Get("window_hours") != "12" {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"posts":[{"post":{"pid":8347400,"text":"distinct metrics","timestamp":1784102400,"reply":7,"likenum":11,"praise_num":97},"score":13.5,"availability_state":"available"}],"generated_at":"2026-07-16T10:00:00Z","last_successful_scan_at":"2026-07-16T09:59:00Z","latest_post_at":"2026-07-16T09:58:00Z","score_version":"engagement-v2","stale":false}`)
+	}))
+	defer server.Close()
+	service, err := NewObserverService(&observerRepositoryStub{receipts: map[int64]string{}}, &observerArchiveStub{}, t.TempDir(), config.ObserverConfig{Enabled: true, BaseURL: server.URL, APIToken: "token", RequestTimeout: 15, SyncIntervalMins: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.client.mu.Lock()
+	service.client.client.Transport = server.Client().Transport
+	service.client.mu.Unlock()
+
+	result, err := service.HotPosts(context.Background(), 5, 12*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "observer" || result.ScoreVersion != engagementV2ScoreVersion || result.WindowHours != 12 || result.Stale || len(result.Items) != 1 {
+		t.Fatalf("HotPosts() = %+v", result)
+	}
+	item := result.Items[0]
+	if item.ID != 8_347_400 || item.FollowNum != 11 || item.PraiseNum != 97 || item.ReplyNum != 7 || item.Score != 13.5 || item.AvailabilityState != "available" {
+		t.Fatalf("hot item = %+v", item)
+	}
+}
+
 func testObserverClient(t *testing.T, server *httptest.Server, token string) *ObserverClient {
 	t.Helper()
 	client, err := NewObserverClient(config.ObserverConfig{Enabled: true, BaseURL: server.URL, APIToken: token, RequestTimeout: 15, SyncIntervalMins: 5})

@@ -582,7 +582,16 @@ func (s *ObserverService) HotPosts(ctx context.Context, limit int, window time.D
 		if len(items) >= limit {
 			break
 		}
-		items = append(items, HotPost{ID: item.Post.Pid, Text: item.Post.Text, FollowNum: max(int(item.Post.PraiseNum), int(item.Post.Likenum)), ReplyNum: int(item.Post.Reply), Timestamp: int64(item.Post.Timestamp), Score: item.Score, AvailabilityState: item.AvailabilityState})
+		items = append(items, HotPost{
+			ID:                item.Post.Pid,
+			Text:              item.Post.Text,
+			FollowNum:         int(item.Post.Likenum),
+			PraiseNum:         int(item.Post.PraiseNum),
+			ReplyNum:          int(item.Post.Reply),
+			Timestamp:         int64(item.Post.Timestamp),
+			Score:             item.Score,
+			AvailabilityState: item.AvailabilityState,
+		})
 	}
 	updatedAt := time.Now().Unix()
 	if parsed, err := time.Parse(time.RFC3339, response.GeneratedAt); err == nil {

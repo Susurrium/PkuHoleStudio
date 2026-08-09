@@ -1,9 +1,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, ChevronDown, Download, Heart, Image, ImagePlus, ListFilter, ListTodo, MessageCircle, RefreshCw, Reply, Search, Send, Settings, Sparkles, Star, X } from 'lucide-react'
+import { Bell, ChevronDown, Download, Heart, Image, ImagePlus, ListFilter, ListTodo, MessageCircle, RefreshCw, Reply, Search, Send, Settings, Sparkles, Star, ThumbsUp, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, isOnlineSessionError } from '../lib/api'
 import { compactNumber, formatTime, HighlightedText } from '../lib/format'
+import { resolveCommentIdentity } from '../lib/commentIdentity'
 import type { Comment, Media, PostSummary, Reference } from '../lib/types'
 import { ClassicAccountDrawer, ClassicDrawerFrame, ClassicNotificationsDrawer, ClassicTasksDrawer } from './ClassicUtilityDrawers'
 import { errorDescription, useFeedback } from '../components/Feedback'
@@ -150,7 +151,7 @@ function ClassicThread({ post, source, returnTo }: { post: PostSummary; source: 
       <div className="classic-thread-scroll">
         <article className="classic-root-card" role="link" tabIndex={0} aria-label={`打开树洞 #${post.pid}`} onClick={(event) => { if ((event.target as HTMLElement).closest('a, button, input, select, textarea') || window.getSelection()?.toString()) return; open() }} onKeyDown={(event) => { if (event.key === 'Enter' && event.target === event.currentTarget) open() }}>
           <span className="classic-new-node" aria-hidden="true" />
-          <header><Link to={target} onClick={() => rememberClassicListPosition(returnTo)}>#{post.pid}</Link><time>{formatTime(post.timestamp)}</time>{source === 'live' && (!saveLocal.job && post.local_state === 'saved' ? <span className="classic-local-state">已保存</span> : <button type="button" className="classic-inline-save" disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}>{saveLocal.label}</button>)}<span className="classic-counts"><span>{compactNumber(post.reply)} <MessageCircle size={12} /></span><span>{compactNumber(post.praise_num ?? post.likenum)} <Star size={12} /></span></span></header>
+          <header><Link to={target} onClick={() => rememberClassicListPosition(returnTo)}>#{post.pid}</Link><time>{formatTime(post.timestamp)}</time>{source === 'live' && (!saveLocal.job && post.local_state === 'saved' ? <span className="classic-local-state">已保存</span> : <button type="button" className="classic-inline-save" disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}>{saveLocal.label}</button>)}<span className="classic-counts"><span><MessageCircle size={12} />评论 {compactNumber(post.reply)}</span><span><Star size={12} />关注 {compactNumber(post.likenum ?? 0)}</span><span><ThumbsUp size={12} />点赞 {compactNumber(post.praise_num ?? 0)}</span></span></header>
           {source === 'live' && saveLocal.failure && <span className="classic-save-error" role="alert">{saveLocal.failure}</span>}
           <p><HighlightedText value={post.snippet || post.text || '（无正文）'} /></p>
           {post.media_ids && <span className="classic-media-hint"><Image size={13} />含图片</span>}
@@ -163,8 +164,9 @@ function ClassicThread({ post, source, returnTo }: { post: PostSummary; source: 
 }
 
 function ClassicPreviewComment({ comment, target, returnTo }: { comment: Comment; target: string; returnTo: string }) {
-  const name = comment.name_tag || (comment.is_lz ? '洞主' : '匿名')
-  return <Link className="classic-reply-card" style={{ '--classic-reply-color': classicIdentityColor(name) } as React.CSSProperties} to={`${target}#comment-${comment.cid}`} onClick={() => rememberClassicListPosition(returnTo)}><header><span>#C{comment.cid}</span><time>{formatTime(comment.timestamp)}</time></header>{comment.quote && <blockquote>{comment.quote.name_tag || '匿名'}：{comment.quote.text}</blockquote>}<p>[{name}] {comment.text || '（无正文）'}</p></Link>
+  const identity = resolveCommentIdentity(comment)
+  const quoteIdentity = comment.quote ? resolveCommentIdentity(comment.quote) : undefined
+  return <Link className={`classic-reply-card${identity.isOwner ? ' is-author' : ''}`} style={{ '--classic-reply-color': classicIdentityColor(identity.label) } as React.CSSProperties} to={`${target}#comment-${comment.cid}`} onClick={() => rememberClassicListPosition(returnTo)}><header><span>#C{comment.cid}</span><time>{formatTime(comment.timestamp)}</time></header>{comment.quote && <blockquote>{quoteIdentity?.label}：{comment.quote.text}</blockquote>}<p><span className={`classic-comment-author${identity.isOwner ? ' is-owner' : ''}`}>[{identity.label}]</span>{identity.showOwnerBadge && <> <span className="classic-author-badge">洞主</span></>} {comment.text || '（无正文）'}</p></Link>
 }
 
 function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; source: 'local' | 'live'; returnTo: string }) {
@@ -219,6 +221,7 @@ function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; sourc
   const hasMore = page?.hasMore ?? detail.data?.has_more_comments
   const highlightedCID = Number(location.hash.match(/^#comment-(\d+)$/)?.[1] || 0)
 	const canWrite = source === 'live' && online.data?.can_write_online === true
+	const quoteIdentity = quote ? resolveCommentIdentity(quote) : undefined
 
   function chooseReply(comment: Comment) {
     setQuote(comment)
@@ -257,23 +260,24 @@ function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; sourc
         </div>
 
         {canWrite && tab === 'comments' && <form className="classic-reply-composer" onSubmit={(event) => { event.preventDefault(); if ((replyText.trim() || replyFiles.length) && !submitReply.isPending) submitReply.mutate() }}>
-          {quote && <div className="classic-replying-to"><span>回复 {quote.name_tag || `C${quote.cid}`}</span><button type="button" onClick={() => setQuote(undefined)} aria-label="取消引用"><X size={13} /></button></div>}
-          <textarea ref={replyInput} value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quote ? `回复 ${quote.name_tag || `C${quote.cid}`}…` : '写下回复…'} />
+          {quote && <div className="classic-replying-to"><span>回复 {quoteIdentity?.label}</span><button type="button" onClick={() => setQuote(undefined)} aria-label="取消引用"><X size={13} /></button></div>}
+          <textarea ref={replyInput} value={replyText} maxLength={10000} onChange={(event) => setReplyText(event.target.value)} placeholder={quote ? `回复 ${quoteIdentity?.label}…` : '写下回复…'} />
           <div><label><ImagePlus size={16} /><span>{replyFiles.length ? `${replyFiles.length} 张图片` : '图片'}</span><input type="file" accept="image/*" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 9))} /></label><span>{submitReply.error ? String(submitReply.error) : `${replyText.length}/10000`}</span><button type="submit" disabled={submitReply.isPending || (!replyText.trim() && !replyFiles.length)}><Send size={15} />{submitReply.isPending ? '发送中…' : '回复'}</button></div>
         </form>}
-		{source === 'live' && tab === 'comments' && !canWrite && !online.isLoading && <div className="classic-reply-composer"><span className="classic-error-text">当前会话不能回复。请前往同步中心重新检测或登录。</span><Link to="/sync">登录</Link></div>}
+		{source === 'live' && tab === 'comments' && !canWrite && !online.isLoading && <div className="classic-reply-composer"><span className="classic-error-text">当前会话不能回复。请前往“登录与保存”重新检测或登录。</span><Link to="/sync">登录</Link></div>}
       </section>
     </div>
   )
 }
 
 function ClassicDetailRoot({ post, media }: { post: PostSummary; media: Media[] }) {
-  return <article className="classic-detail-root"><header><span>#{post.pid}</span><time>{formatTime(post.timestamp)}</time><span>{compactNumber(post.reply)} <MessageCircle size={12} />　{compactNumber(post.praise_num ?? post.likenum)} <Star size={12} /></span></header><p>{post.text || '（无正文）'}</p><ClassicMedia items={media} pid={post.pid} /></article>
+  return <article className="classic-detail-root"><header><span>#{post.pid}</span><time>{formatTime(post.timestamp)}</time><span className="classic-counts"><span><MessageCircle size={12} />评论 {compactNumber(post.reply)}</span><span><Star size={12} />关注 {compactNumber(post.likenum ?? 0)}</span><span><ThumbsUp size={12} />点赞 {compactNumber(post.praise_num ?? 0)}</span></span></header><p>{post.text || '（无正文）'}</p><ClassicMedia items={media} pid={post.pid} /></article>
 }
 
 function ClassicDetailComment({ comment, media, highlighted, canReply, onReply }: { comment: Comment; media: Media[]; highlighted: boolean; canReply: boolean; onReply: () => void }) {
-  const name = comment.name_tag || (comment.is_lz ? '洞主' : '匿名')
-  return <article id={`comment-${comment.cid}`} className={`classic-detail-comment${highlighted ? ' is-highlighted' : ''}`} style={{ '--classic-reply-color': classicIdentityColor(name) } as React.CSSProperties}><header><span>#C{comment.cid}</span><span>{name}</span><time>{formatTime(comment.timestamp)}</time>{canReply && <button type="button" onClick={onReply}><Reply size={13} />回复</button>}</header>{comment.quote && <blockquote><strong>{comment.quote.name_tag || `C${comment.quote.cid}`}</strong>　{comment.quote.text}</blockquote>}<p>{comment.text || '（无正文）'}</p><ClassicMedia items={media} pid={comment.pid} /></article>
+  const identity = resolveCommentIdentity(comment)
+  const quoteIdentity = comment.quote ? resolveCommentIdentity(comment.quote) : undefined
+  return <article id={`comment-${comment.cid}`} className={`classic-detail-comment${identity.isOwner ? ' is-author' : ''}${highlighted ? ' is-highlighted' : ''}`} style={{ '--classic-reply-color': classicIdentityColor(identity.label) } as React.CSSProperties}><header><span>#C{comment.cid}</span><span className={`classic-comment-author${identity.isOwner ? ' is-owner' : ''}`}>{identity.label}</span>{identity.showOwnerBadge && <span className="classic-author-badge">洞主</span>}<time>{formatTime(comment.timestamp)}</time>{canReply && <button type="button" onClick={onReply}><Reply size={13} />回复</button>}</header>{comment.quote && <blockquote><strong>{quoteIdentity?.label}</strong>　{comment.quote.text}</blockquote>}<p>{comment.text || '（无正文）'}</p><ClassicMedia items={media} pid={comment.pid} /></article>
 }
 
 function ClassicPersonalPanel({ pid }: { pid: number }) {

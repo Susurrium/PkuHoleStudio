@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -25,13 +26,18 @@ func newWebCmd() *cobra.Command {
 			return runWeb(cmd.Context())
 		},
 	}
-	cmd.Flags().StringVar(&webHost, "host", "127.0.0.1", "Web server host")
+	cmd.Flags().StringVar(&webHost, "host", "127.0.0.1", "Web server host (loopback only)")
 	cmd.Flags().StringVarP(&webPort, "port", "p", "8080", "Web server port")
 	cmd.Flags().BoolVar(&webOpen, "open", true, "Open the Web client in the default browser")
 	return cmd
 }
 
 func runWeb(ctx context.Context) error {
+	listenHost, err := normalizeWebHost(webHost)
+	if err != nil {
+		return err
+	}
+
 	application, err := openApplication(ctx)
 	if err != nil {
 		return err
@@ -41,16 +47,12 @@ func runWeb(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("attach embedded Web client: %w", err)
 	}
-	address := net.JoinHostPort(webHost, webPort)
+	address := net.JoinHostPort(listenHost, webPort)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", address, err)
 	}
-	urlHost := webHost
-	if urlHost == "0.0.0.0" || urlHost == "::" {
-		urlHost = "127.0.0.1"
-	}
-	url := "http://" + net.JoinHostPort(urlHost, webPort)
+	url := "http://" + net.JoinHostPort(listenHost, webPort)
 	log.Printf("PkuHoleStudio Web is available at %s", url)
 	if webOpen {
 		if err := openBrowser(url); err != nil {
@@ -61,6 +63,23 @@ func runWeb(ctx context.Context) error {
 		return fmt.Errorf("serve Web client: %w", err)
 	}
 	return nil
+}
+
+func normalizeWebHost(host string) (string, error) {
+	normalized := strings.TrimSpace(host)
+	if strings.HasPrefix(normalized, "[") || strings.HasSuffix(normalized, "]") {
+		if len(normalized) < 2 || !strings.HasPrefix(normalized, "[") || !strings.HasSuffix(normalized, "]") {
+			return "", fmt.Errorf("refusing Web host %q: Web is local-only; use localhost or a loopback IP address", host)
+		}
+		normalized = strings.TrimSpace(normalized[1 : len(normalized)-1])
+	}
+	if normalized == "" || strings.ContainsAny(normalized, "[]") || !isLoopbackServerHost(normalized) {
+		return "", fmt.Errorf("refusing Web host %q: Web is local-only; use localhost or a loopback IP address", host)
+	}
+	if strings.EqualFold(normalized, "localhost") {
+		return "127.0.0.1", nil
+	}
+	return normalized, nil
 }
 
 func openBrowser(url string) error {

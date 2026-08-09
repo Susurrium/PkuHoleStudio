@@ -228,7 +228,7 @@
 .github-metadata .github-inline-error, .github-comment-note .github-inline-error, .github-conversation > .github-inline-error { margin: 8px 0; text-align: left; }
 
 .github-back-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; color: var(--fgColor-accent) !important; font-size: 12px; }
-.github-detail-status { display: inline-flex; align-items: center; gap: 5px; }
+.github-detail-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .github-detail-status svg { color: var(--fgColor-open); }
 .github-conversation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; align-items: start; }
 .github-conversation { min-width: 0; }
@@ -241,6 +241,9 @@
 .github-comment-box > header > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 5px; }
 .github-comment-box > header strong { font-size: 12px; }
 .github-comment-box > header span { color: var(--fgColor-muted); font-size: 11px; }
+.github-comment--author .github-comment-box { border-color: var(--borderColor-accent-muted); box-shadow: inset 3px 0 0 var(--borderColor-accent-emphasis); }
+.github-comment--author .github-comment-box > header { background: color-mix(in srgb, var(--bgColor-accent-muted) 32%, var(--bgColor-muted)); }
+.github-comment--author .github-comment-box > header strong { color: var(--fgColor-accent); }
 .github-author-badge { flex: none; border: 1px solid var(--borderColor-accent-emphasis); border-radius: 999px; padding: 1px 6px; color: var(--fgColor-accent) !important; font-size: 9px !important; font-weight: 600; }
 .github-comment-body { padding: 16px; }
 .github-comment-body > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }

@@ -157,7 +157,7 @@ function GithubIssueRow({ post, source, returnTo }: { post: PostSummary; source:
       {post.comment_matches?.slice(0, 1).map((match) => <Link key={match.cid} to={`${target}#comment-${match.cid}`} onClick={remember} className="github-comment-match">C{match.cid}：<HighlightedText value={match.snippet} /></Link>)}
       <p>#{post.pid} · {formatTime(post.timestamp)}</p>
     </div>
-    <div className="github-issue-metrics"><span title="点赞"><ThumbsupIcon size={14} />{compactNumber(post.praise_num ?? post.likenum)}</span><span title="评论"><CommentIcon size={14} />{compactNumber(post.reply)}</span></div>
+    <div className="github-issue-metrics"><span title="点赞" aria-label={`点赞 ${post.praise_num ?? 0}`}><ThumbsupIcon size={14} />{compactNumber(post.praise_num ?? 0)}</span><span title="关注" aria-label={`关注 ${post.likenum ?? 0}`}><StarIcon size={14} />{compactNumber(post.likenum ?? 0)}</span><span title="评论" aria-label={`评论 ${post.reply ?? 0}`}><CommentIcon size={14} />{compactNumber(post.reply ?? 0)}</span></div>
   </article>
 }
 

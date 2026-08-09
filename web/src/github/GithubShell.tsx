@@ -35,14 +35,14 @@ const onlineNavigation = [
 const libraryNavigation = [
   { to: '/', label: '资料库概览', icon: HomeIcon, end: true },
   { to: '/posts', label: '全部资料', icon: CommentDiscussionIcon },
-  { to: '/removed', label: '删除归档', icon: ShieldIcon },
+  { to: '/removed', label: '删除记录', icon: ShieldIcon },
   { to: '/projects', label: '研究项目', icon: RepoIcon },
   { to: '/ai', label: 'AI 研究', icon: CopilotIcon },
   { to: '/imports', label: '导入与导出', icon: DatabaseIcon },
 ]
 
 const utilityNavigation = [
-  { to: '/sync', label: '同步中心', icon: SyncIcon },
+  { to: '/sync', label: '登录与保存', icon: SyncIcon },
   { to: '/tasks', label: '任务中心', icon: WorkflowIcon },
   { to: '/campus', label: '课表与成绩', icon: BookIcon },
   { to: '/maintenance', label: '资料库维护', icon: ToolsIcon },

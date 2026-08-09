@@ -1,9 +1,10 @@
-import { Check, CheckSquare2, Download, Image, MessageCircle, Square, ThumbsUp } from 'lucide-react'
+import { Check, CheckSquare2, Download, Image, Square } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { PostSummary } from '../lib/types'
-import { compactNumber, formatTime, HighlightedText } from '../lib/format'
+import { formatTime, HighlightedText } from '../lib/format'
 import { useSavePostToLocal } from '../features/posts/usePostDetail'
 import { handoffLocalSelection } from '../features/library/selection'
+import { PostMetrics } from './PostMetrics'
 
 export function PostCard({ post, source = 'local', selectable = false, selected = false, onSelect }: { post: PostSummary; source?: 'local' | 'live'; selectable?: boolean; selected?: boolean; onSelect?: (pid: number) => void }) {
   const location = useLocation()
@@ -46,9 +47,8 @@ export function PostCard({ post, source = 'local', selectable = false, selected 
           <span className="mr-2 font-mono text-[11px] text-teal">C{match.cid}</span><HighlightedText value={match.snippet} />
         </Link>
       ))}
-      <footer className="mt-5 flex items-center gap-4 border-t border-line/70 pt-3 text-xs text-ink-soft">
-        <span className="inline-flex items-center gap-1.5"><MessageCircle size={14} /> {compactNumber(post.reply)}</span>
-        <span className="inline-flex items-center gap-1.5"><ThumbsUp size={14} /> {compactNumber(post.praise_num ?? post.likenum)}</span>
+      <footer className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line/70 pt-3 text-xs text-ink-soft">
+        <PostMetrics post={post} />
         {source === 'live' && saveLocal.isSuccess
           ? <Link className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-semibold text-teal hover:bg-teal-soft/60" to="/posts" onClick={() => handoffLocalSelection('/posts', [post.pid])}><Check size={14} />前往本地整理</Link>
           : source === 'live' && (!saveLocal.job && post.local_state === 'saved'

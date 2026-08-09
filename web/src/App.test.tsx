@@ -100,7 +100,7 @@ describe('PkuHoleStudio Web', () => {
 		useUIStore.getState().setLayoutPreset('github')
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
-			if (path.includes('/posts/321?source=local')) return json({ post: { pid: 321, text: 'GitHub 详情正文', timestamp: 2, reply: 1 }, comments: [{ cid: 88, pid: 321, name_tag: 'Alice', text: 'Conversation 评论', timestamp: 3 }], references: [], media: [{ id: 7, owner_type: 'post', owner_id: 321, variant: 'original', status: 'available' }], has_more_comments: false })
+			if (path.includes('/posts/321?source=local')) return json({ post: { pid: 321, text: 'GitHub 详情正文', timestamp: 2, reply: 1 }, comments: [{ cid: 88, pid: 321, name_tag: '洞主', is_lz: true, text: 'Conversation 评论', timestamp: 3 }], references: [], media: [{ id: 7, owner_type: 'post', owner_id: 321, variant: 'original', status: 'available' }], has_more_comments: false })
 			if (path.includes('/posts?')) return json({ items: [{ pid: 321, text: 'Issues 风格列表正文', timestamp: 1, reply: 1, praise_num: 2 }], has_more: false })
 			if (path.endsWith('/local-tags')) return json([])
 			if (path.endsWith('/posts/321/tags')) return json([])
@@ -114,6 +114,13 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(screen.getByRole('link', { name: 'Issues 风格列表正文' }))
 		expect(await screen.findByText('GitHub 详情正文')).toBeInTheDocument()
 		expect(screen.getByText('Conversation 评论')).toBeInTheDocument()
+		const githubOwnerComment = document.querySelector('#comment-88') as HTMLElement
+		expect(githubOwnerComment).toHaveClass('github-comment--author')
+		expect(within(githubOwnerComment).getAllByText('洞主')).toHaveLength(1)
+		expect(within(githubOwnerComment).queryByText('Author')).not.toBeInTheDocument()
+		const githubRootComment = document.querySelector('.github-comment--root') as HTMLElement
+		expect(within(githubRootComment).getAllByText('洞主')).toHaveLength(1)
+		expect(within(githubRootComment).queryByText('Author')).not.toBeInTheDocument()
 		expect(document.querySelector('.github-conversation-layout')).toBeInTheDocument()
 		expect(screen.getByRole('img', { name: '树洞 #321 的图片 1' })).toBeInTheDocument()
 		expect(document.querySelectorAll('main')).toHaveLength(1)
@@ -125,8 +132,8 @@ describe('PkuHoleStudio Web', () => {
 		const fetchMock = vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
 			if (path.includes('/jobs')) return json([])
-			if (path.includes('/posts/321?source=local')) return json({ post: { pid: 321, text: '抽屉中的完整正文', timestamp: 2, reply: 1 }, comments: [{ cid: 88, pid: 321, name_tag: 'Alice', text: '完整评论', timestamp: 3 }], references: [], media: [], has_more_comments: false })
-			if (path.includes('/posts?')) return json({ items: [{ pid: 321, text: '经典列表正文', timestamp: 1, reply: 1, comment_list: [{ cid: 88, pid: 321, name_tag: 'Alice', text: '回复预览', timestamp: 2 }] }], has_more: false })
+			if (path.includes('/posts/321?source=local')) return json({ post: { pid: 321, text: '抽屉中的完整正文', timestamp: 2, reply: 1 }, comments: [{ cid: 88, pid: 321, name_tag: '洞主', is_lz: true, text: '完整评论', timestamp: 3 }], references: [], media: [], has_more_comments: false })
+			if (path.includes('/posts?')) return json({ items: [{ pid: 321, text: '经典列表正文', timestamp: 1, reply: 1, comment_list: [{ cid: 88, pid: 321, name_tag: '洞主', is_lz: true, text: '回复预览', timestamp: 2 }] }], has_more: false })
 			if (path.endsWith('/local-tags')) return json([])
 			throw new Error(`unexpected request ${path}`)
 		})
@@ -134,9 +141,13 @@ describe('PkuHoleStudio Web', () => {
 		const user = userEvent.setup()
 		renderApp('/posts')
 		expect(await screen.findByText(/回复预览/)).toBeInTheDocument()
+		expect(document.querySelector('.classic-reply-card.is-author')).toBeInTheDocument()
 		await user.click(screen.getByRole('link', { name: '打开树洞 #321' }))
 		expect(await screen.findByRole('dialog', { name: '树洞 #321' })).toBeInTheDocument()
 		expect(screen.getByText('抽屉中的完整正文')).toBeInTheDocument()
+		const classicOwnerComment = document.querySelector('#comment-88') as HTMLElement
+		expect(classicOwnerComment).toHaveClass('is-author')
+		expect(within(classicOwnerComment).getAllByText('洞主')).toHaveLength(1)
 		expect(screen.getByText('经典列表正文')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: '关闭详情' }))
 		expect(screen.queryByRole('dialog', { name: '树洞 #321' })).not.toBeInTheDocument()
@@ -164,7 +175,7 @@ describe('PkuHoleStudio Web', () => {
 
 		await user.click(screen.getByRole('button', { name: /后台任务/ }))
 		expect(await screen.findByRole('dialog', { name: '后台任务' })).toBeInTheDocument()
-		expect(screen.getByText('同步指定 PID')).toBeInTheDocument()
+		expect(screen.getByText('保存指定 PID')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: '关闭后台任务' }))
 
 		await user.click(screen.getByRole('button', { name: '账户' }))
@@ -293,6 +304,23 @@ describe('PkuHoleStudio Web', () => {
     expect(screen.getByText('#123456')).toBeInTheDocument()
   })
 
+	it('shows comments, follows, and likes as three independent post metrics', async () => {
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/search?q=metrics')) return json({ items: [{ pid: 234567, text: '指标互不混淆', reply: 12, likenum: 34, praise_num: 56 }], has_more: false })
+			if (path.includes('/search/history') || path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/search')
+		await user.type(await screen.findByPlaceholderText('课程名、教师、关键词或 PID'), 'metrics')
+		await user.click(screen.getByRole('button', { name: '搜索' }))
+		expect(await screen.findByText('指标互不混淆')).toBeInTheDocument()
+		expect(screen.getByLabelText('评论 12')).toHaveTextContent('评论 12')
+		expect(screen.getByLabelText('关注 34')).toHaveTextContent('关注 34')
+		expect(screen.getByLabelText('点赞 56')).toHaveTextContent('点赞 56')
+	})
+
 	it('renders a completed empty hot ranking as an empty state', async () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
@@ -323,10 +351,38 @@ describe('PkuHoleStudio Web', () => {
 		const user = userEvent.setup()
 		renderApp('/online')
 		expect(await screen.findByRole('heading', { name: '最近 24 小时热榜' })).toBeInTheDocument()
-		expect(screen.getByText('数据范围已降级', { exact: false })).toBeInTheDocument()
+		expect(screen.getByText('当前显示最近一次可用结果')).toBeInTheDocument()
 		expect(screen.getByText('降级热榜')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: '刷新热榜' }))
 		await waitFor(() => expect(hotRequests).toBe(2))
+	})
+
+	it('renders the focused hot ranking with its rule and without the latest timeline', async () => {
+		let hotRequests = 0
+		let latestRequests = 0
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+			const path = String(input)
+			if (path.includes('/posts/hot')) {
+				hotRequests++
+				return json({ items: [{ id: 456, text: '聚焦热榜测试', follownum: 21, praise_num: 99, reply: 8, score: 42.5 }], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true })
+			}
+			if (path.includes('/posts?')) { latestRequests++; return json({ items: [{ pid: 999, text: '不应出现的最新动态' }], has_more: false }) }
+			if (path.endsWith('/session/probe')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		renderApp('/online#hot')
+		expect(await screen.findByRole('heading', { name: '近期热榜' })).toBeInTheDocument()
+		expect(screen.getByRole('heading', { name: '榜单如何计算' })).toBeInTheDocument()
+		expect(screen.getByText(/关注越多、评论越活跃，热度越高；点赞不参与热度计算/)).toBeInTheDocument()
+		expect(await screen.findByText('聚焦热榜测试')).toBeInTheDocument()
+		expect(screen.getByLabelText('热度 42.5')).toHaveTextContent('热度 42.5')
+		expect(screen.getByLabelText('关注 21')).toHaveTextContent('关注 21')
+		expect(screen.getByLabelText('评论 8')).toHaveTextContent('评论 8')
+		expect(screen.queryByRole('heading', { name: '最新树洞' })).not.toBeInTheDocument()
+		expect(screen.queryByText('不应出现的最新动态')).not.toBeInTheDocument()
+		expect(hotRequests).toBe(1)
+		expect(latestRequests).toBe(0)
 	})
 
 	it('shows whether online posts are already local and creates an explicit save job', async () => {
@@ -462,7 +518,7 @@ describe('PkuHoleStudio Web', () => {
 		expect(screen.getByText('已带入 2 个树洞')).toBeInTheDocument()
 		expect(await screen.findByText('指定范围：请求 2 · 找到 1 · 缺失 1')).toBeInTheDocument()
 		expect(screen.getByText('未找到 PID：#802')).toBeInTheDocument()
-		expect(screen.getByText('用于迁移或再次导入 Studio。')).toBeInTheDocument()
+		expect(screen.getByText('用于迁移到另一台 Studio，之后也可以再次导入。')).toBeInTheDocument()
 		const missingMediaLabel = await screen.findByText('缺失图片')
 		expect(missingMediaLabel.previousElementSibling).toHaveTextContent('1')
 		await user.click(screen.getByRole('button', { name: '先补全缺失图片' }))
@@ -496,8 +552,8 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		renderApp('/tasks')
 		expect(await screen.findByText('已停用')).toBeInTheDocument()
-		expect(screen.getByText('已进行 3 轮 · 最近检查第 2 页')).toBeInTheDocument()
-		expect(screen.getByText(/本地持续监控已停用/)).toBeInTheDocument()
+		expect(screen.getByText('最近记录：3 轮 · 第 2 页')).toBeInTheDocument()
+		expect(screen.getByText(/旧版持续保存任务已经停用/)).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: '继续' })).not.toBeInTheDocument()
 		expect(screen.queryByText('100%')).not.toBeInTheDocument()
 	})
@@ -667,12 +723,12 @@ describe('PkuHoleStudio Web', () => {
 	await screen.findByRole('heading', { name: '导入与导出' })
     const input = container.querySelector('input[type=file]') as HTMLInputElement
     await user.upload(input, new File(['{"holes":[]}'], 'archive.json', { type: 'application/json' }))
-	await user.click(screen.getByRole('button', { name: '预检文件' }))
+	await user.click(screen.getByRole('button', { name: '检查文件' }))
 	await waitFor(() => expect(screen.getByText('文件检查通过')).toBeInTheDocument())
 		expect(screen.queryByText('job-1')).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: '确认导入' }))
     expect(screen.getByText('job-1')).toBeInTheDocument()
-		expect(screen.getByText(/任务已持久保存/)).toBeInTheDocument()
+		expect(screen.getByText(/任务正在等待开始.*可以离开本页/)).toBeInTheDocument()
 	})
 
 	it('shows a failed preflight and does not render a queued import job', async () => {
@@ -689,9 +745,9 @@ describe('PkuHoleStudio Web', () => {
 		await screen.findByRole('heading', { name: '导入与导出' })
 		const input = container.querySelector('input[type=file]') as HTMLInputElement
 		await user.upload(input, new File(['zip'], 'archive.treehole.zip', { type: 'application/zip' }))
-		await user.click(screen.getByRole('button', { name: '预检文件' }))
+		await user.click(screen.getByRole('button', { name: '检查文件' }))
 		expect(await screen.findByText('文件检查未通过')).toBeInTheDocument()
-		expect(screen.getByText('没有可导入的有效帖子，因此没有创建任务。请查看下方问题详情。')).toBeInTheDocument()
+		expect(screen.getByText('没有找到可导入的有效帖子，因此没有创建任务。请查看下方问题。')).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: '确认导入' })).not.toBeInTheDocument()
 		expect(screen.queryByText('queued')).not.toBeInTheDocument()
 	})
@@ -710,9 +766,10 @@ describe('PkuHoleStudio Web', () => {
 		await screen.findByRole('heading', { name: '导入与导出' })
 		const input = container.querySelector('input[type=file]') as HTMLInputElement
 		await user.upload(input, new File(['zip'], 'archive.treehole.zip', { type: 'application/zip' }))
-		await user.click(screen.getByRole('button', { name: '预检文件' }))
-		expect(await screen.findByText('检测到重复归档')).toBeInTheDocument()
-		expect(screen.getByText('这个归档已经成功导入过，无需再次创建任务。')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: '检查文件' }))
+		expect(await screen.findByText('这个迁移包已经导入过')).toBeInTheDocument()
+		expect(screen.getByText('这个迁移包已经成功导入过，无需重复导入。')).toBeInTheDocument()
+		expect(screen.getByText('内容与之前成功导入的文件相同，因此不会重复写入。')).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: '确认导入' })).not.toBeInTheDocument()
 		expect(screen.getByRole('button', { name: '关闭并删除暂存文件' })).toBeInTheDocument()
 	})
@@ -731,7 +788,7 @@ describe('PkuHoleStudio Web', () => {
 		const user = userEvent.setup()
 		renderApp('/imports')
 		await user.click(await screen.findByRole('button', { name: '导出资料' }))
-		await user.click(await screen.findByRole('button', { name: '创建 archive v2 任务' }))
+		await user.click(await screen.findByRole('button', { name: '创建 Studio 迁移包' }))
 		expect(await screen.findByText('export-1')).toBeInTheDocument()
 		expect(screen.getByText('等待中')).toBeInTheDocument()
 	})
@@ -827,7 +884,7 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		renderApp('/notifications')
 		expect(await screen.findByText('登录后查看通知')).toBeInTheDocument()
-		expect(screen.getByRole('link', { name: '前往同步中心登录' })).toHaveAttribute('href', '/sync')
+		expect(screen.getByRole('link', { name: '前往“登录与保存”' })).toHaveAttribute('href', '/sync')
 		expect(notificationRequests).toBe(0)
 	})
 
@@ -897,7 +954,7 @@ describe('PkuHoleStudio Web', () => {
 	it('restores a paged CID deep link after refreshing a post', async () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
 			const path = String(input)
-			if (path.includes('/posts/123/comments') && path.includes('cursor=50')) return json({ items: [{ cid: 75, pid: 123, text: 'target comment', timestamp: 2 }], next_cursor: 75, has_more: false })
+			if (path.includes('/posts/123/comments') && path.includes('cursor=50')) return json({ items: [{ cid: 75, pid: 123, name_tag: '洞主', is_lz: true, text: 'target comment', timestamp: 2 }], next_cursor: 75, has_more: false })
 			if (path.includes('/posts/123?')) return json({ post: { pid: 123, text: 'post', timestamp: 1, reply: 75 }, comments: [{ cid: 1, pid: 123, text: 'first comment', timestamp: 1 }], references: [], media: [], next_comment_cursor: 50, has_more_comments: true })
 			if (path.endsWith('/local-tags') || path.endsWith('/posts/123/tags')) return json([])
 			if (path.endsWith('/posts/123/note')) return json({ owner_type: 'post', owner_id: 123, content: '' })
@@ -906,6 +963,9 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		renderApp('/posts/123?comment_cursor=75#comment-75')
 		expect(await screen.findByText('target comment')).toBeInTheDocument()
+		const studioOwnerComment = document.querySelector('#comment-75') as HTMLElement
+		expect(studioOwnerComment).toHaveClass('comment-card--author')
+		expect(within(studioOwnerComment).getAllByText('洞主')).toHaveLength(1)
 		expect(screen.getByText('已载入 2 / 75')).toBeInTheDocument()
 	})
 
@@ -954,8 +1014,9 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '载入 TUI 已登录会话' }))
-		expect(await screen.findByText('在线读取已就绪')).toBeInTheDocument()
+		await user.click(await screen.findByRole('button', { name: '载入已有登录状态' }))
+		expect(await screen.findByText('已经登录，可以保存在线内容')).toBeInTheDocument()
+		expect(screen.getByText(/按 PID、关注列表或最新时间线保存内容/)).toBeInTheDocument()
 	})
 
 	it('starts offline reference maintenance from its dedicated page', async () => {
@@ -993,7 +1054,7 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(screen.getByRole('button', { name: '导出资料' }))
 		await user.type(await screen.findByPlaceholderText('留空导出全部；或输入 1234567, 2345678'), '8328353')
 		await user.click(screen.getByLabelText('导出前在线更新指定 PID'))
-		await user.click(screen.getByRole('button', { name: '创建 archive v2 任务' }))
+		await user.click(screen.getByRole('button', { name: '创建 Studio 迁移包' }))
 		await waitFor(() => expect(JSON.parse(createdBody)).toEqual({ format: 'treehole-v2', pids: [8328353], include_comments: true, capture_live: true, include_media: true }))
 	})
 
@@ -1012,10 +1073,10 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号在这里登录' }))
+		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
-		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		await user.click(screen.getByRole('button', { name: '登录' }))
 		await user.type(await screen.findByPlaceholderText('短信验证码'), '654321')
 		await user.click(screen.getByRole('button', { name: '继续登录' }))
 		await waitFor(() => expect(challengeBody).not.toBe(''))
@@ -1037,10 +1098,10 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号在这里登录' }))
+		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
-		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		await user.click(screen.getByRole('button', { name: '登录' }))
 		expect(await screen.findByText('输入手机令牌（6 位动态口令）')).toBeInTheDocument()
 		expect(screen.getByText(/北京大学.*手机令牌.*不会发送短信/)).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: '没有收到？重新发送验证码' })).not.toBeInTheDocument()
@@ -1062,10 +1123,10 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号在这里登录' }))
+		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
 		await user.type(screen.getByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
-		await user.click(screen.getByRole('button', { name: '登录并保存本机会话' }))
+		await user.click(screen.getByRole('button', { name: '登录' }))
 		await user.click(await screen.findByRole('button', { name: '发送树洞短信验证码' }))
 		await waitFor(() => expect(JSON.parse(smsBody)).toEqual({ stage: 'treehole' }))
 	})
