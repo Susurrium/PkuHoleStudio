@@ -184,7 +184,7 @@ func TestLiveFetchPostsV3ToModels(t *testing.T) {
 	database, cleanup := setupLiveDB(t)
 	defer cleanup()
 
-	posts, comments, _, err := fetchPostsV3(c, 1, 5, 10, false, false)
+	posts, comments, _, err := fetchPostsV3(c, 1, 5, 10)
 	if err != nil {
 		t.Fatalf("fetchPostsV3: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestLiveFetchPostsV3MultiplePages(t *testing.T) {
 	c := setupLiveClient(t)
 
 	for page := 1; page <= 3; page++ {
-		posts, comments, _, err := fetchPostsV3(c, page, 5, 5, false, false)
+		posts, comments, _, err := fetchPostsV3(c, page, 5, 5)
 		if err != nil {
 			t.Fatalf("page %d: fetchPostsV3: %v", page, err)
 		}
@@ -305,7 +305,7 @@ func TestLiveFetchPostsV3WithImages(t *testing.T) {
 	c := setupLiveClient(t)
 
 	// Fetch more posts to increase chance of finding image posts
-	posts, _, _, err := fetchPostsV3(c, 1, 50, 0, false, false)
+	posts, _, _, err := fetchPostsV3(c, 1, 50, 0)
 	if err != nil {
 		t.Fatalf("fetchPostsV3: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestLiveFetchPostsV3Performance(t *testing.T) {
 	c := setupLiveClient(t)
 
 	start := time.Now()
-	posts, comments, _, err := fetchPostsV3(c, 1, 20, 20, false, false)
+	posts, comments, _, err := fetchPostsV3(c, 1, 20, 20)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -355,7 +355,7 @@ func TestLiveCrawlerFetchAndSave(t *testing.T) {
 	database, cleanup := setupLiveDB(t)
 	defer cleanup()
 
-	result, err := FetchAndSave(c, database, 1, false, 10, 10, false, false)
+	result, err := FetchAndSave(c, database, 1, false, 10, 10, false, false, filepath.Join(t.TempDir(), "images"))
 	if err != nil {
 		t.Fatalf("FetchAndSave: %v", err)
 	}

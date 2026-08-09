@@ -29,15 +29,9 @@ var (
 	rawResponses   []map[string]interface{}
 	rawResponsesMu sync.Mutex
 	rawSaveMu      sync.Mutex
-	imageDir       = "data/images"
-	thumbnailDir   = "data/thumbnails"
 )
 
 var ErrNoRawResponses = errors.New("没有已缓存的原始响应；请先在顺序采集中启用原始 JSON 缓存")
-
-func ensureDir(dir string) {
-	_ = os.MkdirAll(dir, 0755)
-}
 
 type APIResponse struct {
 	Code int                    `json:"code"`
@@ -48,13 +42,29 @@ type APIResponse struct {
 type FetchResult struct {
 	PostCount    int
 	CommentCount int
+	Media        MediaDownloadResult
+}
+
+// MediaDownloadResult separates files that were already available from real
+// download failures. The legacy crawler used to report both cases as skipped,
+// which could make an incomplete run look successful.
+type MediaDownloadResult struct {
+	Downloaded int `json:"downloaded"`
+	Existing   int `json:"existing"`
+	Failed     int `json:"failed"`
+}
+
+func (r *MediaDownloadResult) add(other MediaDownloadResult) {
+	r.Downloaded += other.Downloaded
+	r.Existing += other.Existing
+	r.Failed += other.Failed
 }
 
 // FetchAndSave fetches one page of posts and saves them to the database
-func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bool, postLimit int, commentLimit int, fetchImages bool, convertWebp bool) (FetchResult, error) {
+func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bool, postLimit int, commentLimit int, fetchImages bool, convertWebp bool, imageOutputDir string) (FetchResult, error) {
 	var result FetchResult
 
-	posts, comments, rawResponse, err := fetchPostsV3(c, page, postLimit, commentLimit, fetchImages, convertWebp)
+	posts, comments, rawResponse, err := fetchPostsV3(c, page, postLimit, commentLimit)
 	if err != nil {
 		return result, err
 	}
@@ -72,6 +82,34 @@ func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bo
 		rawResponses = append(rawResponses, rawResponse)
 		rawResponsesMu.Unlock()
 		log.Printf("[Crawler] 原始响应已添加到内存缓存")
+	}
+
+	if fetchImages {
+		var firstErr error
+		for _, post := range posts {
+			if post.Type != "image" && strings.TrimSpace(post.MediaIds) == "" {
+				continue
+			}
+			mediaResult, mediaErr := downloadImages(c, post.MediaIds, post.Pid, imageOutputDir, convertWebp)
+			result.Media.add(mediaResult)
+			if firstErr == nil && mediaErr != nil {
+				firstErr = mediaErr
+			}
+		}
+		for _, comment := range comments {
+			if strings.TrimSpace(comment.MediaIds) == "" {
+				continue
+			}
+			mediaResult, mediaErr := downloadImages(c, comment.MediaIds, 0, imageOutputDir, convertWebp)
+			result.Media.add(mediaResult)
+			if firstErr == nil && mediaErr != nil {
+				firstErr = mediaErr
+			}
+		}
+		if result.Media.Failed > 0 {
+			log.Printf("[Crawler] 页面正文已保存，但有图片未下载: downloaded=%d, existing=%d, failed=%d, first_error=%v",
+				result.Media.Downloaded, result.Media.Existing, result.Media.Failed, firstErr)
+		}
 	}
 
 	return result, nil
@@ -216,7 +254,7 @@ type TempComment struct {
 	ExclusiveIdInfo interface{} `json:"exclusive_id_info"`
 }
 
-func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, fetchImages bool, convertWebp bool) ([]models.Post, []models.Comment, map[string]interface{}, error) {
+func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int) ([]models.Post, []models.Comment, map[string]interface{}, error) {
 	log.Printf("[Crawler] 正在请求 API: page=%d, postLimit=%d, commentLimit=%d", page, postLimit, commentLimit)
 	resp, err := c.GetPostsList(page, postLimit, commentLimit, 1)
 	if err != nil {
@@ -369,50 +407,38 @@ func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, f
 		posts = append(posts, post)
 	}
 
-	if fetchImages {
-		for _, tempPost := range tempPosts {
-			if tempPost.Type == "image" || tempPost.MediaIds != "" {
-				downloadImages(c, tempPost.MediaIds, tempPost.Pid, convertWebp)
-			}
-			for _, tempComment := range tempPost.CommentList {
-				if tempComment.MediaIds != "" {
-					downloadImages(c, tempComment.MediaIds, 0, convertWebp)
-				}
-			}
-		}
-	}
-
 	log.Printf("[Crawler] 数据处理完成: %d 个帖子, %d 个评论", len(posts), len(comments))
 	return posts, comments, rawResponse, nil
 }
 
-// FetchImagesFromDB 从数据库中查找有图片的帖子和评论，下载缺失的图片
-func FetchImagesFromDB(c *client.Client, database *db.Database, convertWebp bool) {
+// FetchImagesFromDB 从数据库中查找有图片的帖子和评论，下载缺失的图片。
+// imageOutputDir 必须来自当前 profile 的 data-dir，不能依赖进程工作目录。
+func FetchImagesFromDB(c *client.Client, database *db.Database, imageOutputDir string, convertWebp bool) (MediaDownloadResult, error) {
+	var result MediaDownloadResult
 	log.Println("[Crawler] 开始从数据库下载缺失的图片...")
 
 	// 下载帖子图片
 	postCount, err := database.GetPostsWithImagesCount()
 	if err != nil {
-		log.Printf("[Crawler] 查询有图片的帖子数量失败: %v", err)
-		return
+		return result, fmt.Errorf("query posts with images: %w", err)
 	}
 	log.Printf("[Crawler] 数据库中有 %d 个帖子包含图片", postCount)
 
 	batchSize := 100
-	postDownloaded := 0
-	postSkipped := 0
+	var firstErr error
 	for offset := 0; offset < postCount; offset += batchSize {
 		posts, err := database.GetPostsWithImages(offset, batchSize)
 		if err != nil {
-			log.Printf("[Crawler] 查询帖子失败: %v", err)
-			continue
+			return result, fmt.Errorf("query posts with images at offset %d: %w", offset, err)
 		}
 
 		for _, post := range posts {
 			if post.Type == "image" || post.MediaIds != "" {
-				d, s := downloadImages(c, post.MediaIds, post.Pid, convertWebp)
-				postDownloaded += d
-				postSkipped += s
+				mediaResult, mediaErr := downloadImages(c, post.MediaIds, post.Pid, imageOutputDir, convertWebp)
+				result.add(mediaResult)
+				if firstErr == nil && mediaErr != nil {
+					firstErr = mediaErr
+				}
 			}
 		}
 		log.Printf("[Crawler] 帖子图片进度: %d/%d", offset+len(posts), postCount)
@@ -421,32 +447,34 @@ func FetchImagesFromDB(c *client.Client, database *db.Database, convertWebp bool
 	// 下载评论图片
 	commentCount, err := database.GetCommentsWithImagesCount()
 	if err != nil {
-		log.Printf("[Crawler] 查询有图片的评论数量失败: %v", err)
-		return
+		return result, fmt.Errorf("query comments with images: %w", err)
 	}
 	log.Printf("[Crawler] 数据库中有 %d 个评论包含图片", commentCount)
 
-	commentDownloaded := 0
-	commentSkipped := 0
 	for offset := 0; offset < commentCount; offset += batchSize {
 		comments, err := database.GetCommentsWithImages(offset, batchSize)
 		if err != nil {
-			log.Printf("[Crawler] 查询评论失败: %v", err)
-			continue
+			return result, fmt.Errorf("query comments with images at offset %d: %w", offset, err)
 		}
 
 		for _, comment := range comments {
 			if comment.MediaIds != "" {
-				d, s := downloadImages(c, comment.MediaIds, 0, convertWebp)
-				commentDownloaded += d
-				commentSkipped += s
+				mediaResult, mediaErr := downloadImages(c, comment.MediaIds, 0, imageOutputDir, convertWebp)
+				result.add(mediaResult)
+				if firstErr == nil && mediaErr != nil {
+					firstErr = mediaErr
+				}
 			}
 		}
 		log.Printf("[Crawler] 评论图片进度: %d/%d", offset+len(comments), commentCount)
 	}
 
-	log.Printf("[Crawler] 图片下载完成! 帖子: 新下载 %d, 跳过 %d | 评论: 新下载 %d, 跳过 %d",
-		postDownloaded, postSkipped, commentDownloaded, commentSkipped)
+	log.Printf("[Crawler] 图片下载完成: downloaded=%d, existing=%d, failed=%d, dir=%s",
+		result.Downloaded, result.Existing, result.Failed, imageOutputDir)
+	if result.Failed > 0 {
+		return result, mediaDownloadError(result.Failed, firstErr)
+	}
+	return result, nil
 }
 func getJSONStringFromInterface(val interface{}) string {
 	if val == nil {
@@ -490,115 +518,150 @@ func getIntField(data map[string]interface{}, key string) int {
 	return 0
 }
 
-// downloadImages 下载图片，返回 (新下载数, 跳过数)
-func downloadImages(c *client.Client, mediaIDs string, fallbackPID int32, convertWebp bool) (int, int) {
-	downloaded := 0
-	skipped := 0
-
-	if mediaIDs == "" {
-		url := fmt.Sprintf("https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?pid=%d", fallbackPID)
-		if saveImage(c, url, fallbackPID, convertWebp) {
-			downloaded++
-		} else {
-			skipped++
-		}
-		return downloaded, skipped
-	}
+func downloadImages(c *client.Client, mediaIDs string, fallbackPID int32, outputDir string, convertWebp bool) (MediaDownloadResult, error) {
+	var result MediaDownloadResult
+	var firstErr error
 
 	ids := strings.Split(mediaIDs, ",")
-	for _, idStr := range ids {
-		idStr = strings.TrimSpace(idStr)
-		if idStr == "" {
+	if strings.TrimSpace(mediaIDs) == "" {
+		if fallbackPID <= 0 {
+			result.Failed++
+			return result, errors.New("missing media id and fallback PID")
+		}
+		ids = []string{strconv.FormatInt(int64(fallbackPID), 10)}
+	}
+
+	for _, idText := range ids {
+		idText = strings.TrimSpace(idText)
+		if idText == "" {
 			continue
 		}
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
+		id, err := strconv.ParseInt(idText, 10, 32)
+		if err != nil || id <= 0 {
+			result.Failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("invalid media id %q", idText)
+			}
 			continue
 		}
-		url := fmt.Sprintf("https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?id=%d", id)
-		if saveImage(c, url, int32(id), convertWebp) {
-			downloaded++
-		} else {
-			skipped++
+
+		queryName := "id"
+		if strings.TrimSpace(mediaIDs) == "" {
+			queryName = "pid"
+		}
+		url := fmt.Sprintf("https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?%s=%d", queryName, id)
+		downloaded, saveErr := saveMedia(c, url, int32(id), outputDir, convertWebp)
+		switch {
+		case saveErr != nil:
+			result.Failed++
+			if firstErr == nil {
+				firstErr = saveErr
+			}
+		case downloaded:
+			result.Downloaded++
+		default:
+			result.Existing++
 		}
 	}
-	return downloaded, skipped
+
+	if result.Failed > 0 {
+		return result, firstErr
+	}
+	return result, nil
 }
 
-// FetchThumbnailsByIDRange 批量下载缩略图，返回 (新下载数, 跳过数)
-func FetchThumbnailsByIDRange(c *client.Client, startID int, endID int, convertWebp bool) (int, int, error) {
+// FetchThumbnailsByIDRange downloads a legacy thumbnail range into the
+// selected profile and reports existing files separately from failures.
+func FetchThumbnailsByIDRange(c *client.Client, startID int, endID int, outputDir string, convertWebp bool) (MediaDownloadResult, error) {
 	if startID <= 0 || endID <= 0 {
-		return 0, 0, fmt.Errorf("media id 必须大于 0")
+		return MediaDownloadResult{}, fmt.Errorf("media id 必须大于 0")
 	}
 	if startID > endID {
-		return 0, 0, fmt.Errorf("startID(%d) 不能大于 endID(%d)", startID, endID)
+		return MediaDownloadResult{}, fmt.Errorf("startID(%d) 不能大于 endID(%d)", startID, endID)
 	}
 
 	urlTemplate := "https://treehole.pku.edu.cn/chapi/api/v3/media/getThumbnail?id=%d"
-	downloaded, skipped := downloadMediaByIDRange(c, startID, endID, urlTemplate, thumbnailDir, convertWebp)
-	log.Printf("[Crawler] 缩略图批量下载完成: range=%d-%d, downloaded=%d, skipped=%d", startID, endID, downloaded, skipped)
-	return downloaded, skipped, nil
+	result, err := downloadMediaByIDRange(c, startID, endID, urlTemplate, outputDir, convertWebp)
+	log.Printf("[Crawler] 缩略图批量下载完成: range=%d-%d, downloaded=%d, existing=%d, failed=%d, dir=%s",
+		startID, endID, result.Downloaded, result.Existing, result.Failed, outputDir)
+	return result, err
 }
 
-func downloadMediaByIDRange(c *client.Client, startID int, endID int, urlTemplate string, outputDir string, convertWebp bool) (int, int) {
-	downloaded := 0
-	skipped := 0
-	for id := startID; id <= endID; id++ {
+func downloadMediaByIDRange(c *client.Client, startID int, endID int, urlTemplate string, outputDir string, convertWebp bool) (MediaDownloadResult, error) {
+	var result MediaDownloadResult
+	var firstErr error
+	for id := startID; ; id++ {
 		url := fmt.Sprintf(urlTemplate, id)
-		if saveMedia(c, url, int32(id), outputDir, convertWebp) {
-			downloaded++
-		} else {
-			skipped++
+		downloaded, err := saveMedia(c, url, int32(id), outputDir, convertWebp)
+		switch {
+		case err != nil:
+			result.Failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+		case downloaded:
+			result.Downloaded++
+		default:
+			result.Existing++
+		}
+		if id == endID {
+			break
 		}
 	}
-	return downloaded, skipped
+	if result.Failed > 0 {
+		return result, mediaDownloadError(result.Failed, firstErr)
+	}
+	return result, nil
 }
 
-// saveImage 下载并保存图片文件，返回是否新下载
-func saveImage(c *client.Client, url string, mediaID int32, convertWebp bool) bool {
-	return saveMedia(c, url, mediaID, imageDir, convertWebp)
-}
-
-func saveMedia(c *client.Client, url string, mediaID int32, outputDir string, convertWebp bool) bool {
-	ensureDir(outputDir)
+// saveMedia returns downloaded=false with no error only when the file already
+// exists. Every actual download or filesystem failure is returned to callers.
+func saveMedia(c *client.Client, url string, mediaID int32, outputDir string, convertWebp bool) (bool, error) {
+	if strings.TrimSpace(outputDir) == "" {
+		return false, errors.New("media output directory is empty")
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return false, fmt.Errorf("create media directory %q: %w", outputDir, err)
+	}
 
 	basePath := filepath.Join(outputDir, fmt.Sprintf("%d", mediaID))
-
 	if fileExists(basePath) {
-		return false
+		return false, nil
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		log.Printf("[Crawler] 创建图片请求失败: mediaID=%d, err=%v", mediaID, err)
-		return false
+		return false, fmt.Errorf("create media request for %d: %w", mediaID, err)
 	}
-
 	if auth := c.GetAuthorization(); auth != "" {
 		req.Header.Set("Authorization", "Bearer "+auth)
 	}
 
 	resp, err := c.GetHttpClient().Do(req)
 	if err != nil {
-		log.Printf("[Crawler] 下载图片失败: mediaID=%d, err=%v", mediaID, err)
-		return false
+		return false, fmt.Errorf("download media %d: %w", mediaID, err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Crawler] 下载图片返回非200: mediaID=%d, status=%d", mediaID, resp.StatusCode)
-		return false
+		return false, fmt.Errorf("download media %d: HTTP %d", mediaID, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[Crawler] 读取图片数据失败: mediaID=%d, err=%v", mediaID, err)
-		return false
+		return false, fmt.Errorf("read media %d: %w", mediaID, err)
+	}
+	if len(body) == 0 {
+		return false, fmt.Errorf("download media %d: empty response", mediaID)
 	}
 
-	contentType := resp.Header.Get("Content-Type")
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = strings.ToLower(http.DetectContentType(body))
+		if !strings.HasPrefix(contentType, "image/") {
+			return false, fmt.Errorf("download media %d: response is not an image", mediaID)
+		}
+	}
 	isGIF := contentType == "image/gif"
-
 	if isGIF || !convertWebp {
 		ext := ".jpg"
 		switch contentType {
@@ -610,80 +673,62 @@ func saveMedia(c *client.Client, url string, mediaID int32, outputDir string, co
 			ext = ".webp"
 		}
 		filename := basePath + ext
-		if err := os.WriteFile(filename, body, 0644); err != nil {
-			log.Printf("[Crawler] 保存图片失败: mediaID=%d, err=%v", mediaID, err)
-			return false
+		if err := os.WriteFile(filename, body, 0o644); err != nil {
+			return false, fmt.Errorf("save media %d: %w", mediaID, err)
 		}
 		log.Printf("[Crawler] 图片已保存: %s (%d bytes)", filename, len(body))
-		return true
+		return true, nil
 	}
 
 	img, format, err := image.Decode(bytes.NewReader(body))
 	if err != nil {
-		log.Printf("[Crawler] 解码图片失败: mediaID=%d, err=%v", mediaID, err)
 		filename := basePath + ".jpg"
-		if err := os.WriteFile(filename, body, 0644); err != nil {
-			return false
+		if writeErr := os.WriteFile(filename, body, 0o644); writeErr != nil {
+			return false, fmt.Errorf("save undecoded media %d: %w", mediaID, writeErr)
 		}
-		return true
+		log.Printf("[Crawler] 图片无法转换，已按原响应保存: %s", filename)
+		return true, nil
 	}
 
 	filename := basePath + ".webp"
 	buf := new(bytes.Buffer)
 	if err := webp.Encode(buf, img, &webp.Options{Lossless: false, Quality: 80}); err != nil {
-		log.Printf("[Crawler] 编码WebP失败: mediaID=%d, err=%v，回退到原格式", mediaID, err)
+		log.Printf("[Crawler] 编码 WebP 失败: mediaID=%d, err=%v，回退到原格式", mediaID, err)
+		buf.Reset()
 		switch format {
 		case "png":
 			filename = basePath + ".png"
-			fw := fileWriter(filename)
-			if fw == nil {
-				return false
-			}
-			defer fw.Close()
-			if err := png.Encode(fw, img); err != nil {
-				return false
-			}
+			err = png.Encode(buf, img)
 		case "jpeg":
 			filename = basePath + ".jpg"
-			fw := fileWriter(filename)
-			if fw == nil {
-				return false
-			}
-			defer fw.Close()
-			if err := jpeg.Encode(fw, img, nil); err != nil {
-				return false
-			}
+			err = jpeg.Encode(buf, img, nil)
 		default:
 			filename = basePath + ".jpg"
-			if err := os.WriteFile(filename, body, 0644); err != nil {
-				return false
-			}
+			_, err = buf.Write(body)
 		}
-		log.Printf("[Crawler] 图片已保存: %s", filename)
-		return true
+		if err != nil {
+			return false, fmt.Errorf("encode fallback media %d: %w", mediaID, err)
+		}
 	}
 
-	if err := os.WriteFile(filename, buf.Bytes(), 0644); err != nil {
-		log.Printf("[Crawler] 保存WebP图片失败: mediaID=%d, err=%v", mediaID, err)
-		return false
+	if err := os.WriteFile(filename, buf.Bytes(), 0o644); err != nil {
+		return false, fmt.Errorf("save media %d: %w", mediaID, err)
 	}
-
 	origSize := len(body)
 	newSize := buf.Len()
 	saved := 0
 	if origSize > 0 {
-		saved = (1 - newSize*100/origSize)
+		saved = 1 - newSize*100/origSize
 	}
 	log.Printf("[Crawler] 图片已保存: %s (%d → %d bytes, 节省 %d%%)", filename, origSize, newSize, saved)
-	return true
+	return true, nil
 }
 
-func fileWriter(path string) *os.File {
-	f, err := os.Create(path)
-	if err != nil {
-		return nil
+func mediaDownloadError(failed int, firstErr error) error {
+	if firstErr == nil {
+		return fmt.Errorf("%d media downloads failed", failed)
 	}
-	return f
+	return fmt.Errorf("%d media downloads failed; first error: %w", failed, firstErr)
 }
 
 // fileExists 检查文件是否存在（尝试所有支持的扩展名）

@@ -26,7 +26,7 @@ func newCrawlerCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&saveJSON, "save-json", false, "save raw API responses to JSON files for analysis")
 	cmd.Flags().IntVar(&postsPerReq, "posts-per-request", 200, "max posts per API request")
 	cmd.Flags().IntVar(&commentsPerPost, "comments-per-post", 200, "max comments per post in API request")
-	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images from posts with type=\"image\"")
+	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images into the selected --data-dir/images cache")
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
 
 	cmd.AddCommand(newFetchImagesCmd())
@@ -38,8 +38,8 @@ func newCrawlerCmd() *cobra.Command {
 func newFetchImagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fetch-images",
-		Short: "Download missing images from database",
-		Long:  `从数据库中查找有图片的帖子和评论，下载缺失的图片到 data/images/。`,
+		Short: "Download images for legacy local records",
+		Long:  `兼容旧版资料：从数据库查找图片并保存到当前 --data-dir 下的 images 目录。日常使用请优先在 Web 中运行“补全缺失图片”。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			application, err := openCrawlerApplication(cmd.Context())
 			if err != nil {
@@ -47,7 +47,9 @@ func newFetchImagesCmd() *cobra.Command {
 			}
 			defer application.Close()
 
-			return application.Sync.FetchImages(cmd.Context(), convertWebp)
+			result, err := application.Sync.FetchImages(cmd.Context(), convertWebp)
+			cmd.Printf("images: downloaded=%d existing=%d failed=%d\n", result.Downloaded, result.Existing, result.Failed)
+			return err
 		},
 	}
 
@@ -63,8 +65,8 @@ func newFetchThumbnailsCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "fetch-thumbnails",
-		Short: "Download thumbnails by media ID range",
-		Long:  `按 media id 区间批量下载缩略图到 data/thumbnails/。`,
+		Short: "Download legacy thumbnails by media ID range",
+		Long:  `兼容旧版 TUI 缓存：按 media id 区间下载缩略图到当前 --data-dir 下的 thumbnails 目录。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			application, err := openCrawlerApplication(cmd.Context())
 			if err != nil {
@@ -73,12 +75,8 @@ func newFetchThumbnailsCmd() *cobra.Command {
 			defer application.Close()
 
 			result, err := application.Sync.FetchThumbnails(cmd.Context(), startID, endID, convertThumbWebp)
-			if err != nil {
-				return err
-			}
-
-			cmd.Printf("thumbnails completed: downloaded=%d skipped=%d range=%d-%d\n", result.Downloaded, result.Skipped, startID, endID)
-			return nil
+			cmd.Printf("thumbnails: downloaded=%d existing=%d failed=%d range=%d-%d\n", result.Downloaded, result.Existing, result.Failed, startID, endID)
+			return err
 		},
 	}
 

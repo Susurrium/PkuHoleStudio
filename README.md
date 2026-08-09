@@ -1,230 +1,111 @@
 # PkuHoleStudio
 
-本地优先的北大树洞资料库、全文搜索与 AI 研究工作台。
+PkuHoleStudio 是一款在自己电脑上运行的北大树洞客户端。你可以浏览和互动，也可以把需要的内容保存到本机，之后离线搜索、整理和导出。
 
-PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 经敏感校园数据清理后的历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
+当前预览版：`v0.1.0-alpha.9`。查看 [本版说明](docs/releases/v0.1.0-alpha.9.md) 或 [全部变更](CHANGELOG.md)。
 
-当前预览版：`v0.1.0-alpha.8`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.8 发布说明](docs/releases/v0.1.0-alpha.8.md)。
+本项目在 TUI、采集器和旧版接口兼容方面参考、复用和借鉴了 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的部分代码，感谢原项目作者。
 
-外部上游锚点原为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`；历史清理后，本仓库标签 `upstream-pkuholetui-f9d6221` 指向移除敏感文档后的等价版本，详见 [NOTICE.md](NOTICE.md)。
+## 一、现在可以做什么
 
-## 当前能力
+- 浏览最新树洞、近期热榜、关注列表和互动消息，查看完整评论与图片。
+- 登录后发洞、回复、引用回复、点赞和关注；也可以查看课表与成绩。
+- 把指定 PID、关注列表或最新时间线保存到本机，并一并保存评论和图片。
+- 在本地资料库中离线浏览和全文搜索，按时间排序，并按图片和本地标签筛选；在线与本地内容通过工作区切换。
+- 为帖子和评论添加本地笔记、标签，或整理进研究项目；这些内容不会上传到树洞。
+- 导入旧 JSON 或 Studio 迁移包，也可以导出 Studio 迁移包或 Markdown 阅读文件。
+- 按需启用 AI 研究，从本地资料中查找证据、整理观点并保留引用来源。
+- 按需连接自托管 Observer，查看近期热榜以及已经保存的删除记录。
+- 在 Studio、经典树洞和 GitHub 三种界面之间切换；也可使用键盘操作的 TUI。
 
-- TUI 在线/离线浏览，以及原有点赞、关注、发帖和回复能力。
-- SQLite 本地资料库；保留 PostgreSQL 基础兼容。
-- SQLite FTS5 trigram/BM25 全文搜索，支持 PID、帖子、评论片段、来源、时间、图片和标签筛选。
-- 持久化同步与导出任务支持暂停、恢复、取消、失败重试和 SSE 事件重放；导入中断后通过重新上传重试。
-- Studio 原生支持旧版 `{holes, comments}` JSON 与 archive v2 `.treehole.zip` 导入；兼容 Toolkit v1.3 的数组型 `image_size`。
-- Studio 原生读写中立的 PkuHole Archive Contract 2.1.0，并内置与 Toolkit 相同的契约 fixtures；实现仍为独立 Go 代码，不导入或运行 Toolkit。`/api/v1/capabilities` 会公开可读 schema、扩展和归档大小上限，供发送端在上传前协商。
-- Studio 新导出的 Archive 2.1 ZIP 使用 STORE 基线，读取端继续兼容 STORE/DEFLATE；双方真实导出黄金包会在测试中互相读取。预检报告同时返回经过验证的生产者、协议版本和扩展声明。
-- 原生 Web“登录与保存”页面：自动检测或重新载入 TUI 保存的本机会话，支持关注/指定 PID/公共时间线同步；账号密码登录保留为备用方式。
-- Studio 可对指定 PID 直接执行“在线更新正文与全部评论 → 下载图片 → 生成归档”，并独立导入和导出带图片的 archive v2 或逐洞 Markdown ZIP；旧 v2 继续兼容，图片按 SHA-256 校验和去重。
-- Toolkit 仅作为独立、可选的浏览器导出工具；首次与 Studio 核对六位码后可建立长期、可撤销的设备信任，每次归档仍使用短时、一次性、绑定文件 SHA-256 的签名票据，并在 Studio 预检后确认导入。旧版一次性接收码继续兼容，核心导入导出流程不依赖 Toolkit。
-- Web 导入页提供独立 Toolkit 的正式发布入口和官方树洞入口；未安装 Toolkit 时仍可使用文件导入、Studio 原生在线同步、Observer 与全部本地资料库功能。
-- 帖子详情展示帖子/评论图片、缺失媒体状态，以及明确、推断、评论引用的前向和反向关系；本地引用图可按一层或两层展开并跳转。
-- Web 资料库可在本地与在线树洞之间切换，支持关注、远程标签、在线详情和远程图片；只有明确点击保存或启动同步时才写入资料库。
-- 登录后的 Web 在线模式支持图片上传、发洞、普通/引用回复、点赞和关注。
-- Web 支持互动/系统通知、单条/全部已读和 PID 跳转；退出登录会清除本机保存的树洞会话。
-- Web“登录与保存”页面支持顺序采集、媒体/缩略图/引用修复和暂存清理；长期连续采集由可选的 Observer 承担，并提供经过敏感信息遮蔽的运行日志页面。
-- Web 支持实时课表与成绩查看，敏感校园数据仅保留在当前页面内存。
-- Web 分为“在线树洞”和“本地研究”两个工作区，工作区、路由和最近访问位置会持久保存；全局任务反馈在切换页面后仍会持续显示。
-- 本地研究工作区增加研究项目、批量选中、证据化 AI 报告和统一任务中心，检索结果会保留 PID/CID 来源、摘录和检索轨迹。
-- Web 提供 Studio、经典树洞和 GitHub 三套布局预设；经典/GitHub 预设包含固定浏览器视觉回归基线和响应式、键盘可达性检查。
-- Web 详情支持只保存在本机的帖子标签、整洞笔记和评论笔记；设置页可创建、改名、着色和删除标签，远端同步不会覆盖这些元数据。
-- Studio 原生 archive v2 会携带标签、笔记和有界来源扩展；来源记录使用稳定的 `source/sourceRef/contextOnly` 形态并过滤归档哈希链。旧版归档仍可导入，导入扩展时只补充缺失元数据，不覆盖目标资料库已有笔记。Markdown 包也包含这些本地整理信息。
-- Web 导出使用持久任务：刷新页面后可恢复进度和历史，完成后下载，失败可重试；导出文件默认保留 30 天并由清理任务回收。
-- Web 高级采集补齐 TUI 的原始 API JSON 缓存/保存、旧版图片补全和可选 WebP 转换；原始 JSON 作为可下载、30 天自动清理的受管理产物保存，空缓存不会生成假成功任务。
-- 可连接自托管 PkuHole Observer：服务器独立自动登录、持续抓取、计算热点并在双重探测确认不可访问时生成不可变归档；Studio 不再依赖第三方热点统计服务，并提供删除记录页、短信续登、增量同步和导出前同步。详见 [自托管 Observer 使用说明](docs/self-hosted-observer.md)。
-- Web 大评论区支持按游标逐批加载；资料库与全文搜索支持可随 URL 保存的本地标签多选筛选。
-- 设置页可安全编辑并测试 OpenAI-compatible Provider、模型和检索限制；API key 采用只写、不回显设计，保存后运行时原子应用。
-- AI 设置支持最多 20 个 OpenAI-compatible Provider，能够新增、编辑、删除和切换活动模型；旧版单 Provider 配置会自动迁移，切换无需重启且不会影响正在生成的回答。
-- 本地检索严格限制最多 5 轮；课程分析会去重并覆盖最多 10 名教师，保存每轮关键词、命中数、最终 PID/CID 来源和统一维度比较提示。
-- React Web：总览、帖子、详情、搜索、同步、导入导出、设置，以及 AI 功能入口。
-- OpenAI-compatible AI Provider、DeepSeek 模板、本地检索 Agent、选中内容问答和课程/教师分析。
-- `/api/v1` 游标 API；旧版 API 路由继续保留。
+在线树洞和本地资料库是两个不同的工作区：在线浏览的内容不会自动保存，只有点击“保存到本地”或创建保存任务后，才会进入本地资料库。
 
-AI 默认关闭；实时树洞搜索保持显式、独立且默认关闭。
+## 二、安装与使用
 
-## 构建
+### Windows 安装（推荐）
 
-要求 Go 1.26、Node.js 24、npm 11。SQLite 使用 `go-sqlite3`，因此需要可用的 CGO C 编译器。
+PkuHoleStudio 是免安装程序，不需要另装 Go、Node.js 或数据库。
+
+1. 打开 [v0.1.0-alpha.9 下载页](https://github.com/Susurrium/PkuHoleStudio/releases/tag/v0.1.0-alpha.9)。
+2. 下载 `treehole-windows-amd64.zip`，解压到一个固定且可写的目录，例如 `D:\PkuHoleStudio`。不要直接在压缩包内运行。
+3. 在解压目录打开 PowerShell，运行：
+
+   ```powershell
+   .\treehole-windows-amd64.exe web
+   ```
+
+4. 浏览器会自动打开 `http://127.0.0.1:8080`。如果没有自动打开，请手动访问该地址。
+5. 使用期间保持 PowerShell 窗口开启；按 `Ctrl+C` 停止程序。以后仍从同一目录运行同一条命令。
+
+如果 Windows 提示这是未签名的应用，请先确认文件来自上面的 GitHub Release；然后在系统提示中选择继续运行。
+
+### macOS
+
+当前发布包适用于 Apple Silicon Mac：
 
 ```bash
-cd web
-npm ci
-npm test
-npm run build
-
-cd ..
-go test -tags sqlite_fts5 ./...
-go build -tags sqlite_fts5 -o treehole ./cmd
+tar -xzf treehole-darwin-arm64.tar.gz
+chmod +x treehole-darwin-arm64
+./treehole-darwin-arm64 web
 ```
 
-`server` 与 Web 资源始终参与正式构建，不再需要 `withserver` build tag。省略 `sqlite_fts5` 时程序仍可构建，但本地搜索会回退到兼容 LIKE 模式。
+如果 macOS 阻止首次运行，请在“系统设置 → 隐私与安全性”中确认打开。浏览器入口同样是 `http://127.0.0.1:8080`。
 
-## 使用
+### Linux
+
+当前发布包适用于使用 glibc 的 x86-64 Linux，不适用于 Alpine/musl：
 
 ```bash
-# 默认 TUI
-./treehole
-
-# 原有采集命令
-./treehole crawler --max-pages 10
-
-# API-only 兼容入口
-./treehole server --host 127.0.0.1 --port 8081
-
-# API + 内嵌 React；默认打开浏览器
-./treehole web --host 127.0.0.1 --port 8080 --open=true
-
-# 明确让 TUI 和 Web 共用同一运行资料与数据库（两个命令使用完全相同的路径）
-./treehole --data-dir D:/PkuHoleStudio/profile --db-path D:/PkuHoleStudio/profile/studio.db
-./treehole --data-dir D:/PkuHoleStudio/profile --db-path D:/PkuHoleStudio/profile/studio.db web
-
-# 修复 FTS 索引
-./treehole rebuild-search-index
+tar -xzf treehole-linux-amd64.tar.gz
+chmod +x treehole-linux-amd64
+./treehole-linux-amd64 web
 ```
 
-如确需在局域网监听 API-only 服务，必须显式启用远程访问并提供至少 24 个字符的 Bearer Token。PowerShell 示例：
+如果浏览器没有自动打开，请手动访问 `http://127.0.0.1:8080`。
+
+### 第一次使用
+
+1. 首次打开时，先选择“在线树洞”或“本地资料库”。之后可以随时切换。
+2. 打开左侧的“登录与保存”。如果当前资料目录以前登录过，先点“载入已有登录状态”；否则选择“使用学号登录”。
+3. 按页面提示完成短信验证码或北京大学 App 的 6 位手机令牌。密码只用于这次登录，不会由网页保存。
+4. 推荐先使用“保存指定 PID”，保留默认勾选的“保存全部评论”和“下载图片到本机”。也可以保存关注列表或最新时间线。
+5. 任务创建后可以离开页面；在“任务中心”查看进度。完成后切换到“本地资料库”即可搜索和整理。
+
+如果你已经有旧资料，不需要先登录：打开“导入与导出”，选择文件，等待检查完成后再确认导入。
+
+### 日常使用
+
+- 想实时浏览、发洞或互动：切换到“在线树洞”。
+- 想离线搜索和整理：切换到“本地资料库”，使用“全部资料”“研究项目”和帖子详情中的标签、笔记功能。
+- 想保存看到的某个洞：在在线详情页点“保存到本地”；需要批量保存时，前往“登录与保存”。
+- 图片没有保存完整：前往“登录与保存”，运行“补全缺失图片”。
+- 想导入已有资料：打开“导入与导出 → 导入文件”，选择 JSON、ZIP 或 `.treehole.zip`，点“检查文件”，确认内容后再点“确认导入”。
+- 想迁移到另一台电脑：打开“导入与导出 → 导出资料”，留空 PID 代表全部资料，点击“创建 Studio 迁移包”；任务完成后下载，再在另一台电脑导入。
+- 想得到便于阅读的文件：在同一导出页面选择“导出为 Markdown”。
+- 想使用 AI：前往“设置 → AI 服务”添加服务，再在“AI 使用方式”中启用，之后打开“AI 研究”。AI 默认关闭。
+- 想使用删除记录和自建热榜：先部署 Observer，再按 [Observer 使用说明](docs/self-hosted-observer.md) 连接。
+
+### 数据位置与升级
+
+按上面的默认方式启动时：
+
+- `data/` 保存设置、登录状态、日志、图片和导出文件。
+- `treehole.db` 保存帖子、评论、标签、笔记、项目和 AI 记录。
+
+升级时先停止程序，下载并解压新版，只替换可执行文件；保留原来的 `data/` 和 `treehole.db*`。如果要迁移全部本机状态，停止程序后复制这两部分即可。
+
+需要把所有资料固定到其他位置时，请以后始终使用同一条命令：
 
 ```powershell
-$env:PKUHOLE_SERVER_API_TOKEN = "请替换为至少24字符的随机值"
-./treehole server --host 0.0.0.0 --port 8081 --allow-remote
+.\treehole-windows-amd64.exe --data-dir D:\PkuHoleStudio\data --db-path D:\PkuHoleStudio\data\treehole.db web
 ```
 
-Web 仅允许监听 `localhost` 或本机回环 IP（默认 `127.0.0.1`）；远程访问请使用带 Bearer Token 的 `server --allow-remote`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。`--data-dir` 和 `--db-path` 是所有子命令共享的持久参数；同时运行 TUI 与 Web 时，Web 独占持久任务执行器，TUI 不会争抢队列。
+### 常见问题
 
-若 TUI 已能正常登录，请让 TUI 与 Web 使用同一 `--data-dir`，然后在 Web“登录与保存”中点击“载入已有登录状态”；Web 会重新读取共享的 `cookies.json`，不需要再次输入密码或验证码。也可直接在 Web 登录，IAAA 与树洞二次短信验证会调用各自正确的端点。密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。浏览器树洞页面的 HttpOnly Cookie 不会被 Studio 网页读取；Toolkit 只作为独立的简易归档导出/迁移工具，不是 Studio 同步、导入或导出的依赖。
+- 双击程序后出现终端界面：这是 TUI。关闭后使用带 `web` 的命令启动浏览器界面。
+- 浏览器没有打开：手动访问 `http://127.0.0.1:8080`。
+- 提示 8080 端口被占用：运行 `.\treehole-windows-amd64.exe web --port 8081`，然后访问 `http://127.0.0.1:8081`。
+- 突然看不到原来的资料或登录状态：通常是从不同目录启动，或改变了 `--data-dir` / `--db-path`。回到原目录并使用原命令。
+- 本地搜索结果异常：停止 Web 后运行 `.\treehole-windows-amd64.exe rebuild-search-index`，完成后重新启动 Web。
 
-启用 DeepSeek 或其他 OpenAI-compatible Provider：
-
-```json
-{
-  "ai": {
-    "enabled": true,
-    "allow_live_search": false,
-    "max_search_rounds": 5,
-    "provider": {
-      "name": "DeepSeek",
-      "base_url": "https://api.deepseek.com",
-      "api_key": "",
-      "model": "deepseek-chat",
-      "temperature": 0.2,
-      "max_output_tokens": 4096,
-      "request_timeout_seconds": 120
-    }
-  }
-}
-```
-
-API key 也可通过 `PKUHOLE_AI_API_KEY` 环境变量提供，网页不会回显密钥。
-
-前端开发：
-
-```bash
-# 终端一：API
-go run -tags sqlite_fts5 ./cmd server --host 127.0.0.1 --port 8080
-
-# 终端二：Vite，自动代理 /api/v1
-cd web
-npm run dev
-```
-
-## API v1
-
-所有新接口位于 `/api/v1`：
-
-```text
-GET  /health
-GET  /capabilities
-GET  /posts
-GET  /posts/hot?limit=10
-GET  /posts/:pid
-GET  /posts/:pid/comments
-GET  /search
-GET  /media/:id
-
-GET  /session
-POST /session/probe
-POST /session/reload
-POST /session/login
-POST /session/sms
-POST /session/challenge
-
-GET  /jobs
-POST /jobs
-GET  /jobs/:id
-GET  /jobs/:id/events
-POST /jobs/:id/pause|resume|cancel|retry
-
-POST /imports
-GET  /imports/:id
-POST /exports
-POST /exports/jobs
-
-GET  /ai/providers
-GET  /ai/sessions
-POST /ai/sessions
-GET  /ai/sessions/:id
-POST /ai/sessions/:id/messages
-GET  /ai/sessions/:id/events
-POST /ai/sessions/:id/cancel
-```
-
-任务动作按类型开放：归档导入只支持取消，中断后需重新上传；已退役的 `monitor_latest` 历史任务也只支持取消。
-
-错误统一返回：
-
-```json
-{
-  "error": {
-    "code": "invalid_input",
-    "message": "cursor must be between 0 and 100",
-    "details": { "field": "cursor" }
-  }
-}
-```
-
-任务事件接口使用 SSE。客户端可发送 `Last-Event-ID`，服务端会先从数据库补发缺失事件，再继续实时推送。
-
-## 目录
-
-```text
-cmd/                 Cobra 命令、TUI/server/web 入口
-internal/app/        应用组合根
-internal/service/    TUI、Web 和任务共享的 Service 层
-internal/db/         Repository、迁移、FTS 与持久任务存储
-internal/jobs/       单写任务调度器和事件流
-internal/archive/    Toolkit v1/v2 解析、预检、导入与 Studio 导出
-server/              Gin 旧路由、API v1 与 SPA 托管
-web/                 React + TypeScript + Vite 客户端和测试
-```
-
-## 测试
-
-```bash
-go test ./...
-go test -tags sqlite_fts5 ./...
-
-cd web
-npm test
-npm run e2e
-```
-
-Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程，以及经典树洞/GitHub 布局的响应式、键盘与视觉回归场景。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
-
-alpha.8 的发布门槛与已知限制见 [alpha.8 发布说明](docs/releases/v0.1.0-alpha.8.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
-
-## 安全与隐私
-
-- Web 仅允许绑定本机回环地址。
-- 兼容 `server` 命令同样默认绑定 `127.0.0.1`；非回环监听必须同时显式启用远程访问并使用 Bearer Token。
-- 密码与验证码接口拒绝非回环来源；密码不会持久化或出现在 API 响应中。
-- 归档上传采用随机暂存文件、大小限制、ZIP 路径/CRC/展开体积校验。
-- `referenced` 归档内容作为上下文保存，但默认不出现在普通资料库列表和搜索中。
-- API 不回显任务中的本地暂存路径。
-- AI 与实时在线搜索默认未启用；未来启用时仍由独立开关控制。
-
-## License
-
-本仓库由 PKUHoleTUI 的历史代码演进而来。项目维护者已取得上游权利人对本项目使用和修改这些历史代码的许可；该许可不等同于向所有下游使用者授予通用开源许可证。本仓库目前未另行声明开源许可证，第三方依赖继续适用各自的许可证。代码来源、上游基线与授权边界见 [NOTICE.md](NOTICE.md)。
+源码构建、命令行采集、API、目录结构、测试和安全边界见 [技术参考](docs/technical-reference.md)。

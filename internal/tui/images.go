@@ -11,12 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
 )
 
 const (
@@ -320,9 +320,17 @@ type resolvedMedia struct {
 
 var mediaPathCache sync.Map
 
-func tuiProjectRoot() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "../..")
+func tuiMediaDirectories() (images string, thumbnails string) {
+	dataDir, err := config.RuntimeDataDir()
+	if err != nil {
+		dataDir = "data"
+	}
+	return filepath.Join(dataDir, "images"), filepath.Join(dataDir, "thumbnails")
+}
+
+func mediaPathCacheKey(id string, preferOriginal bool) string {
+	images, thumbnails := tuiMediaDirectories()
+	return images + "|" + thumbnails + "|" + id + "|" + strconv.FormatBool(preferOriginal)
 }
 
 func resolveMediaPaths(mediaIDs string, preferOriginal bool) []resolvedMedia {
@@ -392,20 +400,21 @@ func parseMediaIDs(mediaIDs string) []string {
 }
 
 func resolveMediaPath(id string, preferOriginal bool) string {
-	key := id + "|" + strconv.FormatBool(preferOriginal)
+	key := mediaPathCacheKey(id, preferOriginal)
 	if cached, ok := mediaPathCache.Load(key); ok {
 		return cached.(string)
 	}
 
-	dirs := []string{"data/thumbnails", "data/images"}
+	images, thumbnails := tuiMediaDirectories()
+	dirs := []string{thumbnails, images}
 	if preferOriginal {
-		dirs = []string{"data/images", "data/thumbnails"}
+		dirs = []string{images, thumbnails}
 	}
 	exts := []string{".webp", ".png", ".jpg", ".jpeg", ".gif"}
 
 	for _, dir := range dirs {
 		for _, ext := range exts {
-			path := filepath.Join(tuiProjectRoot(), dir, id+ext)
+			path := filepath.Join(dir, id+ext)
 			if _, err := os.Stat(path); err == nil {
 				abs, absErr := filepath.Abs(path)
 				if absErr == nil {
@@ -423,8 +432,15 @@ func resolveMediaPath(id string, preferOriginal bool) string {
 }
 
 func clearMediaPathCache(id string) {
-	mediaPathCache.Delete(id + "|true")
-	mediaPathCache.Delete(id + "|false")
+	mediaPathCache.Delete(mediaPathCacheKey(id, true))
+	mediaPathCache.Delete(mediaPathCacheKey(id, false))
+}
+
+func clearAllMediaPathCache() {
+	mediaPathCache.Range(func(key, _ any) bool {
+		mediaPathCache.Delete(key)
+		return true
+	})
 }
 
 func mediaImageIDForPath(path string) uint32 {
@@ -447,14 +463,15 @@ func fetchAndCacheMedia(c *client.Client, id string, preferOriginal bool) string
 		dir string
 	}
 
+	images, thumbnails := tuiMediaDirectories()
 	targets := []fetchTarget{
 		{
 			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getThumbnail?id=" + id,
-			dir: filepath.Join(tuiProjectRoot(), "data/thumbnails"),
+			dir: thumbnails,
 		},
 		{
 			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?id=" + id,
-			dir: filepath.Join(tuiProjectRoot(), "data/images"),
+			dir: images,
 		},
 	}
 	if preferOriginal {
@@ -475,13 +492,14 @@ func fetchAndCacheMediaByPID(c *client.Client, pid string, preferOriginal bool) 
 		return ""
 	}
 
+	images, thumbnails := tuiMediaDirectories()
 	targets := []struct {
 		url string
 		dir string
 	}{
 		{
 			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?pid=" + pid,
-			dir: filepath.Join(tuiProjectRoot(), "data/images"),
+			dir: images,
 		},
 	}
 	if !preferOriginal {
@@ -490,7 +508,7 @@ func fetchAndCacheMediaByPID(c *client.Client, pid string, preferOriginal bool) 
 			dir string
 		}{
 			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?pid=" + pid,
-			dir: filepath.Join(tuiProjectRoot(), "data/thumbnails"),
+			dir: thumbnails,
 		})
 	}
 

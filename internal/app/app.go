@@ -168,7 +168,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	remote := service.NewTreeholeRemote(application.Client)
 	application.Posts = service.NewPostService(application.Repository, remote)
 	application.Search = service.NewSearchService(application.Posts, application.Repository)
-	application.Sync = service.NewSyncService(application.Client, application.Repository)
+	application.Sync = service.NewSyncService(application.Client, application.Repository, application.DataDir)
 	application.Media = service.NewMediaServiceWithRepository(
 		application.DataDir,
 		service.NewTreeholeMediaRemote(application.Client),

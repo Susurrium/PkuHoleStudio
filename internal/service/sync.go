@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/crawler"
@@ -23,12 +25,16 @@ type CrawlOptions struct {
 type SyncResult struct {
 	PostCount    int
 	CommentCount int
+	Media        MediaResult
 }
 
-type ThumbnailResult struct {
-	Downloaded int
-	Skipped    int
+type MediaResult struct {
+	Downloaded int `json:"downloaded"`
+	Existing   int `json:"existing"`
+	Failed     int `json:"failed"`
 }
+
+type ThumbnailResult = MediaResult
 
 type RawJSONResult struct {
 	Responses int   `json:"responses"`
@@ -37,7 +43,7 @@ type RawJSONResult struct {
 
 type syncRunner interface {
 	FetchPage(page int, options CrawlOptions) (SyncResult, error)
-	FetchImages(convertWebP bool) error
+	FetchImages(convertWebP bool) (MediaResult, error)
 	FetchThumbnails(startID, endID int, convertWebP bool) (ThumbnailResult, error)
 	SaveRawResponses() error
 	SaveRawResponsesTo(path string) (RawJSONResult, error)
@@ -50,8 +56,18 @@ type SyncService struct {
 	runner syncRunner
 }
 
-func NewSyncService(c *client.Client, database *db.Database) *SyncService {
-	return &SyncService{runner: &legacySyncRunner{client: c, database: database}}
+func NewSyncService(c *client.Client, database *db.Database, dataDir string) *SyncService {
+	dataDir = strings.TrimSpace(dataDir)
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	dataDir = filepath.Clean(dataDir)
+	return &SyncService{runner: &legacySyncRunner{
+		client:       c,
+		database:     database,
+		imageDir:     filepath.Join(dataDir, "images"),
+		thumbnailDir: filepath.Join(dataDir, "thumbnails"),
+	}}
 }
 
 func newSyncService(runner syncRunner) *SyncService {
@@ -67,7 +83,7 @@ func (s *SyncService) FetchPage(ctx context.Context, page int, options CrawlOpti
 	}
 	result, err := s.runner.FetchPage(page, options)
 	if err != nil {
-		return SyncResult{}, err
+		return result, err
 	}
 	if err := contextError(ctx); err != nil {
 		return SyncResult{}, err
@@ -75,17 +91,21 @@ func (s *SyncService) FetchPage(ctx context.Context, page int, options CrawlOpti
 	return result, nil
 }
 
-func (s *SyncService) FetchImages(ctx context.Context, convertWebP bool) error {
+func (s *SyncService) FetchImages(ctx context.Context, convertWebP bool) (MediaResult, error) {
 	if err := contextError(ctx); err != nil {
-		return err
+		return MediaResult{}, err
 	}
 	if s == nil || s.runner == nil {
-		return errors.New("sync service is not configured")
+		return MediaResult{}, errors.New("sync service is not configured")
 	}
-	if err := s.runner.FetchImages(convertWebP); err != nil {
-		return err
+	result, err := s.runner.FetchImages(convertWebP)
+	if err != nil {
+		return result, err
 	}
-	return contextError(ctx)
+	if err := contextError(ctx); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (s *SyncService) FetchThumbnails(ctx context.Context, startID, endID int, convertWebP bool) (ThumbnailResult, error) {
@@ -97,7 +117,7 @@ func (s *SyncService) FetchThumbnails(ctx context.Context, startID, endID int, c
 	}
 	result, err := s.runner.FetchThumbnails(startID, endID, convertWebP)
 	if err != nil {
-		return ThumbnailResult{}, err
+		return result, err
 	}
 	if err := contextError(ctx); err != nil {
 		return ThumbnailResult{}, err
@@ -140,8 +160,10 @@ func (s *SyncService) RawResponseCount() int {
 }
 
 type legacySyncRunner struct {
-	client   *client.Client
-	database *db.Database
+	client       *client.Client
+	database     *db.Database
+	imageDir     string
+	thumbnailDir string
 }
 
 func (r *legacySyncRunner) FetchPage(page int, options CrawlOptions) (SyncResult, error) {
@@ -154,24 +176,23 @@ func (r *legacySyncRunner) FetchPage(page int, options CrawlOptions) (SyncResult
 		options.CommentLimit,
 		options.FetchImages,
 		options.ConvertWebP,
+		r.imageDir,
 	)
-	if err != nil {
-		return SyncResult{}, err
-	}
-	return SyncResult{PostCount: result.PostCount, CommentCount: result.CommentCount}, nil
+	return SyncResult{
+		PostCount:    result.PostCount,
+		CommentCount: result.CommentCount,
+		Media:        mediaResultFromCrawler(result.Media),
+	}, err
 }
 
-func (r *legacySyncRunner) FetchImages(convertWebP bool) error {
-	crawler.FetchImagesFromDB(r.client, r.database, convertWebP)
-	return nil
+func (r *legacySyncRunner) FetchImages(convertWebP bool) (MediaResult, error) {
+	result, err := crawler.FetchImagesFromDB(r.client, r.database, r.imageDir, convertWebP)
+	return mediaResultFromCrawler(result), err
 }
 
 func (r *legacySyncRunner) FetchThumbnails(startID, endID int, convertWebP bool) (ThumbnailResult, error) {
-	downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(r.client, startID, endID, convertWebP)
-	if err != nil {
-		return ThumbnailResult{}, err
-	}
-	return ThumbnailResult{Downloaded: downloaded, Skipped: skipped}, nil
+	result, err := crawler.FetchThumbnailsByIDRange(r.client, startID, endID, r.thumbnailDir, convertWebP)
+	return mediaResultFromCrawler(result), err
 }
 
 func (r *legacySyncRunner) SaveRawResponses() error { return crawler.SaveRawResponsesToFile() }
@@ -180,6 +201,14 @@ func (r *legacySyncRunner) SaveRawResponsesTo(path string) (RawJSONResult, error
 	return RawJSONResult{Responses: count, Bytes: size}, err
 }
 func (r *legacySyncRunner) RawResponseCount() int { return crawler.RawResponses() }
+
+func mediaResultFromCrawler(result crawler.MediaDownloadResult) MediaResult {
+	return MediaResult{
+		Downloaded: result.Downloaded,
+		Existing:   result.Existing,
+		Failed:     result.Failed,
+	}
+}
 
 func contextError(ctx context.Context) error {
 	if ctx == nil {
