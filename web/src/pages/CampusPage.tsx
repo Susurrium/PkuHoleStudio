@@ -50,7 +50,7 @@ export function CampusPage() {
 		{session.isLoading ? <LoadingState label={slowSession ? '正在连接树洞，可能需要几秒…' : '正在验证在线会话…'} /> : session.error ? <ErrorState error={session.error} /> : !online ? <EmptyState
 			title="登录后使用校园信息"
 			description={session.data?.message || '课表和成绩需要通过当前本机会话实时读取。'}
-			action={<Link className="button-primary" to="/sync"><LogIn size={16} />前往同步中心登录</Link>}
+			action={<Link className="button-primary" to="/sync"><LogIn size={16} />前往“登录与保存”</Link>}
 		/> : <>
 			<div className="mb-5 flex flex-wrap items-center justify-between gap-3">
 				<nav className="grid min-w-[280px] grid-cols-2 rounded-xl border border-line bg-white/45 p-1" aria-label="校园数据类型">

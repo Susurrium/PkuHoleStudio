@@ -17,6 +17,7 @@ import {
 } from '@primer/octicons-react'
 import type { Comment, Media, Reference } from '../lib/types'
 import { formatTime } from '../lib/format'
+import { resolveCommentIdentity } from '../lib/commentIdentity'
 import { preferredScrollBehavior } from '../lib/motion'
 import { errorDescription } from '../components/Feedback'
 import { useCommentNote, useLocalPostMetadata, usePostComments, usePostDetailResource, usePostInteraction, usePostReply, useSavePostToLocal } from '../features/posts/usePostDetail'
@@ -54,7 +55,7 @@ export function GithubPostDetailPage() {
     <GithubPageHeader
       eyebrow={source === 'live' ? 'ONLINE TREEHOLE' : 'LOCAL ARCHIVE'}
       title={<>树洞 #{post.pid}</>}
-      description={<span className="github-detail-status"><IssueOpenedIcon size={16} />{source === 'live' ? '在线内容' : '本地资料'} · {post.reply ?? commentState.comments.length} 条评论</span>}
+      description={<span className="github-detail-status"><IssueOpenedIcon size={16} />{source === 'live' ? '在线内容' : '本地资料'} · 评论 {post.reply ?? commentState.comments.length} · 关注 {post.likenum ?? 0} · 点赞 {post.praise_num ?? 0}</span>}
       actions={<>{source === 'local' && <Link className="github-button" to={`/posts/${pid}?source=live&return_to=${encodeURIComponent(`/posts/${pid}`)}`}><LinkExternalIcon size={15} />查看线上版本</Link>}{source === 'live' && (!saveLocal.job && detail.data.local_state === 'saved' ? <span className="github-button"><CheckIcon size={15} />已保存到本地</span> : <button className="github-button" disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}><DownloadIcon size={15} />{saveLocal.label}</button>)}{canWrite && <><button className="github-button" disabled={interact.isPending} onClick={() => interact.mutate('praise')}><HeartIcon size={15} />{post.is_praise ? '取消点赞' : '点赞'}</button><button className="github-button" disabled={interact.isPending} onClick={() => interact.mutate('follow')}><StarIcon size={15} />{post.is_follow ? '取消关注' : '关注'}</button></>}</>}
     />
 
@@ -94,7 +95,7 @@ export function GithubPostDetailPage() {
 }
 
 function GithubConversationPost({ text, timestamp, media, pid }: { text: string; timestamp?: number; media: Media[]; pid: number }) {
-  return <article className="github-comment github-comment--root"><div className="github-avatar github-avatar--root">P</div><div className="github-comment-box"><header><div><strong>洞主</strong><span>发布于 {formatTime(timestamp)}</span></div><span className="github-author-badge">Author</span></header><div className="github-comment-body"><p>{text}</p><GithubMedia items={media} pid={pid} /></div></div></article>
+  return <article className="github-comment github-comment--root github-comment--author"><div className="github-avatar github-avatar--root">P</div><div className="github-comment-box"><header><div><strong>洞主</strong><span>发布于 {formatTime(timestamp)}</span></div></header><div className="github-comment-body"><p>{text}</p><GithubMedia items={media} pid={pid} /></div></div></article>
 }
 
 function GithubCommentCard({ comment, source, media, pid, canReply, quote }: { comment: Comment; source: 'local' | 'live'; media: Media[]; pid: number; canReply: boolean; quote: () => void }) {
@@ -102,10 +103,11 @@ function GithubCommentCard({ comment, source, media, pid, canReply, quote }: { c
   const note = useCommentNote(comment.cid, source === 'local' && showNote)
   const items = media.filter((item) => item.owner_type === 'comment' && item.owner_id === comment.cid)
   const commentMedia = items.length || source === 'local' ? items : remoteCommentMedia(comment)
-  return <article id={`comment-${comment.cid}`} className="github-comment">
-    <div className="github-avatar">{(comment.name_tag || 'C').slice(0, 1).toUpperCase()}</div>
+  const identity = resolveCommentIdentity(comment)
+  return <article id={`comment-${comment.cid}`} className={`github-comment${identity.isOwner ? ' github-comment--author' : ''}`}>
+    <div className="github-avatar">{identity.label.slice(0, 1).toUpperCase()}</div>
     <div className="github-comment-box">
-      <header><div><strong>{comment.name_tag || '匿名'}</strong><span>评论于 {formatTime(comment.timestamp)} · C{comment.cid}</span></div>{comment.is_lz && <span className="github-author-badge">Author</span>}</header>
+      <header><div><strong>{identity.label}</strong><span>评论于 {formatTime(comment.timestamp)} · C{comment.cid}</span></div>{identity.showOwnerBadge && <span className="github-author-badge">Author</span>}</header>
       <div className="github-comment-body">
         {comment.quote && <blockquote>引用 C{comment.quote.cid}：{comment.quote.text}</blockquote>}
         <p>{comment.text || '（无正文）'}</p>

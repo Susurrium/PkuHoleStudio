@@ -22,7 +22,6 @@ func newCrawlerCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "max pages to crawl per round (0 = infinite)")
 	cmd.Flags().IntVar(&pageInterval, "page-interval", 1, "seconds between each page crawl")
 	cmd.Flags().IntVar(&loopInterval, "loop-interval", 60, "seconds between rounds in loop mode")
-	cmd.Flags().BoolVar(&resume, "resume", false, "resume from last crawled page")
 	cmd.Flags().IntVarP(&loopPages, "loop-pages", "k", 0, "loop mode: repeatedly crawl first N pages")
 	cmd.Flags().BoolVar(&saveJSON, "save-json", false, "save raw API responses to JSON files for analysis")
 	cmd.Flags().IntVar(&postsPerReq, "posts-per-request", 200, "max posts per API request")

@@ -454,6 +454,9 @@ func (a *App) capturePID(ctx context.Context, pid int32, includeComments, includ
 			if page.NextCursor <= cursor {
 				return result, fmt.Errorf("comment pagination for PID %d did not advance", pid)
 			}
+			if pageNumber == 10_000 {
+				return result, fmt.Errorf("comment pagination for PID %d exceeded the 10000-page safety limit", pid)
+			}
 			cursor = page.NextCursor
 		}
 	}
@@ -497,16 +500,16 @@ func (a *App) handleRepairComments(ctx context.Context, execution *jobs.Executio
 		if completed[key] {
 			continue
 		}
-		detail, err := a.Posts.Get(ctx, pid, service.CommentQuery{Limit: 100, Source: service.SourceLive})
+		result, err := a.capturePID(ctx, pid, true, false)
 		if err != nil {
 			_ = execution.ItemFailed(ctx, key, err)
 			return err
 		}
-		if err := a.Repository.SaveCrawlResult([]models.Post{detail.Post}, detail.Comments); err != nil {
-			_ = execution.ItemFailed(ctx, key, err)
-			return err
-		}
-		if err := execution.ItemSucceeded(ctx, key, map[string]any{"pid": pid, "comments": len(detail.Comments)}); err != nil {
+		if err := execution.ItemSucceeded(ctx, key, map[string]any{
+			"pid":           result.PID,
+			"comments":      result.Comments,
+			"comment_pages": result.CommentPages,
+		}); err != nil {
 			return err
 		}
 	}

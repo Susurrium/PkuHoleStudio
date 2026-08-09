@@ -16,10 +16,11 @@ export function EmptyState({ title, description, action }: { title: string; desc
 }
 
 export function ErrorState({ error }: { error: unknown }) {
+  const detail = error instanceof Error ? error.message : '发生未知错误'
   return (
     <div className="panel flex min-h-40 items-center gap-4 border-coral/30 bg-coral-soft/35 p-6">
       <AlertTriangle className="shrink-0 text-coral" />
-      <div><p className="font-semibold">读取失败</p><p className="mt-1 text-sm text-ink-soft">{error instanceof Error ? error.message : '发生未知错误'}</p></div>
+      <div><p className="font-semibold">暂时无法读取内容</p><p className="mt-1 text-sm text-ink-soft">请稍后重试，已经保存在本机的资料不会受到影响。</p><details className="mt-2 text-xs text-ink-soft"><summary className="cursor-pointer font-semibold hover:text-teal">查看技术详情</summary><p className="mt-1 break-words">{detail}</p></details></div>
     </div>
   )
 }

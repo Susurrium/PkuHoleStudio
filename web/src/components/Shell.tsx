@@ -18,7 +18,7 @@ const onlineNavigation = [
 const libraryNavigation = [
   { to: '/', label: '资料库概览', icon: Gauge, end: true },
   { to: '/posts', label: '全部资料', icon: Archive },
-  { to: '/removed', label: '删除归档', icon: ShieldAlert },
+  { to: '/removed', label: '删除记录', icon: ShieldAlert },
   { to: '/projects', label: '研究项目', icon: FolderKanban },
   { to: '/imports', label: '导入与导出', icon: Import },
   { to: '/ai', label: 'AI 研究', icon: Bot },
@@ -43,7 +43,7 @@ export function Shell() {
   const utilityMode = ['/sync', '/tasks', '/logs', '/settings'].some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
   const primaryNavigation = activeWorkspace === 'online' ? onlineNavigation : libraryNavigation
   const mobileNavigation = utilityMode ? systemNavigation : activeWorkspace === 'online'
-    ? [onlineNavigation[0], onlineNavigation[1], onlineNavigation[3], onlineNavigation[4]]
+    ? [onlineNavigation[0], onlineNavigation[1], onlineNavigation[2], onlineNavigation[3]]
     : [libraryNavigation[0], libraryNavigation[1], { to: '/posts?focus=search', label: '搜索', icon: Search }, libraryNavigation[2]]
   return (
     <div className="paper-grid min-h-screen bg-paper text-ink">

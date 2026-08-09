@@ -188,6 +188,46 @@ func TestUpsertPostsAndQuery(t *testing.T) {
 	}
 }
 
+func TestPostMetricProjectionsKeepPraiseAndFollowCountsDistinct(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	posts := []models.Post{
+		{Pid: 100, Text: "distinct metrics older", Type: "text", Timestamp: 1000, Reply: 2, Likenum: 11, PraiseNum: 97},
+		{Pid: 101, Text: "distinct metrics newer", Type: "text", Timestamp: 2000, Reply: 3, Likenum: 12, PraiseNum: 98},
+	}
+	seedPosts(t, database, posts)
+	assertMetrics := func(label string, post models.Post, reply, follow, praise int16) {
+		t.Helper()
+		if post.Reply != reply || post.Likenum != follow || post.PraiseNum != praise {
+			t.Fatalf("%s metrics = reply:%d follow:%d praise:%d, want reply:%d follow:%d praise:%d", label, post.Reply, post.Likenum, post.PraiseNum, reply, follow, praise)
+		}
+	}
+
+	detail, err := database.GetPostByPid(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMetrics("detail", *detail, 2, 11, 97)
+
+	first, err := database.GetPostsCursor(0, 1, false)
+	if err != nil || len(first) != 1 || first[0].Pid != 101 {
+		t.Fatalf("first cursor page = %+v, err=%v", first, err)
+	}
+	assertMetrics("first cursor page", first[0], 3, 12, 98)
+	second, err := database.GetPostsCursor(101, 1, false)
+	if err != nil || len(second) != 1 || second[0].Pid != 100 {
+		t.Fatalf("second cursor page = %+v, err=%v", second, err)
+	}
+	assertMetrics("second cursor page", second[0], 2, 11, 97)
+
+	searched, err := database.SearchPostsCursor("distinct metrics", 0, 10, false)
+	if err != nil || len(searched) != 2 || searched[0].Pid != 101 {
+		t.Fatalf("search results = %+v, err=%v", searched, err)
+	}
+	assertMetrics("search result", searched[0], 3, 12, 98)
+}
+
 func TestUpsertPostsConflictUpdate(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

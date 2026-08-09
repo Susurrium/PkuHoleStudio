@@ -53,7 +53,7 @@ export interface Job {
 }
 
 export interface Health { status: string; posts?: number; comments?: number }
-export interface HotPost { id: number; text: string; follownum: number; reply?: number; timestamp?: number; score?: number; availability_state?: ObserverAvailabilityState }
+export interface HotPost { id: number; text: string; follownum: number; praise_num: number; reply?: number; timestamp?: number; score: number; availability_state?: ObserverAvailabilityState }
 export interface HotPostsResult {
   items: HotPost[]
   source: 'observer' | 'observer_cache' | 'live_recent'

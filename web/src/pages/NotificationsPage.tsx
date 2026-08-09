@@ -49,7 +49,7 @@ export function NotificationsPage() {
 		{session.isLoading ? <LoadingState label={slowSession ? '正在连接树洞，可能需要几秒…' : '正在验证在线会话…'} /> : session.error ? <ErrorState error={session.error} /> : !online ? <EmptyState
 			title="登录后查看通知"
 			description={session.data?.message || '通知直接从树洞读取，不会在未登录状态下反复请求。'}
-			action={<Link className="button-primary" to="/sync"><LogIn size={16} />前往同步中心登录</Link>}
+			action={<Link className="button-primary" to="/sync"><LogIn size={16} />前往“登录与保存”</Link>}
 		/> : <>
 			<nav className="mb-5 grid grid-cols-2 rounded-xl border border-line bg-white/45 p-1 sm:inline-grid sm:min-w-[320px]" aria-label="通知类型">
 				<NotificationTab active={type === 'interactive'} label="互动通知" onClick={() => setType('interactive')} />

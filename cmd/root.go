@@ -25,7 +25,6 @@ var (
 	maxPages        int
 	pageInterval    int
 	loopInterval    int
-	resume          bool
 	loopPages       int
 	saveJSON        bool
 	postsPerReq     int
@@ -196,10 +195,6 @@ func runDaemon() error {
 		return fmt.Errorf("初始化客户端失败: %w", err)
 	}
 	syncService := application.Sync
-
-	if resume {
-		log.Printf("[Daemon] 断点续爬模式已启用，但未保存断点页码；将从配置的第 %d 页开始", startPage)
-	}
 
 	monitorMode := loopPages > 0
 	if monitorMode {
