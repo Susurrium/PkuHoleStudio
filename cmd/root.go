@@ -271,6 +271,10 @@ func runDaemon() error {
 
 			log.Printf("[Daemon] 第 %d 页完成: +%d帖子 +%d评论",
 				page, result.PostCount, result.CommentCount)
+			if fetchImages {
+				log.Printf("[Daemon] 第 %d 页图片: 新下载=%d 已存在=%d 失败=%d",
+					page, result.Media.Downloaded, result.Media.Existing, result.Media.Failed)
+			}
 
 			page++
 

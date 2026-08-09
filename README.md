@@ -2,11 +2,9 @@
 
 本地优先的北大树洞资料库、全文搜索与 AI 研究工作台。
 
-PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 经敏感校园数据清理后的历史演进而来，保留原有 TUI、Crawler、SQLite/PostgreSQL 基础兼容和旧版 REST API，同时增加共享 Service 层、版本化迁移、持久任务、FTS5、Toolkit 归档导入和内嵌 Web 客户端。
+本项目在 TUI、采集器和旧版接口兼容方面参考、复用和借鉴了 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的部分代码，感谢原项目作者。
 
-当前预览版：`v0.1.0-alpha.8`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.8 发布说明](docs/releases/v0.1.0-alpha.8.md)。
-
-外部上游锚点原为 `PKUHoleTUI@f9d6221e16b1659a453866f3980c30c0cb8067e6`；历史清理后，本仓库标签 `upstream-pkuholetui-f9d6221` 指向移除敏感文档后的等价版本，详见 [NOTICE.md](NOTICE.md)。
+当前预览版：`v0.1.0-alpha.9`。变更记录见 [CHANGELOG.md](CHANGELOG.md)，本版安装说明、验证范围和已知限制见 [v0.1.0-alpha.9 发布说明](docs/releases/v0.1.0-alpha.9.md)。
 
 ## 当前能力
 
@@ -25,7 +23,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 经敏感
 - Web 资料库可在本地与在线树洞之间切换，支持关注、远程标签、在线详情和远程图片；只有明确点击保存或启动同步时才写入资料库。
 - 登录后的 Web 在线模式支持图片上传、发洞、普通/引用回复、点赞和关注。
 - Web 支持互动/系统通知、单条/全部已读和 PID 跳转；退出登录会清除本机保存的树洞会话。
-- Web“登录与保存”页面支持顺序采集、媒体/缩略图/引用修复和暂存清理；长期连续采集由可选的 Observer 承担，并提供经过敏感信息遮蔽的运行日志页面。
+- Web“登录与保存”页面支持按 PID、关注列表或最新时间线保存，并提供统一的缺失图片补全；兼容页码和诊断操作收纳在高级区域。长期连续采集由可选的 Observer 承担，并提供经过敏感信息遮蔽的运行日志页面。
 - Web 支持实时课表与成绩查看，敏感校园数据仅保留在当前页面内存。
 - Web 分为“在线树洞”和“本地研究”两个工作区，工作区、路由和最近访问位置会持久保存；全局任务反馈在切换页面后仍会持续显示。
 - 本地研究工作区增加研究项目、批量选中、证据化 AI 报告和统一任务中心，检索结果会保留 PID/CID 来源、摘录和检索轨迹。
@@ -33,7 +31,7 @@ PkuHoleStudio 从 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 经敏感
 - Web 详情支持只保存在本机的帖子标签、整洞笔记和评论笔记；设置页可创建、改名、着色和删除标签，远端同步不会覆盖这些元数据。
 - Studio 原生 archive v2 会携带标签、笔记和有界来源扩展；来源记录使用稳定的 `source/sourceRef/contextOnly` 形态并过滤归档哈希链。旧版归档仍可导入，导入扩展时只补充缺失元数据，不覆盖目标资料库已有笔记。Markdown 包也包含这些本地整理信息。
 - Web 导出使用持久任务：刷新页面后可恢复进度和历史，完成后下载，失败可重试；导出文件默认保留 30 天并由清理任务回收。
-- Web 高级采集补齐 TUI 的原始 API JSON 缓存/保存、旧版图片补全和可选 WebP 转换；原始 JSON 作为可下载、30 天自动清理的受管理产物保存，空缓存不会生成假成功任务。
+- Web 高级区域保留旧版页码采集和原始 API JSON 诊断数据；原始 JSON 作为可下载、30 天自动清理的受管理产物保存，空缓存不会生成假成功任务。旧版图片与 WebP 缓存工具继续由 CLI/TUI 兼容。
 - 可连接自托管 PkuHole Observer：服务器独立自动登录、持续抓取、计算热点并在双重探测确认不可访问时生成不可变归档；Studio 不再依赖第三方热点统计服务，并提供删除记录页、短信续登、增量同步和导出前同步。详见 [自托管 Observer 使用说明](docs/self-hosted-observer.md)。
 - Web 大评论区支持按游标逐批加载；资料库与全文搜索支持可随 URL 保存的本地标签多选筛选。
 - 设置页可安全编辑并测试 OpenAI-compatible Provider、模型和检索限制；API key 采用只写、不回显设计，保存后运行时原子应用。
@@ -92,7 +90,7 @@ $env:PKUHOLE_SERVER_API_TOKEN = "请替换为至少24字符的随机值"
 ./treehole server --host 0.0.0.0 --port 8081 --allow-remote
 ```
 
-Web 仅允许监听 `localhost` 或本机回环 IP（默认 `127.0.0.1`）；远程访问请使用带 Bearer Token 的 `server --allow-remote`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。`--data-dir` 和 `--db-path` 是所有子命令共享的持久参数；同时运行 TUI 与 Web 时，Web 独占持久任务执行器，TUI 不会争抢队列。
+Web 仅允许监听 `localhost` 或本机回环 IP（默认 `127.0.0.1`）；远程访问请使用带 Bearer Token 的 `server --allow-remote`。首次启动会在 `data/` 下生成配置、Cookie 和日志文件；默认 SQLite 文件由 `data/config.json` 的 `database.db_file` 指定。`--data-dir` 和 `--db-path` 是所有子命令共享的持久参数，TUI 与兼容 CLI 的图片/缩略图缓存也会写入所选 `--data-dir`；同时运行 TUI 与 Web 时，Web 独占持久任务执行器，TUI 不会争抢队列。
 
 若 TUI 已能正常登录，请让 TUI 与 Web 使用同一 `--data-dir`，然后在 Web“登录与保存”中点击“载入已有登录状态”；Web 会重新读取共享的 `cookies.json`，不需要再次输入密码或验证码。也可直接在 Web 登录，IAAA 与树洞二次短信验证会调用各自正确的端点。密码只用于当前请求，不持久化、不写入配置且不会由 API 回显。浏览器树洞页面的 HttpOnly Cookie 不会被 Studio 网页读取；Toolkit 只作为独立的简易归档导出/迁移工具，不是 Studio 同步、导入或导出的依赖。
 
@@ -213,7 +211,7 @@ npm run e2e
 
 Playwright 覆盖 Dashboard → 导入 → 搜索 → 帖子详情 → AI 入口主流程，以及经典树洞/GitHub 布局的响应式、键盘与视觉回归场景。发布工作流按“前端安装与测试 → 前端 build → Go test → Go build”执行。
 
-alpha.8 的发布门槛与已知限制见 [alpha.8 发布说明](docs/releases/v0.1.0-alpha.8.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
+alpha.9 的发布门槛与已知限制见 [alpha.9 发布说明](docs/releases/v0.1.0-alpha.9.md)；上一版真实数据与真实模型验收记录仍保留在 [alpha.3 验收清单](docs/alpha3-acceptance.md)。
 
 ## 安全与隐私
 
@@ -224,7 +222,3 @@ alpha.8 的发布门槛与已知限制见 [alpha.8 发布说明](docs/releases/v
 - `referenced` 归档内容作为上下文保存，但默认不出现在普通资料库列表和搜索中。
 - API 不回显任务中的本地暂存路径。
 - AI 与实时在线搜索默认未启用；未来启用时仍由独立开关控制。
-
-## License
-
-本仓库由 PKUHoleTUI 的历史代码演进而来。项目维护者已取得上游权利人对本项目使用和修改这些历史代码的许可；该许可不等同于向所有下游使用者授予通用开源许可证。本仓库目前未另行声明开源许可证，第三方依赖继续适用各自的许可证。代码来源、上游基线与授权边界见 [NOTICE.md](NOTICE.md)。

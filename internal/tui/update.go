@@ -1206,15 +1206,22 @@ func crawlPageWithOptionsCmd(syncOperations SyncOperations, page int, options Ho
 		if err != nil {
 			return CrawlMsg{Error: err, Page: page}
 		}
+		if result.Media.Downloaded > 0 {
+			clearAllMediaPathCache()
+		}
 		if options.SaveJSON {
 			if err := syncOperations.SaveRawResponses(ctx); err != nil {
 				return CrawlMsg{Error: err, Page: page}
 			}
 		}
+		summary := fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount)
+		if options.FetchImages {
+			summary += fmt.Sprintf("，图片新下载 %d / 已存在 %d / 失败 %d", result.Media.Downloaded, result.Media.Existing, result.Media.Failed)
+		}
 		return CrawlMsg{
 			Page:     page,
 			Duration: duration,
-			Summary:  fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount),
+			Summary:  summary,
 		}
 	}
 }
@@ -1234,24 +1241,35 @@ func crawlMonitorWithOptionsCmd(syncOperations SyncOperations, options HomePageM
 		ctx := context.Background()
 		totalPosts := 0
 		totalComments := 0
+		var totalMedia service.MediaResult
 		for page := 1; page <= options.MonitorPages; page++ {
 			result, err := syncOperations.FetchPage(ctx, page, crawlOptionsFromHome(options))
 			if err != nil {
 				log.Printf("[Crawler] 监控模式第 %d 页抓取失败: %v", page, err)
 				continue
 			}
+			if result.Media.Downloaded > 0 {
+				clearAllMediaPathCache()
+			}
 			totalPosts += result.PostCount
 			totalComments += result.CommentCount
+			totalMedia.Downloaded += result.Media.Downloaded
+			totalMedia.Existing += result.Media.Existing
+			totalMedia.Failed += result.Media.Failed
 		}
 		if options.SaveJSON {
 			if err := syncOperations.SaveRawResponses(ctx); err != nil {
 				return CrawlMsg{Error: err, Page: options.MonitorPages}
 			}
 		}
+		summary := fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments)
+		if options.FetchImages {
+			summary += fmt.Sprintf("，图片新下载 %d / 已存在 %d / 失败 %d", totalMedia.Downloaded, totalMedia.Existing, totalMedia.Failed)
+		}
 		return CrawlMsg{
 			Page:     options.MonitorPages,
 			Duration: time.Since(startTime),
-			Summary:  fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments),
+			Summary:  summary,
 		}
 	}
 }
@@ -1262,10 +1280,14 @@ func crawlFetchImagesCmd(syncOperations SyncOperations, convertWebp bool) tea.Cm
 		if syncOperations == nil {
 			return CrawlMsg{Error: errors.New("sync service is not configured")}
 		}
-		if err := syncOperations.FetchImages(context.Background(), convertWebp); err != nil {
-			return CrawlMsg{Error: err}
+		result, err := syncOperations.FetchImages(context.Background(), convertWebp)
+		if result.Downloaded > 0 {
+			clearAllMediaPathCache()
 		}
-		return CrawlMsg{Duration: time.Since(startTime), Summary: "数据库图片补齐完成"}
+		if err != nil {
+			return CrawlMsg{Error: fmt.Errorf("图片补全未完成（新下载 %d，已存在 %d，失败 %d）：%w", result.Downloaded, result.Existing, result.Failed, err)}
+		}
+		return CrawlMsg{Duration: time.Since(startTime), Summary: fmt.Sprintf("图片补全：新下载 %d，已存在 %d", result.Downloaded, result.Existing)}
 	}
 }
 
@@ -1276,12 +1298,15 @@ func crawlFetchThumbnailsCmd(syncOperations SyncOperations, startID, endID int, 
 			return CrawlMsg{Error: errors.New("sync service is not configured")}
 		}
 		result, err := syncOperations.FetchThumbnails(context.Background(), startID, endID, convertWebp)
+		if result.Downloaded > 0 {
+			clearAllMediaPathCache()
+		}
 		if err != nil {
-			return CrawlMsg{Error: err}
+			return CrawlMsg{Error: fmt.Errorf("缩略图下载未完成（新下载 %d，已存在 %d，失败 %d）：%w", result.Downloaded, result.Existing, result.Failed, err)}
 		}
 		return CrawlMsg{
 			Duration: time.Since(startTime),
-			Summary:  fmt.Sprintf("缩略图完成：downloaded=%d skipped=%d range=%d-%d", result.Downloaded, result.Skipped, startID, endID),
+			Summary:  fmt.Sprintf("缩略图：新下载 %d，已存在 %d，范围 %d-%d", result.Downloaded, result.Existing, startID, endID),
 		}
 	}
 }

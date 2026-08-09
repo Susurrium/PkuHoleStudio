@@ -246,7 +246,7 @@ type SessionState struct {
 // while allowing service.SyncService to be used directly.
 type SyncOperations interface {
 	FetchPage(context.Context, int, service.CrawlOptions) (service.SyncResult, error)
-	FetchImages(context.Context, bool) error
+	FetchImages(context.Context, bool) (service.MediaResult, error)
 	FetchThumbnails(context.Context, int, int, bool) (service.ThumbnailResult, error)
 	SaveRawResponses(context.Context) error
 }

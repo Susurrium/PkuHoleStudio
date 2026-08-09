@@ -1004,6 +1004,31 @@ describe('PkuHoleStudio Web', () => {
 		expect(JSON.parse(createdBody)).toEqual({ type: 'sync_pids', payload: { pids: [123456, 234567], include_comments: true, include_media: true } })
 	})
 
+	it('keeps missing-image repair while hiding legacy media tools', async () => {
+		let createdBody = ''
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/session')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
+			if (path.includes('/jobs') && init?.method === 'POST') {
+				createdBody = String(init.body)
+				return json({ id: 'media-1', type: 'repair_media', status: 'queued', completed_items: 0, failed_items: 0, total_items: 0, attempts: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }, 202)
+			}
+			if (path.includes('/jobs')) return json([])
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/sync')
+		await user.click(await screen.findByRole('button', { name: '开始补全图片' }))
+		await waitFor(() => expect(createdBody).not.toBe(''))
+		expect(JSON.parse(createdBody)).toEqual({ type: 'repair_media', payload: {} })
+		await user.click(screen.getByText('兼容与维护'))
+		expect(screen.getByRole('button', { name: '生成诊断数据文件' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: '补全旧版图片' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: '按编号补全缩略图' })).not.toBeInTheDocument()
+		expect(screen.queryByLabelText('缩略图起始 ID')).not.toBeInTheDocument()
+		expect(screen.queryByText('节省图片空间（WebP）')).not.toBeInTheDocument()
+	})
+
 	it('reloads a session saved by the TUI without asking for credentials', async () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
 			const path = String(input)

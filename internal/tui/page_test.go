@@ -25,7 +25,11 @@ func projectRoot() string {
 func writeTestMediaFile(t *testing.T, id string) string {
 	t.Helper()
 
-	dir := filepath.Join(projectRoot(), "data", "images")
+	dataDir, err := config.RuntimeDataDir()
+	if err != nil {
+		t.Fatalf("resolve runtime data dir: %v", err)
+	}
+	dir := filepath.Join(dataDir, "images")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir media dir: %v", err)
 	}
@@ -1698,15 +1702,22 @@ func TestBuildDetailBodyContentKeepsImagePlaceholder(t *testing.T) {
 	}
 }
 
-func TestResolveMediaPathFindsFileAfterClearingNegativeCache(t *testing.T) {
+func TestResolveMediaPathFindsCustomProfileFileAfterCacheRefresh(t *testing.T) {
 	const mediaID = "test-negative-cache-clear"
+	previousDataDir, err := config.RuntimeDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	customDataDir := filepath.Join(t.TempDir(), "custom profile")
+	config.SetRuntimeDataDir(customDataDir)
+	t.Cleanup(func() { config.SetRuntimeDataDir(previousDataDir) })
 	clearMediaPathCache(mediaID)
 
 	if got := resolveMediaPath(mediaID, true); got != "" {
 		t.Fatalf("initial resolve = %q, want empty", got)
 	}
 
-	dir := filepath.Join(projectRoot(), "data", "images")
+	dir := filepath.Join(customDataDir, "images")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir media dir: %v", err)
 	}
@@ -1722,7 +1733,7 @@ func TestResolveMediaPathFindsFileAfterClearingNegativeCache(t *testing.T) {
 		t.Fatalf("stale cached resolve = %q, want empty before cache clear", got)
 	}
 
-	clearMediaPathCache(mediaID)
+	clearAllMediaPathCache()
 	if got, want := resolveMediaPath(mediaID, true), path; got != want {
 		t.Fatalf("resolve after cache clear = %q, want %q", got, want)
 	}

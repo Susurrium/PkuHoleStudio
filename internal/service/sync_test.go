@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -33,14 +34,14 @@ func (f *fakeSyncRunner) FetchPage(page int, options CrawlOptions) (SyncResult, 
 	return SyncResult{PostCount: 2, CommentCount: 3}, f.err
 }
 
-func (f *fakeSyncRunner) FetchImages(bool) error {
+func (f *fakeSyncRunner) FetchImages(bool) (MediaResult, error) {
 	f.images = true
-	return f.err
+	return MediaResult{Downloaded: 2, Existing: 1}, f.err
 }
 
 func (f *fakeSyncRunner) FetchThumbnails(int, int, bool) (ThumbnailResult, error) {
 	f.thumbs = true
-	return ThumbnailResult{Downloaded: 4, Skipped: 1}, f.err
+	return ThumbnailResult{Downloaded: 4, Existing: 1}, f.err
 }
 
 func (f *fakeSyncRunner) SaveRawResponses() error { return f.err }
@@ -65,11 +66,12 @@ func TestSyncServiceDelegatesCrawlerOperations(t *testing.T) {
 	if result.PostCount != 2 || result.CommentCount != 3 {
 		t.Fatalf("FetchPage() result = %+v", result)
 	}
-	if err := svc.FetchImages(context.Background(), true); err != nil || !runner.images {
-		t.Fatalf("FetchImages() err=%v called=%v", err, runner.images)
+	images, err := svc.FetchImages(context.Background(), true)
+	if err != nil || !runner.images || images.Downloaded != 2 || images.Existing != 1 {
+		t.Fatalf("FetchImages() result=%+v err=%v called=%v", images, err, runner.images)
 	}
 	thumbs, err := svc.FetchThumbnails(context.Background(), 1, 5, false)
-	if err != nil || !runner.thumbs || thumbs.Downloaded != 4 || thumbs.Skipped != 1 {
+	if err != nil || !runner.thumbs || thumbs.Downloaded != 4 || thumbs.Existing != 1 {
 		t.Fatalf("FetchThumbnails() result=%+v err=%v called=%v", thumbs, err, runner.thumbs)
 	}
 	if svc.RawResponseCount() != 7 {
@@ -78,6 +80,21 @@ func TestSyncServiceDelegatesCrawlerOperations(t *testing.T) {
 	raw, err := svc.SaveRawResponsesTo(context.Background(), "managed.json")
 	if err != nil || runner.rawPath != "managed.json" || raw.Responses != 2 || raw.Bytes != 128 {
 		t.Fatalf("SaveRawResponsesTo() result=%+v path=%q err=%v", raw, runner.rawPath, err)
+	}
+}
+
+func TestNewSyncServiceUsesSelectedDataDirectory(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "profile with spaces")
+	svc := NewSyncService(nil, nil, dataDir)
+	runner, ok := svc.runner.(*legacySyncRunner)
+	if !ok {
+		t.Fatalf("runner type = %T", svc.runner)
+	}
+	if got, want := runner.imageDir, filepath.Join(dataDir, "images"); got != want {
+		t.Fatalf("imageDir=%q, want %q", got, want)
+	}
+	if got, want := runner.thumbnailDir, filepath.Join(dataDir, "thumbnails"); got != want {
+		t.Fatalf("thumbnailDir=%q, want %q", got, want)
 	}
 }
 

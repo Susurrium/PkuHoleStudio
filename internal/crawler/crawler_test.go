@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"testing"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/client"
+	"github.com/Susurrium/PkuHoleStudio/internal/config"
+	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/models"
 )
 
 func TestSaveRawResponsesToManagedFileAndDrainAfterCommit(t *testing.T) {
@@ -145,8 +149,9 @@ func TestSaveMediaStoresPNGWithOriginalExtension(t *testing.T) {
 	c := mustNewTestClient(t)
 	outputDir := t.TempDir()
 
-	if ok := saveMedia(c, srv.URL, 30001, outputDir, false); !ok {
-		t.Fatal("saveMedia returned false, want true")
+	downloaded, err := saveMedia(c, srv.URL, 30001, outputDir, false)
+	if err != nil || !downloaded {
+		t.Fatalf("saveMedia() downloaded=%v error=%v, want downloaded", downloaded, err)
 	}
 
 	filename := filepath.Join(outputDir, "30001.png")
@@ -159,34 +164,88 @@ func TestSaveMediaStoresPNGWithOriginalExtension(t *testing.T) {
 	}
 }
 
-func TestDownloadMediaByIDRangeDownloadsAndSkipsFailures(t *testing.T) {
+func TestDownloadMediaByIDRangeClassifiesDownloadedExistingAndFailed(t *testing.T) {
 	pngData := mustEncodePNG(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("id") {
-		case "30000", "30001":
+		case "30001":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(pngData)
 		default:
-			http.NotFound(w, r)
+			http.Error(w, "unavailable", http.StatusInternalServerError)
 		}
 	}))
 	defer srv.Close()
 
 	c := mustNewTestClient(t)
 	outputDir := t.TempDir()
-
-	downloaded, skipped := downloadMediaByIDRange(c, 30000, 30002, srv.URL+"?id=%d", outputDir, false)
-	if downloaded != 2 {
-		t.Fatalf("downloaded=%d, want 2", downloaded)
+	if err := os.WriteFile(filepath.Join(outputDir, "30000.png"), pngData, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if skipped != 1 {
-		t.Fatalf("skipped=%d, want 1", skipped)
+
+	result, err := downloadMediaByIDRange(c, 30000, 30002, srv.URL+"?id=%d", outputDir, false)
+	if err == nil {
+		t.Fatal("downloadMediaByIDRange() error=nil, want failure summary")
+	}
+	if result.Downloaded != 1 || result.Existing != 1 || result.Failed != 1 {
+		t.Fatalf("result=%+v, want downloaded=1 existing=1 failed=1", result)
 	}
 	for _, id := range []string{"30000.png", "30001.png"} {
 		if _, err := os.Stat(filepath.Join(outputDir, id)); err != nil {
 			t.Fatalf("expected file %s to exist: %v", id, err)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(outputDir, "30002.jpg")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed media should not be written: %v", err)
+	}
+}
+
+func TestFetchImagesFromDBWritesOnlyToSelectedDataDirectory(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Chdir(workingDir)
+	profileDir := filepath.Join(t.TempDir(), "custom profile")
+	database, err := db.NewDatabase(&config.Config{Database: config.DatabaseConfig{
+		Type:   "sqlite3",
+		DBFile: filepath.Join(t.TempDir(), "crawler.db"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.SaveCrawlResult([]models.Post{{Pid: 30001, Type: "image", MediaIds: "30001"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	pngData := mustEncodePNG(t)
+	c := mustNewTestClient(t)
+	c.GetHttpClient().Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/png"}},
+			Body:       io.NopCloser(bytes.NewReader(pngData)),
+			Request:    req,
+		}, nil
+	})
+
+	result, err := FetchImagesFromDB(c, database, filepath.Join(profileDir, "images"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Downloaded != 1 || result.Existing != 0 || result.Failed != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(profileDir, "images", "30001.png")); err != nil {
+		t.Fatalf("selected data directory does not contain image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workingDir, "data", "images", "30001.png")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy cwd data directory should remain untouched: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func mustEncodePNG(t *testing.T) []byte {

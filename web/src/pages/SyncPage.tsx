@@ -75,11 +75,24 @@ export function SyncPage() {
 function AdvancedSync({ disabled, onCreate }: { disabled: boolean; onCreate: (type: string, payload: unknown) => void }) {
 	const [startPage, setStartPage] = useState(1)
 	const [pages, setPages] = useState(10)
-	const [thumbStart, setThumbStart] = useState(1)
-	const [thumbEnd, setThumbEnd] = useState(100)
 	const [saveJSON, setSaveJSON] = useState(false)
-	const [convertWebP, setConvertWebP] = useState(false)
-	return <details className="panel mt-6 p-5"><summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">兼容与维护</h2><p className="mt-1 text-xs leading-5 text-ink-soft">仅用于旧版数据迁移或问题排查，日常保存无需设置。</p></div><span className="badge">按需展开</span></div></summary><div className="mt-5 grid gap-5 border-t border-line pt-5 lg:grid-cols-2"><form className="rounded-xl border border-line bg-white/45 p-5" onSubmit={(event) => { event.preventDefault(); onCreate('sync_pages', { start_page: startPage, pages, options: { post_limit: 200, comment_limit: 200, save_json: saveJSON, fetch_images: false, convert_webp: convertWebP } }) }}><h3 className="font-semibold">按旧版页码保存</h3><p className="mt-2 text-sm leading-6 text-ink-soft">兼容以前按页采集的流程，从指定页开始逐页保存。</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs text-ink-soft">起始页<input className="field mt-1" type="number" min={1} value={startPage} onChange={(event) => setStartPage(Math.max(1, Number(event.target.value) || 1))} /></label><label className="text-xs text-ink-soft">页数<input className="field mt-1" type="number" min={1} max={50} value={pages} onChange={(event) => setPages(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} /></label></div><label className="mt-3 inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={saveJSON} onChange={(event) => setSaveJSON(event.target.checked)} />同时保留排查用原始响应</label><button className="button-primary mt-4 w-full" disabled={disabled}>创建旧版页码任务</button></form><div className="rounded-xl border border-line bg-white/45 p-5"><h3 className="font-semibold">旧版图片与诊断数据</h3><p className="mt-2 text-sm leading-6 text-ink-soft">旧资料缺少图片或维护者要求提供诊断数据时使用。</p><div className="mt-4 grid grid-cols-2 gap-3"><input className="field" type="number" min={1} value={thumbStart} aria-label="缩略图起始 ID" onChange={(event) => setThumbStart(Math.max(1, Number(event.target.value) || 1))} /><input className="field" type="number" min={thumbStart} value={thumbEnd} aria-label="缩略图结束 ID" onChange={(event) => setThumbEnd(Math.max(thumbStart, Number(event.target.value) || thumbStart))} /></div><label className="mt-3 inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={convertWebP} onChange={(event) => setConvertWebP(event.target.checked)} />节省图片空间（WebP）</label><div className="mt-3 grid gap-2"><button className="button-secondary" disabled={disabled} onClick={() => onCreate('fetch_images', { convert_webp: convertWebP })}>补全旧版图片</button><button className="button-secondary" disabled={disabled || thumbEnd < thumbStart} onClick={() => onCreate('repair_thumbnails', { start_id: thumbStart, end_id: thumbEnd, convert_webp: convertWebP })}>按编号补全缩略图</button><button className="button-secondary" disabled={disabled} onClick={() => onCreate('save_raw_json', {})}>生成诊断数据文件</button><Link className="mt-1 text-center text-xs font-semibold text-teal hover:underline" to="/maintenance">其他本地维护 →</Link></div></div></div></details>
+	return <details className="panel mt-6 p-5">
+		<summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">兼容与维护</h2><p className="mt-1 text-xs leading-5 text-ink-soft">仅用于旧版数据迁移或问题排查，日常保存无需设置。</p></div><span className="badge">按需展开</span></div></summary>
+		<div className="mt-5 grid gap-5 border-t border-line pt-5 lg:grid-cols-2">
+			<form className="rounded-xl border border-line bg-white/45 p-5" onSubmit={(event) => { event.preventDefault(); onCreate('sync_pages', { start_page: startPage, pages, options: { post_limit: 200, comment_limit: 200, save_json: saveJSON, fetch_images: false } }) }}>
+				<h3 className="font-semibold">按旧版页码保存</h3>
+				<p className="mt-2 text-sm leading-6 text-ink-soft">兼容以前按页采集的流程，从指定页开始逐页保存。</p>
+				<div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs text-ink-soft">起始页<input className="field mt-1" type="number" min={1} value={startPage} onChange={(event) => setStartPage(Math.max(1, Number(event.target.value) || 1))} /></label><label className="text-xs text-ink-soft">页数<input className="field mt-1" type="number" min={1} max={50} value={pages} onChange={(event) => setPages(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} /></label></div>
+				<label className="mt-3 inline-flex items-center gap-2 text-xs text-ink-soft"><input type="checkbox" checked={saveJSON} onChange={(event) => setSaveJSON(event.target.checked)} />同时保留排查用原始响应</label>
+				<button className="button-primary mt-4 w-full" disabled={disabled}>创建旧版页码任务</button>
+			</form>
+			<div className="rounded-xl border border-line bg-white/45 p-5">
+				<h3 className="font-semibold">诊断数据</h3>
+				<p className="mt-2 text-sm leading-6 text-ink-soft">仅在维护者要求提供原始响应时生成。</p>
+				<div className="mt-4 grid gap-2"><button type="button" className="button-secondary" disabled={disabled} onClick={() => onCreate('save_raw_json', {})}>生成诊断数据文件</button><Link className="mt-1 text-center text-xs font-semibold text-teal hover:underline" to="/maintenance">其他本地维护 →</Link></div>
+			</div>
+		</div>
+	</details>
 }
 
 function LoginPanel({ status, onStatus }: { status?: AuthStatus; onStatus: (value: AuthStatus) => void }) {

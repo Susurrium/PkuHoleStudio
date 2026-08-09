@@ -140,15 +140,26 @@ func (a *App) handleFetchImages(ctx context.Context, execution *jobs.Execution, 
 		return fmt.Errorf("sync service is not configured")
 	}
 	var payload mediaJobPayload
-	_ = json.Unmarshal(job.Payload, &payload)
+	if len(job.Payload) > 0 {
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return fmt.Errorf("decode media job payload: %w", err)
+		}
+	}
 	if err := execution.SetTotal(ctx, 1); err != nil {
 		return err
 	}
-	if err := a.Sync.FetchImages(ctx, payload.ConvertWebP); err != nil {
+	result, err := a.Sync.FetchImages(ctx, payload.ConvertWebP)
+	// Overwrite the job-level checkpoint on every attempt so a successful
+	// retry cannot continue showing failure counts from its previous run.
+	if checkpointErr := execution.Checkpoint(ctx, result); checkpointErr != nil && err == nil {
+		_ = execution.ItemFailed(ctx, "images", checkpointErr)
+		return checkpointErr
+	}
+	if err != nil {
 		_ = execution.ItemFailed(ctx, "images", err)
 		return err
 	}
-	return execution.ItemSucceeded(ctx, "images", map[string]any{"convert_webp": payload.ConvertWebP})
+	return execution.ItemSucceeded(ctx, "images", result)
 }
 
 func (a *App) handleExportArchive(ctx context.Context, execution *jobs.Execution, job jobs.Job) error {
@@ -338,6 +349,9 @@ func (a *App) handleSyncLatest(ctx context.Context, execution *jobs.Execution, j
 			return err
 		}
 		checkpoint := map[string]any{"page": page, "posts": result.PostCount, "comments": result.CommentCount}
+		if payload.Options.FetchImages {
+			checkpoint["media"] = result.Media
+		}
 		if err := execution.ItemSucceeded(ctx, key, checkpoint); err != nil {
 			return err
 		}
@@ -584,6 +598,10 @@ func (a *App) handleRepairThumbnails(ctx context.Context, execution *jobs.Execut
 		return err
 	}
 	result, err := a.Sync.FetchThumbnails(ctx, payload.StartID, payload.EndID, payload.ConvertWebP)
+	if checkpointErr := execution.Checkpoint(ctx, result); checkpointErr != nil && err == nil {
+		_ = execution.ItemFailed(ctx, "thumbnails", checkpointErr)
+		return checkpointErr
+	}
 	if err != nil {
 		_ = execution.ItemFailed(ctx, "thumbnails", err)
 		return err
