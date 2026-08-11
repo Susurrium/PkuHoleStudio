@@ -36,7 +36,7 @@ async function fulfillGithubAPI(route: Route, sessionState: GithubSessionState) 
   else if (path === '/api/v1/health') data = { status: 'ok', posts: 7, comments: 18 }
   else if (path === '/api/v1/capabilities') data = { api_version: 'v1', schema_version: 3, fts5: true, archive_import: true, jobs: true, ai: true, live_search: true }
   else if (path === '/api/v1/jobs') data = [{ id: 'github-job', type: 'sync_pids', status: 'running', completed_items: 17, failed_items: 0, total_items: 40, attempts: 1, created_at: '2026-07-15T08:00:00Z', updated_at: '2026-07-15T08:44:00Z' }]
-  else if (path === '/api/v1/posts/hot') data = { window_hours: 12, updated_at: 1784102400, approximate: true, stale: false, items: [{ id: 8401259, text: posts[0].text, reply: 2, follownum: 16 }] }
+  else if (path === '/api/v1/posts/hot') data = { window_hours: 24, updated_at: 1784102400, approximate: true, stale: false, items: [{ id: 8401259, text: posts[0].text, reply: 2, follownum: 16 }] }
   else if (path === '/api/v1/session' || path === '/api/v1/session/probe') data = { checked: true, has_session: sessionState.canRead, can_read_online: sessionState.canRead, can_write_online: sessionState.canWrite, message: sessionState.canRead ? '会话正常' : '需要登录' }
   else if (path === '/api/v1/posts/8401259/tags') data = [{ id: 1, name: '课程', color: '#0969da' }]
   else if (path === '/api/v1/posts/8401259/note') data = { content: '这是一条只保存在本机的个人笔记。' }

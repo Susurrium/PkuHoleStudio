@@ -56,3 +56,30 @@ func TestObserverAvailabilityTransitionsAndInstanceScopedReceipts(t *testing.T) 
 		t.Fatal("same event ID from a new instance collided with old receipt")
 	}
 }
+
+func TestSaveObserverBrowseRecordPersistsSelectedPostWithoutSyncReceipt(t *testing.T) {
+	database := openDatabaseAt(t, filepath.Join(t.TempDir(), "observer-browse.db"))
+	defer database.Close()
+	ctx := context.Background()
+	observedAt := time.Date(2026, 7, 16, 10, 0, 0, 0, time.UTC)
+	post := models.Post{Pid: 8_449_490, Text: "selected remote deletion", Timestamp: 1_784_100_000}
+	comments := []models.Comment{{Cid: 1, Pid: post.Pid, Text: "captured comment", Timestamp: 1_784_100_100}}
+	availability := models.PostAvailability{PID: post.Pid, State: "confirmed_unavailable", ObservedAt: observedAt, FirstUnavailableAt: &observedAt, LastUnavailableAt: &observedAt, ObserverID: "default", RemoteInstanceID: "observer-a", Completeness: "complete"}
+	if err := database.SaveObserverBrowseRecord(ctx, post, comments, availability, "observer-a"); err != nil {
+		t.Fatal(err)
+	}
+	savedPost, savedComments, _, err := database.ObserverPostContents(ctx, post.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedPost == nil || savedPost.Text != post.Text || len(savedComments) != 1 || savedComments[0].Text != comments[0].Text {
+		t.Fatalf("saved post=%+v comments=%+v", savedPost, savedComments)
+	}
+	savedAvailability, found, err := database.GetPostAvailability(ctx, post.Pid)
+	if err != nil || !found || savedAvailability.State != "confirmed_unavailable" || savedAvailability.Completeness != "complete" {
+		t.Fatalf("availability=%+v found=%v err=%v", savedAvailability, found, err)
+	}
+	if _, found, err := database.GetObserverSyncState(ctx, "default"); err != nil || found {
+		t.Fatalf("browse save unexpectedly advanced sync state: found=%v err=%v", found, err)
+	}
+}

@@ -96,6 +96,7 @@ export const api = {
 	retryObserverLogin: () => request<ObserverStatus>('/observer/auth/retry', { method: 'POST' }),
 	removedPosts: (params: { state?: string; query?: string; cursor?: number; limit?: number } = {}) => request<RemovedPostPage>(`/removed${queryString(params)}`),
 	removedPost: (pid: string | number) => request<RemovedPostDetail>(`/removed/${pid}`),
+	saveRemovedPost: (pid: string | number) => request<RemovedPostDetail>(`/removed/${pid}/save`, { method: 'POST' }),
 	createAIProviderSetting: (update: AIProviderSettingUpdate) => request<Settings>('/settings/ai/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
 	updateAIProviderSetting: (id: string, update: AIProviderSettingUpdate) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) }),
 	deleteAIProviderSetting: (id: string) => request<Settings>(`/settings/ai/providers/${id}`, { method: 'DELETE' }),

@@ -56,11 +56,11 @@ export function OnlineDashboardPage() {
         <Link className="button-secondary" to="/posts?source=live&followed=true"><Star size={16} />我的关注</Link>
         {session.data?.can_write_online
           ? <Link className="button-primary" to="/posts?source=live&compose=true"><PenLine size={16} />发表新洞</Link>
-          : <Link className="button-primary" to="/sync"><Radio size={16} />登录在线树洞</Link>}
+          : <Link className="button-primary" to="/sync?intent=login&next=%2Fonline"><Radio size={16} />登录在线树洞</Link>}
       </>
     } />
 
-    {!session.isLoading && !session.data?.can_read_online && <section className="panel mb-6 border-coral/30 bg-coral-soft/20 p-5"><p className="font-semibold">登录后即可浏览和互动</p><p className="mt-1 text-sm text-ink-soft">{session.data?.message || '本地资料库仍可离线使用。'}</p><Link className="button-primary mt-4" to="/sync">前往登录</Link></section>}
+    {!session.isLoading && !session.data?.can_read_online && <section className="panel mb-6 border-coral/30 bg-coral-soft/20 p-5"><p className="font-semibold">登录后即可浏览和互动</p><p className="mt-1 text-sm text-ink-soft">{session.data?.message || '本地资料库仍可离线使用。'}</p><Link className="button-primary mt-4" to="/sync?intent=login&next=%2Fonline">使用学号登录</Link></section>}
     {session.data?.can_read_online && <OnlineFreshnessBar browserOnline={browserOnline} updatedAt={latest.dataUpdatedAt} isFetching={latest.isFetching} error={latest.error} hasData={latestItems.length > 0} onRefresh={() => latest.refetch()} />}
 
     <section className="mb-6 grid grid-cols-2 gap-3 xl:hidden" aria-label="在线快捷入口">
@@ -89,7 +89,7 @@ export function OnlineDashboardPage() {
 }
 
 function HotRanking({ focused = false, data, items, isLoading, isFetching, error, onRefresh }: { focused?: boolean; data?: HotPostsResult; items: HotPost[]; isLoading: boolean; isFetching: boolean; error: Error | null; onRefresh: () => void }) {
-  const windowHours = data?.window_hours || 12
+  const windowHours = data?.window_hours || 24
   return <section id="hot" className={`scroll-mt-24 ${focused ? 'mx-auto max-w-4xl' : 'panel p-5 xl:sticky xl:top-24'}`} aria-labelledby="hot-ranking-title">
     {focused
       ? <HotRule windowHours={windowHours} />

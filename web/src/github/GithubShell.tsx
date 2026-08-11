@@ -29,13 +29,13 @@ const onlineNavigation = [
   { to: '/online', label: '在线首页', icon: HomeIcon, end: true },
   { to: '/posts?source=live', label: '最新', icon: CommentDiscussionIcon },
   { to: '/posts?source=live&followed=true', label: '关注', icon: StarIcon },
+  { to: '/removed', label: '最近删除', icon: ShieldIcon },
   { to: '/notifications', label: '消息', icon: InboxIcon },
 ]
 
 const libraryNavigation = [
   { to: '/', label: '资料库概览', icon: HomeIcon, end: true },
   { to: '/posts', label: '全部资料', icon: CommentDiscussionIcon },
-  { to: '/removed', label: '删除记录', icon: ShieldIcon },
   { to: '/projects', label: '研究项目', icon: RepoIcon },
   { to: '/ai', label: 'AI 研究', icon: CopilotIcon },
   { to: '/imports', label: '导入与导出', icon: DatabaseIcon },

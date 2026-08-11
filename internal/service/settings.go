@@ -71,24 +71,26 @@ type SettingsUpdate struct {
 }
 
 type ObserverSettingsView struct {
-	Enabled            bool   `json:"enabled"`
-	BaseURL            string `json:"base_url"`
-	APITokenConfigured bool   `json:"api_token_configured"`
-	RequestTimeout     int    `json:"request_timeout_seconds"`
-	AutoSyncOnStart    bool   `json:"auto_sync_on_start"`
-	SyncIntervalMins   int    `json:"sync_interval_minutes"`
-	SyncBeforeExport   bool   `json:"sync_before_export"`
+	Enabled              bool   `json:"enabled"`
+	BaseURL              string `json:"base_url"`
+	APITokenConfigured   bool   `json:"api_token_configured"`
+	RequestTimeout       int    `json:"request_timeout_seconds"`
+	MirrorRemovedLocally bool   `json:"mirror_removed_locally"`
+	AutoSyncOnStart      bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins     int    `json:"sync_interval_minutes"`
+	SyncBeforeExport     bool   `json:"sync_before_export"`
 }
 
 type ObserverSettingsUpdate struct {
-	Enabled          bool   `json:"enabled"`
-	BaseURL          string `json:"base_url"`
-	APIToken         string `json:"api_token,omitempty"`
-	ClearAPIToken    bool   `json:"clear_api_token,omitempty"`
-	RequestTimeout   int    `json:"request_timeout_seconds"`
-	AutoSyncOnStart  bool   `json:"auto_sync_on_start"`
-	SyncIntervalMins int    `json:"sync_interval_minutes"`
-	SyncBeforeExport bool   `json:"sync_before_export"`
+	Enabled              bool   `json:"enabled"`
+	BaseURL              string `json:"base_url"`
+	APIToken             string `json:"api_token,omitempty"`
+	ClearAPIToken        bool   `json:"clear_api_token,omitempty"`
+	RequestTimeout       int    `json:"request_timeout_seconds"`
+	MirrorRemovedLocally bool   `json:"mirror_removed_locally"`
+	AutoSyncOnStart      bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins     int    `json:"sync_interval_minutes"`
+	SyncBeforeExport     bool   `json:"sync_before_export"`
 }
 
 type SettingsService struct {
@@ -138,7 +140,8 @@ func (s *SettingsService) UpdateObserver(ctx context.Context, update ObserverSet
 	nextObserver := config.ObserverConfig{
 		Enabled: update.Enabled, BaseURL: strings.TrimRight(strings.TrimSpace(update.BaseURL), "/"),
 		APIToken: previous.APIToken, RequestTimeout: update.RequestTimeout,
-		AutoSyncOnStart: update.AutoSyncOnStart, SyncIntervalMins: update.SyncIntervalMins,
+		MirrorRemovedLocally: update.MirrorRemovedLocally,
+		AutoSyncOnStart:      update.AutoSyncOnStart, SyncIntervalMins: update.SyncIntervalMins,
 		SyncBeforeExport: update.SyncBeforeExport,
 	}
 	if update.ClearAPIToken {
@@ -170,7 +173,7 @@ func observerSettingsView(value config.ObserverConfig) ObserverSettingsView {
 	config.NormalizeObserver(&value)
 	return ObserverSettingsView{
 		Enabled: value.Enabled, BaseURL: value.BaseURL, APITokenConfigured: value.APIToken != "",
-		RequestTimeout: value.RequestTimeout, AutoSyncOnStart: value.AutoSyncOnStart,
+		RequestTimeout: value.RequestTimeout, MirrorRemovedLocally: value.MirrorRemovedLocally, AutoSyncOnStart: value.AutoSyncOnStart,
 		SyncIntervalMins: value.SyncIntervalMins, SyncBeforeExport: value.SyncBeforeExport,
 	}
 }

@@ -214,7 +214,33 @@ describe('Observer UI', () => {
 		expect(archivedOwnerComment).toHaveClass('comment-card--author')
 		expect(within(archivedOwnerComment).getAllByText('洞主')).toHaveLength(1)
 		expect(screen.getByText('删除前只来得及保存部分内容')).toBeInTheDocument()
-		expect(screen.getByRole('link', { name: '返回删除记录' })).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: '返回最近删除' })).toBeInTheDocument()
+	})
+
+	it('reads recent deletions from Observer and saves a selected record locally', async () => {
+		const availability = { pid: 8449490, state: 'confirmed_unavailable', observed_at: '2026-07-16T10:00:00Z', observer_id: 'observer-1', completeness: 'complete' }
+		const post = { pid: 8449490, text: 'Observer 里的最新删除', timestamp: 1_784_100_000, reply: 0, praise_num: 3 }
+		let saveRequests = 0
+		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			const path = String(input)
+			if (path.endsWith('/jobs?limit=50')) return json([])
+			if (path.endsWith('/observer/status')) return json({ configured: true, enabled: true, connected: true, last_successful_scan_at: '2026-07-16T10:00:00Z' })
+			if (path.endsWith('/removed/8449490/save') && init?.method === 'POST') {
+				saveRequests++
+				return json({ availability, post, comments: [], media: [], source: 'observer', saved_locally: true })
+			}
+			if (path.endsWith('/removed/8449490')) return json({ availability, post, comments: [], media: [], source: 'observer', saved_locally: false })
+			if (path.includes('/removed?')) return json({ items: [{ ...availability, post }], has_more: false, source: 'observer', total: 1 })
+			throw new Error(`unexpected request ${path}`)
+		}))
+		const user = userEvent.setup()
+		renderApp('/removed')
+		expect(await screen.findByText('正在直接读取 Observer')).toBeInTheDocument()
+		expect(screen.getByText('Observer 里的最新删除')).toBeInTheDocument()
+		await user.click(screen.getByRole('link', { name: '查看删除记录 #8449490' }))
+		await user.click(await screen.findByRole('button', { name: '保存到本地' }))
+		await waitFor(() => expect(saveRequests).toBe(1))
+		expect(await screen.findByText('已保存到本地')).toBeInTheDocument()
 	})
 
 	it('requires an explicit choice before exporting a stale local snapshot', async () => {

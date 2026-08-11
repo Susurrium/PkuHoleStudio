@@ -12,7 +12,7 @@ describe('workspace routing', () => {
     expect(workspaceForLocation('/posts', '')).toBe('library')
     expect(workspaceForLocation('/ai', '')).toBe('library')
     expect(workspaceForLocation('/projects', '?project=1')).toBe('library')
-    expect(workspaceForLocation('/removed/123', '')).toBe('library')
+    expect(workspaceForLocation('/removed/123', '')).toBe('online')
     expect(workspaceForLocation('/tasks', '')).toBeNull()
     expect(workspaceForLocation('/settings', '')).toBeNull()
   })

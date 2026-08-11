@@ -112,7 +112,7 @@ func (s *DashboardService) ApproximateFromRecent(posts []models.Post, limit int,
 		limit = 5
 	}
 	if window <= 0 {
-		window = 12 * time.Hour
+		window = 24 * time.Hour
 	}
 	now := time.Now()
 	cutoff := now.Add(-window).Unix()

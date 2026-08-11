@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, KeyRound, ListRestart, Radio, RefreshCw, SearchCheck, ShieldCheck } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { AuthStatus, Job } from '../lib/types'
 import { JobRow } from '../components/JobRow'
@@ -13,27 +13,42 @@ import { setOnlineSession } from '../features/online/session'
 const syncTypes = new Set(['sync_followed', 'sync_pids', 'sync_latest', 'sync_pages', 'repair_comments', 'repair_media', 'repair_thumbnails', 'rebuild_references', 'cleanup_staging', 'fetch_images', 'save_raw_json'])
 
 export function SyncPage() {
-  const client = useQueryClient()
-  const [showLogin, setShowLogin] = useState(false)
-  const session = useQuery({ queryKey: ['session'], queryFn: api.session })
+	const client = useQueryClient()
+	const navigate = useNavigate()
+	const [searchParams] = useSearchParams()
+	const loginIntent = searchParams.get('intent') === 'login'
+	const requestedNext = searchParams.get('next') || '/online'
+	const next = requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/online'
+	const session = useQuery({ queryKey: ['session'], queryFn: api.session })
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs, refetchInterval: 10_000 })
-  const setSession = (value: AuthStatus) => {
-    client.setQueryData(['session'], value)
-    setOnlineSession(client, value)
-  }
+	const setSession = (value: AuthStatus) => {
+		client.setQueryData(['session'], value)
+		setOnlineSession(client, value)
+		if (loginIntent && value.can_read_online) navigate(next, { replace: true })
+	}
   const probe = useMutation({ mutationFn: api.probeSession, onSuccess: setSession })
 	const reload = useMutation({ mutationFn: api.reloadSession, onSuccess: setSession })
-	const logout = useMutation({ mutationFn: api.logoutSession, onSuccess: (value) => { setSession(value); setShowLogin(false) } })
+	const logout = useMutation({ mutationFn: api.logoutSession, onSuccess: setSession })
   const create = useMutation({ mutationFn: ({ type, payload }: { type: string; payload?: unknown }) => api.createJob(type, payload), onSuccess: () => client.invalidateQueries({ queryKey: ['jobs'] }) })
+	const autoProbeAttempted = useRef(false)
+	const probeSession = probe.mutate
+	const hasStoredSession = session.data?.has_session === true
+	const sessionChecked = session.data?.checked === true
 
-  useEffect(() => {
-    if (session.data?.has_session && !session.data.checked && !probe.isPending) probe.mutate()
-  }, [session.data?.has_session, session.data?.checked])
+	useEffect(() => {
+		if (!hasStoredSession || sessionChecked || autoProbeAttempted.current) return
+		autoProbeAttempted.current = true
+		probeSession()
+	}, [hasStoredSession, probeSession, sessionChecked])
 
-  if (session.isLoading || jobs.isLoading) return <LoadingState label="正在打开登录与保存…" />
-  if (session.error || jobs.error) return <>
+	useEffect(() => {
+		if (loginIntent && session.data?.checked && session.data.can_read_online) navigate(next, { replace: true })
+	}, [loginIntent, navigate, next, session.data?.can_read_online, session.data?.checked])
+
+	if (session.isLoading) return <LoadingState label="正在打开登录…" />
+	if (session.error) return <>
 	<PageHeader eyebrow="在线保存" title="保存在线内容" description="把需要的在线树洞保存到本机。" />
-	<FriendlyError title="暂时无法打开保存中心" description="请刷新页面后重试；已保存的本地资料不会受到影响。" error={session.error || jobs.error} />
+	<FriendlyError title="暂时无法打开登录" description="请刷新页面后重试；已保存的本地资料不会受到影响。" error={session.error} />
   </>
 
   const status = session.data
@@ -41,14 +56,15 @@ export function SyncPage() {
   const syncJobs = (jobs.data ?? []).filter((job) => syncTypes.has(job.type))
   const recentJobs = syncJobs.slice(0, 3)
   return <>
-	<PageHeader eyebrow="在线保存" title="保存在线内容" description="登录后选择要保存的范围；任务创建后可以离开本页。" actions={<>{status?.has_session && <button className="button-secondary" disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? '正在退出…' : '退出会话'}</button>}<button className="button-secondary" disabled={probe.isPending} onClick={() => probe.mutate()}><SearchCheck size={16} />{probe.isPending ? '检测中…' : '重新检测'}</button></>} />
+	<PageHeader eyebrow={loginIntent ? '在线树洞' : '在线保存'} title={loginIntent ? '登录在线树洞' : '保存在线内容'} description={loginIntent ? '使用北大学号完成登录；成功后会直接进入在线树洞。' : '登录后选择要保存的范围；任务创建后可以离开本页。'} actions={<>{status?.has_session && <button className="button-secondary" disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? '正在退出…' : '退出会话'}</button>}<button className="button-secondary" disabled={probe.isPending} onClick={() => probe.mutate()}><SearchCheck size={16} />{probe.isPending ? '检测中…' : '重新检测'}</button></>} />
     <section className={`panel p-5 md:p-6 ${online ? 'border-teal/30' : ''}`}>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3"><div className={`grid size-11 shrink-0 place-items-center rounded-xl ${online ? 'bg-teal-soft text-teal' : 'bg-coral-soft text-coral'}`}>{online ? <ShieldCheck size={20} /> : <KeyRound size={20} />}</div><div><p className="font-semibold">{online ? '已经登录，可以保存在线内容' : status?.has_session ? '已找到本机登录信息' : '需要登录树洞'}</p><p className="mt-1 text-sm leading-6 text-ink-soft">{sessionDescription(status, online)}</p>{status?.challenge_reason && <details className="mt-2 text-xs text-ink-soft"><summary className="cursor-pointer text-coral">查看验证详情</summary><p className="mt-1 break-all">{status.challenge_reason}</p></details>}</div></div>
-        {!online && <div className="w-full max-w-md lg:w-[420px]">
-		  {!showLogin && !status?.challenge && <div className="rounded-xl border border-line bg-white/55 p-4"><p className="text-sm font-semibold">选择登录方式</p><p className="mt-1 text-xs leading-5 text-ink-soft">如果已在本机登录过，先尝试载入现有登录状态。</p><button className="button-primary mt-3 w-full" type="button" disabled={reload.isPending} onClick={() => reload.mutate()}>{reload.isPending ? '正在载入…' : '载入已有登录状态'}</button><button className="button-secondary mt-2 w-full" type="button" onClick={() => setShowLogin(true)}>使用学号登录</button>{reload.error && <InlineError message="未能载入已有登录状态，请直接使用学号登录。" error={reload.error} />}<Link className="mt-3 block w-full text-center text-xs font-semibold text-ink-soft hover:text-ink" to="/imports">只迁移已有资料，不需要登录 →</Link></div>}
-		  {(showLogin || Boolean(status?.challenge)) && <><LoginPanel status={status} onStatus={setSession} />{!status?.challenge && <button className="mt-2 w-full text-xs text-ink-soft hover:text-ink" type="button" onClick={() => setShowLogin(false)}>返回登录方式</button>}</>}
-        </div>}
+		{!online && <div className="w-full max-w-md lg:w-[420px]">
+		  <LoginPanel status={status} onStatus={setSession} />
+		  {!status?.challenge && <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs"><button className="font-semibold text-ink-soft hover:text-ink" type="button" disabled={reload.isPending} onClick={() => reload.mutate()}>{reload.isPending ? '正在重新读取…' : '我刚在其他客户端登录，重新读取'}</button><Link className="font-semibold text-ink-soft hover:text-ink" to="/imports">只迁移已有资料 →</Link></div>}
+		  {reload.error && <InlineError message="未能重新读取其他客户端的登录状态，请直接使用学号登录。" error={reload.error} />}
+		</div>}
       </div>
     </section>
 
@@ -67,7 +83,7 @@ export function SyncPage() {
 
     <section className="panel mt-7 p-5 md:p-6">
 	  <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">最近保存任务</h2><div className="flex items-center gap-2"><span className="badge">{syncJobs.length} 条</span><Link className="text-xs font-semibold text-teal hover:underline" to="/tasks">查看全部</Link></div></div>
-      <div className="mt-5 grid gap-3">{recentJobs.length ? recentJobs.map((job) => <SyncJob key={job.id} job={job} />) : <p className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-ink-soft">还没有保存任务。登录后从上方选择一种保存方式。</p>}</div>
+      <div className="mt-5 grid gap-3">{jobs.isLoading ? <LoadingState label="正在读取保存任务…" /> : jobs.error ? <FriendlyError title="暂时无法读取保存任务" description="登录和创建新的保存任务不受影响，可以稍后重试。" error={jobs.error} /> : recentJobs.length ? recentJobs.map((job) => <SyncJob key={job.id} job={job} />) : <p className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-ink-soft">还没有保存任务。登录后从上方选择一种保存方式。</p>}</div>
     </section>
   </>
 }

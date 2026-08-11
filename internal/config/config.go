@@ -80,13 +80,14 @@ type AIConfig struct {
 // token is persisted locally, but must only ever be exposed as a configured
 // boolean by higher-level settings APIs.
 type ObserverConfig struct {
-	Enabled          bool   `json:"enabled"`
-	BaseURL          string `json:"base_url"`
-	APIToken         string `json:"api_token,omitempty"`
-	RequestTimeout   int    `json:"request_timeout_seconds"`
-	AutoSyncOnStart  bool   `json:"auto_sync_on_start"`
-	SyncIntervalMins int    `json:"sync_interval_minutes"`
-	SyncBeforeExport bool   `json:"sync_before_export"`
+	Enabled              bool   `json:"enabled"`
+	BaseURL              string `json:"base_url"`
+	APIToken             string `json:"api_token,omitempty"`
+	RequestTimeout       int    `json:"request_timeout_seconds"`
+	MirrorRemovedLocally bool   `json:"mirror_removed_locally"`
+	AutoSyncOnStart      bool   `json:"auto_sync_on_start"`
+	SyncIntervalMins     int    `json:"sync_interval_minutes"`
+	SyncBeforeExport     bool   `json:"sync_before_export"`
 }
 
 type Config struct {
@@ -417,7 +418,7 @@ func DefaultConfig() Config {
 			Providers: []AIProviderConfig{deepSeek, openAI}, Provider: deepSeek,
 		},
 		Observer: ObserverConfig{
-			RequestTimeout: 15, AutoSyncOnStart: true, SyncIntervalMins: 5, SyncBeforeExport: true,
+			RequestTimeout: 15, MirrorRemovedLocally: false, AutoSyncOnStart: true, SyncIntervalMins: 5, SyncBeforeExport: false,
 		},
 	}
 }
@@ -439,7 +440,6 @@ func NormalizeObserver(observer *ObserverConfig) {
 	}
 	if legacyEmpty {
 		observer.AutoSyncOnStart = true
-		observer.SyncBeforeExport = true
 	}
 	observer.BaseURL = strings.TrimRight(strings.TrimSpace(observer.BaseURL), "/")
 	observer.APIToken = strings.TrimSpace(observer.APIToken)

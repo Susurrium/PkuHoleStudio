@@ -72,7 +72,7 @@ export function OnboardingGuide() {
   function complete(target?: Workspace | 'import') {
     rememberOnboardingCompleted()
     setOpen(false)
-    if (target === 'online') navigate('/online')
+    if (target === 'online') navigate('/sync?intent=login&next=%2Fonline')
     if (target === 'library') navigate('/sync')
     if (target === 'import') navigate('/imports')
   }
@@ -101,7 +101,7 @@ export function OnboardingGuide() {
         <div className="mt-5 rounded-2xl border border-teal/25 bg-teal-soft/30 p-4 text-sm leading-6 text-ink-soft">左侧工作区开关可随时切换，也可以使用 <kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+1</kbd> 打开在线树洞、<kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs">Alt+2</kbd> 返回本地资料库。</div>
       </>}
 
-      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>不再自动显示</button><div className="flex flex-wrap justify-end gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : destination === 'online' ? <button className="button-primary" onClick={() => complete('online')}>进入在线树洞<ArrowRight size={15} /></button> : <><button className="button-secondary" onClick={() => complete('import')}>导入已有文件</button><button className="button-primary" onClick={() => complete('library')}>登录并保存内容<ArrowRight size={15} /></button></>}</div></div>
+      <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button className="button-secondary" onClick={() => complete()}>不再自动显示</button><div className="flex flex-wrap justify-end gap-2">{step > 0 && <button className="button-secondary" onClick={() => setStep(0)}>上一步</button>}{step === 0 ? <button className="button-primary" onClick={() => setStep(1)}>继续<ArrowRight size={15} /></button> : destination === 'online' ? <button className="button-primary" onClick={() => complete('online')}>登录并进入在线树洞<ArrowRight size={15} /></button> : <><button className="button-secondary" onClick={() => complete('import')}>导入已有文件</button><button className="button-primary" onClick={() => complete('library')}>登录并保存内容<ArrowRight size={15} /></button></>}</div></div>
     </section>
   </div>
 }

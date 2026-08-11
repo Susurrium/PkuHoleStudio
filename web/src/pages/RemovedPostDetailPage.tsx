@@ -1,31 +1,44 @@
-import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Image, RotateCcw, ShieldAlert, type LucideIcon } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, Image, RotateCcw, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { PostMetrics } from '../components/PostMetrics'
 import { ErrorState, LoadingState } from '../components/States'
 import { api } from '../lib/api'
+import { errorDescription, useFeedback } from '../components/Feedback'
 import { formatTime } from '../lib/format'
 import { resolveCommentIdentity } from '../lib/commentIdentity'
 import type { Comment, Media, ObserverAvailability } from '../lib/types'
 
 export function RemovedPostDetailPage() {
 	const { pid = '' } = useParams()
+	const client = useQueryClient()
+	const { notify } = useFeedback()
 	const detail = useQuery({ queryKey: ['removed-post', pid], queryFn: () => api.removedPost(pid), retry: false })
+	const save = useMutation({
+		mutationFn: () => api.saveRemovedPost(pid),
+		onSuccess: (saved) => {
+			client.setQueryData(['removed-post', pid], saved)
+			void client.invalidateQueries({ queryKey: ['posts'] })
+			notify({ title: '已保存到本地资料库', description: `删除记录 #${pid} 现在可以离线阅读、搜索和导出。` })
+		},
+		onError: (error) => notify({ tone: 'error', title: '未能保存删除记录', description: errorDescription(error) }),
+	})
 	if (detail.isLoading) return <LoadingState label={`正在读取删除记录 #${pid}…`} />
 	if (detail.error || !detail.data) return <ErrorState error={detail.error ?? new Error('删除记录不存在')} />
-	const { availability, post, comments = [], media = [] } = detail.data
+	const { availability, post, comments = [], media = [], source, saved_locally: savedLocally, stale, message } = detail.data
 	if (!post) return <MissingPostEvidence availability={availability} />
 	const postMedia = media.filter((item) => item.owner_type === 'post' && item.owner_id === post.pid)
 	const partial = availability.completeness !== 'complete'
 	return <>
-		<div className="mb-5 flex flex-wrap items-center justify-between gap-3"><Link className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-ink-soft hover:bg-white/60 hover:text-teal" to="/removed"><ArrowLeft size={16} />返回删除记录</Link><div className="flex flex-wrap gap-2"><AvailabilityBadge availability={availability} /><span className={`badge ${partial ? '!border-coral/30 !text-coral' : '!border-teal/30 !text-teal'}`}>{partial ? '部分保存' : '完整保存'}</span></div></div>
-		{partial && <div className="mb-5 flex items-start gap-3 rounded-xl border border-coral/30 bg-coral-soft/25 p-4" role="status"><AlertTriangle className="mt-0.5 shrink-0 text-coral" size={20} /><div><p className="font-semibold">删除前只来得及保存部分内容</p><p className="mt-1 text-xs leading-5 text-ink-soft">下面只展示确实保存到本机的正文、评论和图片，不会用占位内容冒充完整记录。</p></div></div>}
+		<div className="mb-5 flex flex-wrap items-center justify-between gap-3"><Link className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-ink-soft hover:bg-white/60 hover:text-teal" to="/removed"><ArrowLeft size={16} />返回最近删除</Link><div className="flex flex-wrap items-center gap-2"><AvailabilityBadge availability={availability} /><span className={`badge ${partial ? '!border-coral/30 !text-coral' : '!border-teal/30 !text-teal'}`}>{partial ? '部分快照' : '完整快照'}</span>{source === 'observer' && !savedLocally ? <button className="button-primary !min-h-9 text-xs" disabled={save.isPending} onClick={() => save.mutate()}><Download size={14} />{save.isPending ? '正在保存…' : '保存到本地'}</button> : savedLocally ? <span className="badge !border-teal/30 !text-teal"><CheckCircle2 size={12} />已保存到本地</span> : null}</div></div>
+		{(stale || message) && <div className="mb-5 rounded-xl border border-line bg-white/45 px-4 py-3 text-xs text-ink-soft" role="status">{message || '当前显示本机缓存。'}</div>}
+		{partial && <div className="mb-5 flex items-start gap-3 rounded-xl border border-coral/30 bg-coral-soft/25 p-4" role="status"><AlertTriangle className="mt-0.5 shrink-0 text-coral" size={20} /><div><p className="font-semibold">删除前只来得及保存部分内容</p><p className="mt-1 text-xs leading-5 text-ink-soft">下面只展示 Observer 确实捕获的正文、评论和图片，不会用占位内容冒充完整记录。</p></div></div>}
 		<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,860px)_minmax(290px,1fr)]">
 			<section className="min-w-0">
-				<article className="panel overflow-hidden" aria-labelledby="removed-post-title"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white/40 px-5 py-4 md:px-7"><span className="font-mono text-base font-bold text-coral">#{post.pid}</span><time className="text-xs text-ink-soft">发布于 {formatTime(post.timestamp)}</time></header><div className="px-5 py-7 md:px-7"><p id="removed-post-title" className="whitespace-pre-wrap text-base leading-8 md:text-[17px]">{post.text || '（无正文）'}</p><ArchivedMedia items={postMedia} pid={post.pid} /></div><footer className="flex flex-wrap gap-5 border-t border-line bg-paper/45 px-5 py-4 text-xs text-ink-soft md:px-7"><PostMetrics post={{ ...post, reply: post.reply ?? comments.length }} /><span>已保存到本机</span></footer></article>
-				<section className="mt-7"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">已保存评论</h2><span className="badge">{comments.length} 条</span></div>{comments.length ? <div className="grid gap-3">{comments.map((comment) => <ArchivedComment key={comment.cid} comment={comment} media={media} pid={post.pid} />)}</div> : <div className="panel p-7 text-center text-sm text-ink-soft">没有保存到评论{partial ? '；这可能是删除发生得太快' : ''}</div>}</section>
+				<article className="panel overflow-hidden" aria-labelledby="removed-post-title"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white/40 px-5 py-4 md:px-7"><span className="font-mono text-base font-bold text-coral">#{post.pid}</span><time className="text-xs text-ink-soft">发布于 {formatTime(post.timestamp)}</time></header><div className="px-5 py-7 md:px-7"><p id="removed-post-title" className="whitespace-pre-wrap text-base leading-8 md:text-[17px]">{post.text || '（无正文）'}</p><ArchivedMedia items={postMedia} pid={post.pid} /></div><footer className="flex flex-wrap gap-5 border-t border-line bg-paper/45 px-5 py-4 text-xs text-ink-soft md:px-7"><PostMetrics post={{ ...post, reply: post.reply ?? comments.length }} /><span>{source === 'observer' ? '来自 Observer' : '来自本机缓存'}</span></footer></article>
+				<section className="mt-7"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">捕获的评论</h2><span className="badge">{comments.length} 条</span></div>{comments.length ? <div className="grid gap-3">{comments.map((comment) => <ArchivedComment key={comment.cid} comment={comment} media={media} pid={post.pid} />)}</div> : <div className="panel p-7 text-center text-sm text-ink-soft">没有捕获到评论{partial ? '；这可能是删除发生得太快' : ''}</div>}</section>
 			</section>
-			<aside className="grid gap-5 xl:sticky xl:top-24"><AvailabilityTimeline availability={availability} /><section className="panel p-5"><p className="eyebrow">保存情况</p><h2 className="mt-1 text-lg font-semibold">这份记录包含什么</h2><dl className="mt-4 divide-y divide-line/70 text-sm"><InfoRow label="最后观察" value={formatISO(availability.observed_at)} /><InfoRow label="正文" value={post.text ? '已保存' : '未取得'} /><InfoRow label="评论" value={`${comments.length} 条`} /><InfoRow label="图片" value={`${media.filter((item) => item.status === 'available').length} 个可用`} /></dl><p className="mt-4 text-xs leading-5 text-ink-soft">“不可访问”只表示已经多次确认无法在线打开，不推测具体原因。</p><details className="mt-3 text-xs text-ink-soft"><summary className="cursor-pointer font-semibold">查看技术详情</summary><p className="mt-1 break-words">服务实例：{availability.observer_id || '未知'}</p></details></section></aside>
+			<aside className="grid gap-5 xl:sticky xl:top-24"><AvailabilityTimeline availability={availability} /><section className="panel p-5"><p className="eyebrow">快照情况</p><h2 className="mt-1 text-lg font-semibold">这份记录包含什么</h2><dl className="mt-4 divide-y divide-line/70 text-sm"><InfoRow label="确认时间" value={formatISO(availability.observed_at)} /><InfoRow label="正文" value={post.text ? '已捕获' : '未取得'} /><InfoRow label="评论" value={`${comments.length} 条`} /><InfoRow label="图片" value={media.length ? `${media.filter((item) => item.status === 'available').length} 个可用` : source === 'observer' ? '按服务返回结果' : '没有保存'} /></dl><p className="mt-4 text-xs leading-5 text-ink-soft">“不可访问”只表示已经多次确认无法在线打开，不推测具体原因。</p><details className="mt-3 text-xs text-ink-soft"><summary className="cursor-pointer font-semibold">查看技术详情</summary><p className="mt-1 break-words">数据来源：{source === 'observer' ? 'Observer 实时读取' : 'Studio 本机缓存'}</p><p className="mt-1 break-words">服务实例：{availability.observer_id || '未知'}</p></details></section></aside>
 		</div>
 	</>
 }

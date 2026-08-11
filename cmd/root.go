@@ -45,7 +45,7 @@ func NewRootCmd() *cobra.Command {
 			return prepareRuntime()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
+			return runWeb(cmd.Context())
 		},
 	}
 
@@ -60,8 +60,19 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newCrawlerCmd())
 	rootCmd.AddCommand(newRebuildSearchIndexCmd())
 	rootCmd.AddCommand(newWebCmd())
+	rootCmd.AddCommand(newTUICmd())
 
 	return rootCmd
+}
+
+func newTUICmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Start the terminal interface",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI()
+		},
+	}
 }
 
 func prepareRuntime() error {
