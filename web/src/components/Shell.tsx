@@ -10,6 +10,7 @@ const onlineNavigation = [
   { to: '/online', label: '在线首页', icon: Radio, end: true },
   { to: '/posts?source=live', label: '最新树洞', icon: Archive },
   { to: '/online#hot', label: '近期热榜', icon: Flame },
+  { to: '/removed', label: '最近删除', icon: ShieldAlert },
   { to: '/posts?source=live&followed=true', label: '我的关注', icon: Star },
   { to: '/notifications', label: '互动消息', icon: Bell },
   { to: '/posts?source=live&compose=true', label: '发表新洞', icon: PenLine },
@@ -18,7 +19,6 @@ const onlineNavigation = [
 const libraryNavigation = [
   { to: '/', label: '资料库概览', icon: Gauge, end: true },
   { to: '/posts', label: '全部资料', icon: Archive },
-  { to: '/removed', label: '删除记录', icon: ShieldAlert },
   { to: '/projects', label: '研究项目', icon: FolderKanban },
   { to: '/imports', label: '导入与导出', icon: Import },
   { to: '/ai', label: 'AI 研究', icon: Bot },

@@ -135,7 +135,7 @@ func TestDashboardHotPostsUsesSharedService(t *testing.T) {
 	if !ok {
 		t.Fatal("hot posts command returned an unexpected message")
 	}
-	if stub.limit != 5 || stub.window != 12*time.Hour {
+	if stub.limit != 5 || stub.window != 24*time.Hour {
 		t.Fatalf("request = limit %d window %s", stub.limit, stub.window)
 	}
 	if message.Error != nil || len(message.Posts) != 1 || message.Posts[0].ID != 8347014 {

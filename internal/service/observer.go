@@ -37,6 +37,7 @@ type ObserverRepository interface {
 	ListPostAvailabilities(context.Context, string, string, int, int) ([]models.PostAvailability, bool, error)
 	GetPostAvailability(context.Context, int32) (models.PostAvailability, bool, error)
 	ObserverPostContents(context.Context, int32) (*models.Post, []models.Comment, []models.Media, error)
+	SaveObserverBrowseRecord(context.Context, models.Post, []models.Comment, models.PostAvailability, string) error
 }
 
 type ObserverClient struct {
@@ -252,6 +253,15 @@ func sameOrigin(left, right *url.URL) bool {
 	return left != nil && right != nil && strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
 }
 
+type observerResponseError struct {
+	Status  int
+	Message string
+}
+
+func (e *observerResponseError) Error() string {
+	return fmt.Sprintf("Observer returned HTTP %d: %s", e.Status, e.Message)
+}
+
 func observerHTTPError(status int, data []byte) error {
 	message := strings.TrimSpace(string(data))
 	var envelope struct {
@@ -273,7 +283,7 @@ func observerHTTPError(status int, data []byte) error {
 	if message == "" {
 		message = http.StatusText(status)
 	}
-	return fmt.Errorf("Observer returned HTTP %d: %s", status, message)
+	return &observerResponseError{Status: status, Message: message}
 }
 
 func decodeObserverPayload(data []byte, output any) error {
@@ -365,6 +375,10 @@ type ObserverRemovedPage struct {
 	Items      []ObserverRemovedItem `json:"items"`
 	NextCursor int                   `json:"next_cursor,omitempty"`
 	HasMore    bool                  `json:"has_more"`
+	Source     string                `json:"source"`
+	Stale      bool                  `json:"stale"`
+	Message    string                `json:"message,omitempty"`
+	Total      int                   `json:"total,omitempty"`
 }
 
 type ObserverRemovedDetail struct {
@@ -372,6 +386,31 @@ type ObserverRemovedDetail struct {
 	Post         *models.Post            `json:"post,omitempty"`
 	Comments     []models.Comment        `json:"comments"`
 	Media        []models.Media          `json:"media"`
+	Source       string                  `json:"source"`
+	Stale        bool                    `json:"stale"`
+	Message      string                  `json:"message,omitempty"`
+	SavedLocally bool                    `json:"saved_locally"`
+}
+
+type observerRemoteRemovedPost struct {
+	models.Post
+	BodyComplete           bool   `json:"body_complete"`
+	CommentsComplete       bool   `json:"comments_complete"`
+	MediaComplete          bool   `json:"media_complete"`
+	AvailabilityState      string `json:"availability_state"`
+	AvailabilityObservedAt string `json:"availability_observed_at"`
+}
+
+type observerRemoteRemovedPage struct {
+	Items []observerRemoteRemovedPost `json:"items"`
+	Limit int                         `json:"limit"`
+	Page  int                         `json:"page"`
+	Total int                         `json:"total"`
+}
+
+type observerRemoteRemovedDetail struct {
+	Post     observerRemoteRemovedPost `json:"post"`
+	Comments []models.Comment          `json:"comments"`
 }
 
 type ObserverService struct {
@@ -449,7 +488,7 @@ func (s *ObserverService) syncLoop(ctx context.Context) {
 	first := true
 	for {
 		cfg := s.client.Config()
-		if cfg.Enabled && (!first || cfg.AutoSyncOnStart) {
+		if cfg.Enabled && cfg.MirrorRemovedLocally && (!first || cfg.AutoSyncOnStart) {
 			syncCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			_, _ = s.Sync(syncCtx)
 			cancel()
@@ -559,7 +598,7 @@ func (s *ObserverService) HotPosts(ctx context.Context, limit int, window time.D
 		limit = 5
 	}
 	if window <= 0 {
-		window = 12 * time.Hour
+		window = 24 * time.Hour
 	}
 	var response struct {
 		Posts []struct {
@@ -770,6 +809,81 @@ func parseObserverEventTime(primary, fallback string) (time.Time, error) {
 }
 
 func (s *ObserverService) Removed(ctx context.Context, state, query string, cursor, limit int) (ObserverRemovedPage, error) {
+	remote, remoteErr := s.remoteRemoved(ctx, state, query, cursor, limit)
+	if remoteErr == nil {
+		return remote, nil
+	}
+	local, localErr := s.removedLocal(ctx, state, query, cursor, limit)
+	if localErr != nil {
+		return ObserverRemovedPage{}, errors.Join(remoteErr, localErr)
+	}
+	local.Source = "local_cache"
+	local.Stale = true
+	local.Message = "Observer 暂时不可用，正在显示已经保存到本机的记录。"
+	return local, nil
+}
+
+func (s *ObserverService) remoteRemoved(ctx context.Context, state, query string, cursor, limit int) (ObserverRemovedPage, error) {
+	if s == nil || s.client == nil || !s.client.Config().Enabled {
+		return ObserverRemovedPage{}, errors.New("Observer service is unavailable")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	state = strings.TrimSpace(state)
+	if state == "" {
+		state = "confirmed_unavailable"
+	}
+	if state != "confirmed_unavailable" && state != "restored" && state != "all" {
+		return ObserverRemovedPage{}, errors.New("invalid availability state filter")
+	}
+	query = strings.TrimSpace(query)
+	if query != "" {
+		pid, parseErr := strconv.ParseInt(query, 10, 32)
+		if parseErr != nil || pid <= 0 {
+			return ObserverRemovedPage{}, errors.New("Observer recent deletions support PID search; text search is available in the local library")
+		}
+		detail, found, detailErr := s.remoteRemovedDetail(ctx, int32(pid))
+		if detailErr != nil {
+			return ObserverRemovedPage{}, detailErr
+		}
+		if !found || (state != "all" && detail.Availability.State != state) {
+			return ObserverRemovedPage{Items: []ObserverRemovedItem{}, Source: "observer"}, nil
+		}
+		return ObserverRemovedPage{Items: []ObserverRemovedItem{removedItemFromDetail(detail)}, Source: "observer", Total: 1}, nil
+	}
+
+	pageNumber := cursor/limit + 1
+	endpoint := fmt.Sprintf("/api/v1/removed?page=%d&limit=%d&state=%s", pageNumber, limit, url.QueryEscape(state))
+	var remote observerRemoteRemovedPage
+	if err := s.client.DoJSON(ctx, http.MethodGet, endpoint, nil, &remote); err != nil {
+		return ObserverRemovedPage{}, err
+	}
+	items := make([]ObserverRemovedItem, 0, len(remote.Items))
+	for index := range remote.Items {
+		availability, err := availabilityFromRemoteRemoved(remote.Items[index], defaultObserverID)
+		if err != nil {
+			return ObserverRemovedPage{}, err
+		}
+		post := remote.Items[index].Post
+		items = append(items, ObserverRemovedItem{
+			PID: availability.PID, State: availability.State, ObservedAt: availability.ObservedAt,
+			FirstUnavailableAt: availability.FirstUnavailableAt, LastUnavailableAt: availability.LastUnavailableAt,
+			RestoredAt: availability.RestoredAt, ObserverID: availability.ObserverID,
+			Completeness: availability.Completeness, Post: &post,
+		})
+	}
+	next := 0
+	if cursor+len(items) < remote.Total {
+		next = cursor + len(items)
+	}
+	return ObserverRemovedPage{Items: items, NextCursor: next, HasMore: next > 0, Source: "observer", Total: remote.Total}, nil
+}
+
+func (s *ObserverService) removedLocal(ctx context.Context, state, query string, cursor, limit int) (ObserverRemovedPage, error) {
 	rows, hasMore, err := s.repository.ListPostAvailabilities(ctx, state, query, cursor, limit)
 	if err != nil {
 		return ObserverRemovedPage{}, err
@@ -786,10 +900,61 @@ func (s *ObserverService) Removed(ctx context.Context, state, query string, curs
 	if hasMore {
 		next = cursor + len(items)
 	}
-	return ObserverRemovedPage{Items: items, NextCursor: next, HasMore: hasMore}, nil
+	return ObserverRemovedPage{Items: items, NextCursor: next, HasMore: hasMore, Source: "local"}, nil
 }
 
 func (s *ObserverService) RemovedDetail(ctx context.Context, pid int32) (ObserverRemovedDetail, bool, error) {
+	remote, found, remoteErr := s.remoteRemovedDetail(ctx, pid)
+	if remoteErr == nil && found {
+		localPost, _, _, localErr := s.repository.ObserverPostContents(ctx, pid)
+		if localErr != nil {
+			return ObserverRemovedDetail{}, false, localErr
+		}
+		remote.SavedLocally = localPost != nil
+		return remote, true, nil
+	}
+	local, localFound, localErr := s.removedDetailLocal(ctx, pid)
+	if localErr != nil {
+		return ObserverRemovedDetail{}, false, errors.Join(remoteErr, localErr)
+	}
+	if !localFound {
+		return ObserverRemovedDetail{}, false, remoteErr
+	}
+	local.Source = "local_cache"
+	local.Stale = true
+	local.SavedLocally = true
+	local.Message = "Observer 暂时不可用，正在显示已经保存到本机的快照。"
+	return local, true, nil
+}
+
+func (s *ObserverService) remoteRemovedDetail(ctx context.Context, pid int32) (ObserverRemovedDetail, bool, error) {
+	if s == nil || s.client == nil || !s.client.Config().Enabled || pid <= 0 {
+		return ObserverRemovedDetail{}, false, errors.New("Observer service is unavailable")
+	}
+	var remote observerRemoteRemovedDetail
+	if err := s.client.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v1/removed/%d", pid), nil, &remote); err != nil {
+		var responseErr *observerResponseError
+		if errors.As(err, &responseErr) && responseErr.Status == http.StatusNotFound {
+			return ObserverRemovedDetail{}, false, nil
+		}
+		return ObserverRemovedDetail{}, false, err
+	}
+	if remote.Post.Pid <= 0 {
+		return ObserverRemovedDetail{}, false, nil
+	}
+	availability, err := availabilityFromRemoteRemoved(remote.Post, defaultObserverID)
+	if err != nil {
+		return ObserverRemovedDetail{}, false, err
+	}
+	post := remote.Post.Post
+	comments := remote.Comments
+	if comments == nil {
+		comments = []models.Comment{}
+	}
+	return ObserverRemovedDetail{Availability: availability, Post: &post, Comments: comments, Media: []models.Media{}, Source: "observer"}, true, nil
+}
+
+func (s *ObserverService) removedDetailLocal(ctx context.Context, pid int32) (ObserverRemovedDetail, bool, error) {
 	availability, found, err := s.repository.GetPostAvailability(ctx, pid)
 	if err != nil || !found {
 		return ObserverRemovedDetail{}, found, err
@@ -804,7 +969,63 @@ func (s *ObserverService) RemovedDetail(ctx context.Context, pid int32) (Observe
 	if media == nil {
 		media = []models.Media{}
 	}
-	return ObserverRemovedDetail{Availability: availability, Post: post, Comments: comments, Media: media}, true, nil
+	return ObserverRemovedDetail{Availability: availability, Post: post, Comments: comments, Media: media, Source: "local", SavedLocally: post != nil}, true, nil
+}
+
+func (s *ObserverService) SaveRemoved(ctx context.Context, pid int32) (ObserverRemovedDetail, error) {
+	detail, found, err := s.remoteRemovedDetail(ctx, pid)
+	if err != nil {
+		return ObserverRemovedDetail{}, err
+	}
+	if !found || detail.Post == nil {
+		return ObserverRemovedDetail{}, errors.New("Observer removed post was not found")
+	}
+	instanceID := detail.Availability.RemoteInstanceID
+	if strings.TrimSpace(instanceID) == "" {
+		instanceID = defaultObserverID
+	}
+	if err := s.repository.SaveObserverBrowseRecord(ctx, *detail.Post, detail.Comments, detail.Availability, instanceID); err != nil {
+		return ObserverRemovedDetail{}, err
+	}
+	detail.SavedLocally = true
+	detail.Message = "这份 Observer 快照已保存到本地资料库。"
+	return detail, nil
+}
+
+func availabilityFromRemoteRemoved(remote observerRemoteRemovedPost, observerID string) (models.PostAvailability, error) {
+	observedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(remote.AvailabilityObservedAt))
+	if err != nil {
+		return models.PostAvailability{}, errors.New("Observer removed record has an invalid availability timestamp")
+	}
+	state := strings.TrimSpace(remote.AvailabilityState)
+	if state != "confirmed_unavailable" && state != "restored" {
+		return models.PostAvailability{}, errors.New("Observer removed record has an invalid availability state")
+	}
+	completeness := "partial"
+	if remote.BodyComplete && remote.CommentsComplete && remote.MediaComplete {
+		completeness = "complete"
+	}
+	availability := models.PostAvailability{
+		PID: remote.Pid, State: state, ObservedAt: observedAt.UTC(), ObserverID: observerID,
+		RemoteInstanceID: observerID, Completeness: completeness, UpdatedAt: time.Now().UTC(),
+	}
+	if state == "confirmed_unavailable" {
+		availability.FirstUnavailableAt = &availability.ObservedAt
+		availability.LastUnavailableAt = &availability.ObservedAt
+	} else {
+		availability.RestoredAt = &availability.ObservedAt
+	}
+	return availability, nil
+}
+
+func removedItemFromDetail(detail ObserverRemovedDetail) ObserverRemovedItem {
+	availability := detail.Availability
+	return ObserverRemovedItem{
+		PID: availability.PID, State: availability.State, ObservedAt: availability.ObservedAt,
+		FirstUnavailableAt: availability.FirstUnavailableAt, LastUnavailableAt: availability.LastUnavailableAt,
+		RestoredAt: availability.RestoredAt, ObserverID: availability.ObserverID,
+		Completeness: availability.Completeness, Post: detail.Post,
+	}
 }
 
 func (s *ObserverService) SubmitChallenge(ctx context.Context, code string) (ObserverStatusResult, error) {

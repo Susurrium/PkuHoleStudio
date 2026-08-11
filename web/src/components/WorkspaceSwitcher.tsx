@@ -5,11 +5,11 @@ import { useUIStore, type Workspace } from '../store/ui'
 import { useFeedback } from './Feedback'
 
 export function workspaceForLocation(pathname: string, search: string): Workspace | null {
-  if (pathname === '/online' || pathname === '/notifications' || pathname === '/campus') return 'online'
+  if (pathname === '/online' || pathname === '/notifications' || pathname === '/campus' || pathname.startsWith('/removed')) return 'online'
   if (pathname === '/posts' || pathname.startsWith('/posts/')) {
     return new URLSearchParams(search).get('source') === 'live' ? 'online' : 'library'
   }
-  if (pathname === '/' || pathname === '/search' || pathname === '/imports' || pathname === '/projects' || pathname.startsWith('/removed') || pathname === '/ai' || pathname === '/maintenance') return 'library'
+  if (pathname === '/' || pathname === '/search' || pathname === '/imports' || pathname === '/projects' || pathname === '/ai' || pathname === '/maintenance') return 'library'
   return null
 }
 

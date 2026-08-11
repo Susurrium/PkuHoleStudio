@@ -63,7 +63,7 @@ test('dashboard to import, search, detail, and AI flow', async ({ page }) => {
 		else if (path === '/api/v1/ai/providers') data = [{ name: 'DeepSeek', base_url: 'https://api.deepseek.com', model: 'deepseek-chat', configured: false }]
 		else if (path === '/api/v1/ai/sessions') data = []
 		else if (path === '/api/v1/session/probe') data = { checked: true, has_session: false, can_read_online: false, can_write_online: false, message: '请先登录' }
-    else if (path.startsWith('/api/v1/posts/hot')) data = { items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true }
+    else if (path.startsWith('/api/v1/posts/hot')) data = { items: [], source: 'live_recent', window_hours: 24, updated_at: 1_784_100_000, stale: false, approximate: true }
 	else if (path === '/api/v1/imports/preflight' && route.request().method() === 'POST') data = {
 		token: 'preview-1', status: 'awaiting_confirmation', expires_at: '2026-01-01T01:00:00Z', filename: 'sample.treehole.zip',
 		preflight: { format: 'v2', status: 'completed', hash: 'abc', run_id: 'run-1', counts: { items: 1, valid_items: 1, comments: 1 }, issues: [] },

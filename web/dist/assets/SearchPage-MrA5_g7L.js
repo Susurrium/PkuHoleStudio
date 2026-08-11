@@ -1,0 +1,1 @@
+import{d as e,i as t,p as n}from"./chunk-62JRHF6Z-CIXhDEre.js";var r=n();function i(){let[n]=e(),i=new URLSearchParams(n);return!i.has(`focus`)&&!i.has(`q`)&&i.set(`focus`,`search`),(0,r.jsx)(t,{to:`/posts?${i}`,replace:!0})}export{i as SearchPage};

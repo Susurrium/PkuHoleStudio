@@ -128,8 +128,10 @@ jobs:
         run: |
           $binary = Get-ChildItem dist/treehole-windows-*.exe | Select-Object -First 1
           if (-not $binary) { throw "Windows binary was not produced" }
+          Copy-Item -LiteralPath "packaging/windows/启动 PkuHoleStudio.cmd" -Destination $binary.DirectoryName
+          Copy-Item -LiteralPath "packaging/windows/使用说明.txt" -Destination $binary.DirectoryName
           $archive = Join-Path $binary.DirectoryName "$($binary.BaseName).zip"
-          Compress-Archive -Path $binary.FullName -DestinationPath $archive -Force
+          Compress-Archive -Path $binary.FullName, (Join-Path $binary.DirectoryName "启动 PkuHoleStudio.cmd"), (Join-Path $binary.DirectoryName "使用说明.txt") -DestinationPath $archive -Force
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

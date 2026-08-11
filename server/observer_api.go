@@ -135,6 +135,25 @@ func apiObserverRemovedDetail(dependencies Dependencies) gin.HandlerFunc {
 	}
 }
 
+func apiObserverSaveRemoved(dependencies Dependencies) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireStudioBrowser(c) || !requireObserver(c, dependencies) {
+			return
+		}
+		pid, err := strconv.ParseInt(c.Param("pid"), 10, 32)
+		if err != nil || pid <= 0 {
+			apiFailure(c, http.StatusBadRequest, "invalid_input", "pid must be a positive integer", gin.H{"field": "pid"})
+			return
+		}
+		detail, err := dependencies.Observer.SaveRemoved(c.Request.Context(), int32(pid))
+		if err != nil {
+			apiFailure(c, http.StatusBadGateway, "removed_save_failed", err.Error(), nil)
+			return
+		}
+		apiRespond(c, http.StatusOK, detail)
+	}
+}
+
 func apiObserverSubmitChallenge(dependencies Dependencies) gin.HandlerFunc {
 	type request struct {
 		Code string `json:"code"`

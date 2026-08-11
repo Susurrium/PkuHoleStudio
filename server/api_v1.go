@@ -129,6 +129,7 @@ func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
 	group.POST("/observer/auth/retry", apiObserverRetryAuth(dependencies))
 	group.GET("/removed", apiObserverRemoved(dependencies))
 	group.GET("/removed/:pid", apiObserverRemovedDetail(dependencies))
+	group.POST("/removed/:pid/save", apiObserverSaveRemoved(dependencies))
 	group.POST("/settings/ai/providers", apiCreateAIProviderSetting(dependencies))
 	group.PATCH("/settings/ai/providers/:id", apiUpdateAIProviderSetting(dependencies))
 	group.DELETE("/settings/ai/providers/:id", apiDeleteAIProviderSetting(dependencies))
@@ -1919,7 +1920,7 @@ func apiHotPosts(dependencies Dependencies) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		result, hotErr := dependencies.Dashboard.HotPosts(c.Request.Context(), limit, 12*time.Hour)
+		result, hotErr := dependencies.Dashboard.HotPosts(c.Request.Context(), limit, 24*time.Hour)
 		if hotErr != nil {
 			apiFailure(c, http.StatusBadGateway, "hot_posts_unavailable", hotErr.Error(), nil)
 			return

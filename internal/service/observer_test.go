@@ -263,6 +263,67 @@ func TestObserverHotPostsKeepsPraiseAndFollowCountsDistinct(t *testing.T) {
 	}
 }
 
+func TestObserverRemovedReadsRemoteFeedAndSavesOnlyOnRequest(t *testing.T) {
+	const removedPost = `{"pid":8449490,"text":"removed from observer","timestamp":1784102400,"reply":1,"likenum":2,"praise_num":3,"body_complete":true,"comments_complete":true,"media_complete":true,"availability_state":"confirmed_unavailable","availability_observed_at":"2026-07-16T10:00:00Z"}`
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer token" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/api/v1/removed":
+			if request.URL.Query().Get("page") != "1" || request.URL.Query().Get("limit") != "30" || request.URL.Query().Get("state") != "confirmed_unavailable" {
+				writer.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_, _ = fmt.Fprintf(writer, `{"items":[%s],"limit":30,"page":1,"total":1}`, removedPost)
+		case "/api/v1/removed/8449490":
+			_, _ = fmt.Fprintf(writer, `{"post":%s,"comments":[{"cid":1,"pid":8449490,"text":"saved comment","timestamp":1784102500}]}`, removedPost)
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	repository := &observerRepositoryStub{receipts: map[int64]string{}}
+	service, err := NewObserverService(repository, &observerArchiveStub{}, t.TempDir(), config.ObserverConfig{Enabled: true, BaseURL: server.URL, APIToken: "token", RequestTimeout: 15, SyncIntervalMins: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.client.mu.Lock()
+	service.client.client.Transport = server.Client().Transport
+	service.client.mu.Unlock()
+
+	page, err := service.Removed(context.Background(), "confirmed_unavailable", "", 0, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Source != "observer" || page.Stale || page.Total != 1 || len(page.Items) != 1 || page.Items[0].PID != 8_449_490 || page.Items[0].Post == nil || page.Items[0].Post.Text != "removed from observer" || page.Items[0].Completeness != "complete" {
+		t.Fatalf("Removed() = %+v", page)
+	}
+	if repository.savedPost != nil {
+		t.Fatal("browsing the remote feed unexpectedly persisted the post")
+	}
+
+	detail, found, err := service.RemovedDetail(context.Background(), 8_449_490)
+	if err != nil || !found {
+		t.Fatalf("RemovedDetail() found=%v err=%v", found, err)
+	}
+	if detail.Source != "observer" || detail.SavedLocally || detail.Post == nil || len(detail.Comments) != 1 {
+		t.Fatalf("RemovedDetail() = %+v", detail)
+	}
+	if _, found, err := service.RemovedDetail(context.Background(), 999); err != nil || found {
+		t.Fatalf("missing RemovedDetail() found=%v err=%v", found, err)
+	}
+
+	saved, err := service.SaveRemoved(context.Background(), 8_449_490)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.SavedLocally || repository.savedPost == nil || repository.savedPost.Pid != 8_449_490 || len(repository.savedComments) != 1 || repository.availability.State != "confirmed_unavailable" {
+		t.Fatalf("SaveRemoved()=%+v repository=%+v", saved, repository)
+	}
+}
+
 func testObserverClient(t *testing.T, server *httptest.Server, token string) *ObserverClient {
 	t.Helper()
 	client, err := NewObserverClient(config.ObserverConfig{Enabled: true, BaseURL: server.URL, APIToken: token, RequestTimeout: 15, SyncIntervalMins: 5})
@@ -276,10 +337,12 @@ func testObserverClient(t *testing.T, server *httptest.Server, token string) *Ob
 }
 
 type observerRepositoryStub struct {
-	mu           sync.Mutex
-	state        models.ObserverSyncState
-	receipts     map[int64]string
-	availability models.PostAvailability
+	mu            sync.Mutex
+	state         models.ObserverSyncState
+	receipts      map[int64]string
+	availability  models.PostAvailability
+	savedPost     *models.Post
+	savedComments []models.Comment
 }
 
 func (r *observerRepositoryStub) GetObserverSyncState(context.Context, string) (models.ObserverSyncState, bool, error) {
@@ -317,6 +380,14 @@ func (*observerRepositoryStub) GetPostAvailability(context.Context, int32) (mode
 }
 func (*observerRepositoryStub) ObserverPostContents(context.Context, int32) (*models.Post, []models.Comment, []models.Media, error) {
 	return nil, nil, nil, nil
+}
+func (r *observerRepositoryStub) SaveObserverBrowseRecord(_ context.Context, post models.Post, comments []models.Comment, availability models.PostAvailability, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.savedPost = &post
+	r.savedComments = append([]models.Comment(nil), comments...)
+	r.availability = availability
+	return nil
 }
 
 type observerArchiveStub struct{ imports int }

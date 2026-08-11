@@ -42,8 +42,9 @@ describe('PkuHoleStudio Web', () => {
 			if (path.endsWith('/health')) return json({ status: 'ok', posts: 0, comments: 0 })
 			if (path.endsWith('/capabilities')) return json({ api_version: 'v1', schema_version: 4, fts5: true })
 			if (path.includes('/jobs')) return json([])
+			if (path.endsWith('/session')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false })
 			if (path.endsWith('/session/probe')) return json({ checked: true, has_session: false, can_read_online: false, can_write_online: false })
-			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true })
+			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 24, updated_at: 1_784_100_000, stale: false, approximate: true })
 			throw new Error(`unexpected request ${path}`)
 		}))
 		const user = userEvent.setup()
@@ -52,8 +53,9 @@ describe('PkuHoleStudio Web', () => {
 		await user.click(within(dialog).getByRole('button', { name: /在线树洞/ }))
 		await user.click(within(dialog).getByRole('button', { name: '继续' }))
 		expect(await screen.findByRole('heading', { name: '理解在线与本地的关系' })).toBeInTheDocument()
-		await user.click(screen.getByRole('button', { name: '进入在线树洞' }))
-		expect(await screen.findByRole('heading', { name: '在线树洞' })).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: '登录并进入在线树洞' }))
+		expect(await screen.findByRole('heading', { name: '登录在线树洞' })).toBeInTheDocument()
+		expect(screen.getByPlaceholderText('北大学号（无需邮箱后缀）')).toBeInTheDocument()
 		expect(window.localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe('completed')
 	})
 
@@ -351,7 +353,7 @@ describe('PkuHoleStudio Web', () => {
 		const user = userEvent.setup()
 		renderApp('/online')
 		expect(await screen.findByRole('heading', { name: '最近 24 小时热榜' })).toBeInTheDocument()
-		expect(screen.getByText('当前显示最近一次可用结果')).toBeInTheDocument()
+		expect(await screen.findByText('当前显示最近一次可用结果')).toBeInTheDocument()
 		expect(screen.getByText('降级热榜')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: '刷新热榜' }))
 		await waitFor(() => expect(hotRequests).toBe(2))
@@ -364,7 +366,7 @@ describe('PkuHoleStudio Web', () => {
 			const path = String(input)
 			if (path.includes('/posts/hot')) {
 				hotRequests++
-				return json({ items: [{ id: 456, text: '聚焦热榜测试', follownum: 21, praise_num: 99, reply: 8, score: 42.5 }], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true })
+				return json({ items: [{ id: 456, text: '聚焦热榜测试', follownum: 21, praise_num: 99, reply: 8, score: 42.5 }], source: 'live_recent', window_hours: 24, updated_at: 1_784_100_000, stale: false, approximate: true })
 			}
 			if (path.includes('/posts?')) { latestRequests++; return json({ items: [{ pid: 999, text: '不应出现的最新动态' }], has_more: false }) }
 			if (path.endsWith('/session/probe')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
@@ -391,7 +393,7 @@ describe('PkuHoleStudio Web', () => {
 		vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
 			const path = String(input)
 			if (path.endsWith('/session/probe')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
-			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true })
+			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 24, updated_at: 1_784_100_000, stale: false, approximate: true })
 			if (path.includes('/posts?source=live')) return json({ items: [{ pid: 101, text: '已经保存的在线洞', reply: 1, local_state: 'saved' }, { pid: 102, text: '尚未保存的在线洞', reply: 0, local_state: saved ? 'saved' : 'not_saved' }], has_more: false })
 			if (path.includes('/posts?') && path.includes('source=local')) return json({ items: [{ pid: 102, text: '已交接到本地的树洞', reply: 0, local_state: 'saved' }], has_more: false })
 			if (path.endsWith('/local-tags') || path.includes('/search/history') || path.endsWith('/projects')) return json([])
@@ -422,7 +424,7 @@ describe('PkuHoleStudio Web', () => {
 			const path = String(input)
 			const base = { id: 'save-103', type: 'sync_pids', completed_items: 0, failed_items: 1, total_items: 1, attempts: 1, error: '在线会话已过期', created_at: '2026-07-16T00:00:00Z', updated_at: '2026-07-16T00:00:01Z' }
 			if (path.endsWith('/session/probe')) return json({ checked: true, has_session: true, can_read_online: true, can_write_online: true })
-			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 12, updated_at: 1_784_100_000, stale: false, approximate: true })
+			if (path.includes('/posts/hot')) return json({ items: [], source: 'live_recent', window_hours: 24, updated_at: 1_784_100_000, stale: false, approximate: true })
 			if (path.includes('/posts?source=live')) return json({ items: [{ pid: 103, text: '等待保存的在线洞', reply: 0, local_state: 'not_saved' }], has_more: false })
 			if (path.endsWith('/jobs') && init?.method === 'POST') return json({ ...base, status: 'queued', failed_items: 0, attempts: 0 }, 202)
 			if (path.endsWith('/jobs/save-103/retry') && init?.method === 'POST') { retryCalls++; return json({ ...base, status: 'queued', failed_items: 0, error: '' }) }
@@ -1039,7 +1041,7 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '载入已有登录状态' }))
+		await user.click(await screen.findByRole('button', { name: '我刚在其他客户端登录，重新读取' }))
 		expect(await screen.findByText('已经登录，可以保存在线内容')).toBeInTheDocument()
 		expect(screen.getByText(/按 PID、关注列表或最新时间线保存内容/)).toBeInTheDocument()
 	})
@@ -1098,7 +1100,6 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录' }))
@@ -1123,7 +1124,6 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
 		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录' }))
@@ -1148,8 +1148,7 @@ describe('PkuHoleStudio Web', () => {
 		}))
 		const user = userEvent.setup()
 		renderApp('/sync')
-		await user.click(await screen.findByRole('button', { name: '使用学号登录' }))
-		await user.type(screen.getByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
+		await user.type(await screen.findByPlaceholderText('北大学号（无需邮箱后缀）'), '1234567890')
 		await user.type(screen.getByPlaceholderText('密码（不会由网页保存）'), 'secret')
 		await user.click(screen.getByRole('button', { name: '登录' }))
 		await user.click(await screen.findByRole('button', { name: '发送树洞短信验证码' }))

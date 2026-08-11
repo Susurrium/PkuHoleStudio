@@ -1531,7 +1531,7 @@ func loadDashboardHotPostsCmd(dashboard DashboardHotPostsOperations) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result, err := dashboard.HotPosts(ctx, 5, 12*time.Hour)
+		result, err := dashboard.HotPosts(ctx, 5, 24*time.Hour)
 		if err != nil {
 			return LoadDashboardHotPostsMsg{Error: err}
 		}

@@ -8,8 +8,8 @@
 
 | 命令 | 用途 |
 | --- | --- |
-| `treehole web` | 启动本机 Web 与 API，并默认打开浏览器 |
-| `treehole` | 启动键盘操作的 TUI |
+| `treehole` / `treehole web` | 启动本机 Web 与 API，并默认打开浏览器 |
+| `treehole tui` | 启动键盘操作的 TUI |
 | `treehole crawler` | 运行兼容的批量采集工具 |
 | `treehole server` | 启动 API-only 服务 |
 | `treehole rebuild-search-index` | 重建 SQLite 全文搜索索引 |

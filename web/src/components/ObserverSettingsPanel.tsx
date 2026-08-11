@@ -9,9 +9,10 @@ const defaultSettings: ObserverSettingsUpdate = {
 	enabled: false,
 	base_url: '',
 	request_timeout_seconds: 15,
+	mirror_removed_locally: false,
 	auto_sync_on_start: true,
 	sync_interval_minutes: 5,
-	sync_before_export: true,
+	sync_before_export: false,
 }
 
 export function ObserverSettingsPanel() {
@@ -36,6 +37,7 @@ export function ObserverSettingsPanel() {
 			enabled: settings.data.enabled,
 			base_url: settings.data.base_url,
 			request_timeout_seconds: settings.data.request_timeout_seconds,
+			mirror_removed_locally: settings.data.mirror_removed_locally ?? false,
 			auto_sync_on_start: settings.data.auto_sync_on_start,
 			sync_interval_minutes: settings.data.sync_interval_minutes,
 			sync_before_export: settings.data.sync_before_export,
@@ -49,7 +51,7 @@ export function ObserverSettingsPanel() {
 			setAPIToken('')
 			client.setQueryData(['observer-settings'], saved)
 			void refreshStatus()
-			notify({ title: '删除记录服务设置已保存', description: saved.enabled ? 'Studio 将在后台同步热榜和删除记录。' : '删除记录与热榜服务当前已停用。' })
+			notify({ title: '删除记录服务设置已保存', description: saved.enabled ? 'Studio 将直接读取热榜和最近删除；本地镜像按你的选择运行。' : '删除记录与热榜服务当前已停用。' })
 		},
 		onError: (error) => notify({ tone: 'error', title: '服务设置保存失败', description: errorDescription(error) }),
 	})
@@ -91,7 +93,7 @@ export function ObserverSettingsPanel() {
 
 	return <section id="observer-service" className="panel scroll-mt-32 p-5 lg:col-span-2 md:p-6">
 		<div className="flex flex-wrap items-start justify-between gap-4">
-			<div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-soft text-teal"><Cloud size={21} /></div><div><p className="eyebrow">可选服务</p><h2 className="mt-1 text-lg font-semibold">删除记录与热榜</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-soft">连接你部署的 Observer，自动同步近期热榜和已经无法在线访问的树洞。访问令牌只保存在本机。</p></div></div>
+			<div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-soft text-teal"><Cloud size={21} /></div><div><p className="eyebrow">可选服务</p><h2 className="mt-1 text-lg font-semibold">删除记录与热榜</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-ink-soft">连接你部署的 Observer，直接读取 24 小时热榜和最近删除。访问令牌只保存在本机；删除快照无需默认复制到本地。</p></div></div>
 			{settings.data && <span className={`badge gap-1 ${settings.data.enabled ? '!border-teal/30 !text-teal' : ''}`}>{settings.data.enabled ? <><ShieldCheck size={12} />已启用</> : <><WifiOff size={12} />已停用</>}</span>}
 		</div>
 
@@ -101,8 +103,7 @@ export function ObserverSettingsPanel() {
 					<Toggle checked={draft.enabled} title="启用删除记录与热榜" description="启用后，Studio 会在后台从这个服务获取更新。" onChange={(enabled) => setDraft((current) => ({ ...current, enabled }))} />
 					<label className="mt-4 block text-xs font-medium text-ink-soft">服务地址<input className="field mt-1.5" type="url" required={draft.enabled} placeholder="https://observer.example.com" value={draft.base_url} onChange={(event) => setDraft((current) => ({ ...current, base_url: event.target.value }))} /></label>
 					<label className="mt-4 block text-xs font-medium text-ink-soft">访问令牌<input className="field mt-1.5" type="password" autoComplete="new-password" value={apiToken} placeholder={settings.data?.api_token_configured ? '已配置；留空保留现有令牌' : '输入服务访问令牌'} onChange={(event) => setAPIToken(event.target.value)} /></label>
-					<details className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><summary className="cursor-pointer text-xs font-semibold text-ink-soft">高级连接设置</summary><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-ink-soft">请求超时（秒）<input className="field mt-1.5" type="number" min="1" max="120" value={draft.request_timeout_seconds} onChange={(event) => setDraft((current) => ({ ...current, request_timeout_seconds: Number(event.target.value) }))} /></label><label className="text-xs font-medium text-ink-soft">自动同步间隔（分钟）<input className="field mt-1.5" type="number" min="1" max="1440" value={draft.sync_interval_minutes} onChange={(event) => setDraft((current) => ({ ...current, sync_interval_minutes: Number(event.target.value) }))} /></label></div></details>
-					<div className="mt-4 grid gap-2 sm:grid-cols-2"><Toggle compact checked={draft.auto_sync_on_start} title="启动后自动同步" description="打开 Studio 时拉取新事件。" onChange={(auto_sync_on_start) => setDraft((current) => ({ ...current, auto_sync_on_start }))} /><Toggle compact checked={draft.sync_before_export} title="导出前先同步" description="确保删除快照进入本地导出。" onChange={(sync_before_export) => setDraft((current) => ({ ...current, sync_before_export }))} /></div>
+					<details className="mt-4 rounded-xl border border-line bg-paper/45 p-3"><summary className="cursor-pointer text-xs font-semibold text-ink-soft">高级连接与本地镜像</summary><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-ink-soft">请求超时（秒）<input className="field mt-1.5" type="number" min="1" max="120" value={draft.request_timeout_seconds} onChange={(event) => setDraft((current) => ({ ...current, request_timeout_seconds: Number(event.target.value) }))} /></label><label className="text-xs font-medium text-ink-soft">镜像间隔（分钟）<input className="field mt-1.5" type="number" min="1" max="1440" disabled={!draft.mirror_removed_locally} value={draft.sync_interval_minutes} onChange={(event) => setDraft((current) => ({ ...current, sync_interval_minutes: Number(event.target.value) }))} /></label></div><div className="mt-3 grid gap-2"><Toggle compact checked={draft.mirror_removed_locally} title="自动镜像删除快照到本机" description="默认不需要；仅在需要完整离线副本时开启。" onChange={(mirror_removed_locally) => setDraft((current) => ({ ...current, mirror_removed_locally }))} /><div className="grid gap-2 sm:grid-cols-2"><Toggle compact checked={draft.auto_sync_on_start} title="启动后立即镜像" description="仅在开启本地镜像时生效。" onChange={(auto_sync_on_start) => setDraft((current) => ({ ...current, auto_sync_on_start }))} /><Toggle compact checked={draft.sync_before_export} title="导出前先镜像" description="导出前补齐 Observer 删除快照。" onChange={(sync_before_export) => setDraft((current) => ({ ...current, sync_before_export }))} /></div></div></details>
 					<div className="mt-5 flex flex-wrap gap-2"><button className="button-primary" disabled={save.isPending || (draft.enabled && (!draft.base_url.trim() || (!settings.data?.api_token_configured && !apiToken.trim())))}><Save size={15} />{save.isPending ? '正在保存…' : '保存服务设置'}</button><button type="button" className="button-secondary" disabled={test.isPending || !settings.data?.enabled || !settings.data.api_token_configured} onClick={() => test.mutate()}><Activity size={15} />{test.isPending ? '正在测试…' : '测试连接'}</button></div>
 				</form>
 				<ObserverRuntimeStatus status={serviceEnabled ? status.data : undefined} loading={serviceEnabled && (status.isLoading || status.isFetching)} error={serviceEnabled ? status.error : undefined} refresh={() => status.refetch()} sync={() => sync.mutate()} syncing={sync.isPending} retryLogin={() => retryLogin.mutate()} retrying={retryLogin.isPending} />

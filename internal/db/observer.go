@@ -224,3 +224,73 @@ func (d *Database) ObserverPostContents(ctx context.Context, pid int32) (*models
 	}
 	return &post, comments, media, nil
 }
+
+// SaveObserverBrowseRecord persists one explicitly selected Observer record
+// without advancing the durable event cursor. Browsing the remote deletion
+// feed remains independent from mirroring the complete Observer history.
+func (d *Database) SaveObserverBrowseRecord(ctx context.Context, post models.Post, comments []models.Comment, availability models.PostAvailability, sourceRef string) error {
+	if d == nil || d.db == nil {
+		return errors.New("database is not initialized")
+	}
+	if post.Pid <= 0 || availability.PID != post.Pid || availability.ObservedAt.IsZero() {
+		return errors.New("Observer browse record is invalid")
+	}
+	posts := []models.Post{post}
+	sanitizePosts(posts)
+	sanitizeComments(comments)
+	now := time.Now().UTC()
+	availability.UpdatedAt = now
+	if availability.ObserverID == "" {
+		availability.ObserverID = "default"
+	}
+	if availability.RemoteInstanceID == "" {
+		availability.RemoteInstanceID = strings.TrimSpace(sourceRef)
+	}
+	return d.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := upsertPosts(tx, posts); err != nil {
+			return err
+		}
+		if err := upsertComments(tx, comments); err != nil {
+			return err
+		}
+		source := models.PostSource{
+			PID: post.Pid, Source: "observer", SourceRef: strings.TrimSpace(sourceRef),
+			FirstSeenAt: now, LastSeenAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "pid"}, {Name: "source"}, {Name: "source_ref"}},
+			DoUpdates: clause.Assignments(map[string]any{"context_only": false, "last_seen_at": now}),
+		}).Create(&source).Error; err != nil {
+			return err
+		}
+		var current models.PostAvailability
+		err := tx.Where("pid = ?", availability.PID).First(&current).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&availability).Error
+		}
+		if err != nil {
+			return err
+		}
+		if availability.ObservedAt.Before(current.ObservedAt) {
+			return nil
+		}
+		if current.FirstUnavailableAt != nil && (availability.FirstUnavailableAt == nil || current.FirstUnavailableAt.Before(*availability.FirstUnavailableAt)) {
+			availability.FirstUnavailableAt = current.FirstUnavailableAt
+		}
+		if availability.State == "restored" {
+			availability.LastUnavailableAt = current.LastUnavailableAt
+			if availability.SnapshotID == "" {
+				availability.SnapshotID = current.SnapshotID
+			}
+		} else {
+			availability.RestoredAt = nil
+		}
+		return tx.Model(&models.PostAvailability{}).Where("pid = ?", availability.PID).Updates(map[string]any{
+			"state": availability.State, "observed_at": availability.ObservedAt,
+			"first_unavailable_at": availability.FirstUnavailableAt, "last_unavailable_at": availability.LastUnavailableAt,
+			"restored_at": availability.RestoredAt, "observer_id": availability.ObserverID,
+			"remote_instance_id": availability.RemoteInstanceID, "completeness": availability.Completeness,
+			"snapshot_id": availability.SnapshotID, "updated_at": now,
+		}).Error
+	})
+}

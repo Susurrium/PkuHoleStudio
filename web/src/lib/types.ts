@@ -119,6 +119,7 @@ export interface ObserverSettings {
   base_url: string
   api_token_configured: boolean
   request_timeout_seconds: number
+  mirror_removed_locally: boolean
   auto_sync_on_start: boolean
   sync_interval_minutes: number
   sync_before_export: boolean
@@ -210,6 +211,10 @@ export interface RemovedPostPage {
   items: RemovedPostSummary[]
   next_cursor?: number
   has_more: boolean
+  source?: 'observer' | 'local' | 'local_cache' | string
+  stale?: boolean
+  message?: string
+  total?: number
 }
 
 export interface RemovedPostDetail {
@@ -217,6 +222,10 @@ export interface RemovedPostDetail {
   post?: Post
   comments: Comment[]
   media: Media[]
+  source?: 'observer' | 'local' | 'local_cache' | string
+  stale?: boolean
+  message?: string
+  saved_locally?: boolean
 }
 export interface Capabilities {
   api_version: string
