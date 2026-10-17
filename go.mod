@@ -9,6 +9,7 @@ require (
 	github.com/chai2010/webp v1.4.0
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pquerna/otp v1.5.0
 	github.com/spf13/cobra v1.10.2
 	gorm.io/driver/postgres v1.6.0

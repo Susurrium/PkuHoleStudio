@@ -17,6 +17,7 @@ import (
 
 type Dependencies struct {
 	Posts         *service.PostService
+	PostUpdates   *service.PostUpdateService
 	Search        *service.SearchService
 	Media         *service.MediaService
 	Dashboard     *service.DashboardService

@@ -6,11 +6,21 @@ import { errorDescription, useFeedback } from '../../components/Feedback'
 import type { Comment, Job, JobStatus } from '../../lib/types'
 import { preferredScrollBehavior } from '../../lib/motion'
 import { invalidateOnlineSession, useOnlineSession } from '../online/session'
+import { invalidatePostContent, usePostUpdatesAvailable } from './updates'
 
 export function usePostDetailResource(pid: string, source: 'local' | 'live') {
+	const client = useQueryClient()
+	const available = usePostUpdatesAvailable()
+	const session = useQuery({ queryKey: ['session'], queryFn: api.session, enabled: available })
   const detail = useQuery({ queryKey: ['post', pid, source], queryFn: () => api.post(pid, source), enabled: /^\d+$/.test(pid) })
-  const online = useOnlineSession(source === 'live')
-  return { detail, online }
+  const online = useOnlineSession(source === 'live' || (available && session.data?.has_session === true))
+	const autoRefresh = useQuery({
+		queryKey: ['post-auto-refresh', pid, source],
+		queryFn: async () => { const result = await api.refreshSavedPost(pid); await invalidatePostContent(client, pid); return result },
+		enabled: available && online.data?.can_read_online === true && detail.data?.local_state === 'saved',
+		staleTime: 15_000, retry: false, refetchOnMount: 'always',
+	})
+  return { detail, online, autoRefresh }
 }
 
 export function usePostComments(pid: string, source: 'local' | 'live', detailData: Awaited<ReturnType<typeof api.post>> | undefined, detailUpdatedAt: number) {
@@ -100,12 +110,12 @@ export function useSavePostToLocal(pid: string | number) {
   useEffect(() => setJobID(readTrackedSaveJob(numericPID)), [numericPID])
 
   const create = useMutation({
-    mutationFn: () => api.createJob('sync_pids', { pids: [numericPID], include_comments: true, include_media: true }),
-    onSuccess: (job) => {
+    mutationFn: (update: boolean) => update ? api.updateSavedPost(pid) : api.createJob('sync_pids', { pids: [numericPID], include_comments: true, include_media: true }),
+    onSuccess: (job, update) => {
       setJobID(job.id)
       rememberTrackedSaveJob(numericPID, job.id)
       client.invalidateQueries({ queryKey: ['jobs'] })
-      notify({ title: `树洞 #${pid} 已加入本地保存队列`, description: '正在保存正文、评论与图片；你可以离开当前页面。' })
+      notify({ title: `树洞 #${pid} 已加入本地${update ? '更新' : '保存'}队列`, description: '正在读取正文和评论，并按保存选项处理图片；你可以离开当前页面。' })
     },
     onError: (error) => notify({ tone: 'error', title: '保存到本地失败', description: errorDescription(error) }),
   })
@@ -130,11 +140,9 @@ export function useSavePostToLocal(pid: string | number) {
 
   useEffect(() => {
     if (!job || !terminalSaveStatuses.has(job.status)) return
-    client.invalidateQueries({ queryKey: ['post', String(pid)] })
-    client.invalidateQueries({ queryKey: ['posts', 'live'] })
-    client.invalidateQueries({ queryKey: ['online-home-latest'] })
+    void invalidatePostContent(client, pid)
     client.invalidateQueries({ queryKey: ['jobs'] })
-  }, [client, job?.status, pid])
+  }, [client, job?.id, job?.status, job?.attempts, pid])
 
   const retryable = job ? retryableSaveStatuses.has(job.status) : false
   const active = job ? activeSaveStatuses.has(job.status) : false
@@ -152,9 +160,10 @@ export function useSavePostToLocal(pid: string | number) {
     retryable,
     isPending: create.isPending || restart.isPending,
     isSuccess: job?.status === 'completed',
+		update: () => { if (!active) create.mutate(true) },
     start: () => {
       if (retryable) restart.mutate(job?.status === 'paused' ? 'resume' : 'retry')
-      else if (!active && job?.status !== 'completed') create.mutate()
+      else if (!active) create.mutate(false)
     },
   }
 }

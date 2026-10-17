@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/archive"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
@@ -24,9 +25,11 @@ type syncPagesPayload struct {
 }
 
 type pidJobPayload struct {
-	PIDs            []int32 `json:"pids"`
-	IncludeComments bool    `json:"include_comments,omitempty"`
-	IncludeMedia    bool    `json:"include_media,omitempty"`
+	Account              string  `json:"account,omitempty"`
+	PreserveMediaOptions bool    `json:"preserve_media_options,omitempty"`
+	PIDs                 []int32 `json:"pids"`
+	IncludeComments      bool    `json:"include_comments,omitempty"`
+	IncludeMedia         bool    `json:"include_media,omitempty"`
 }
 
 type mediaJobPayload struct {
@@ -414,29 +417,54 @@ func (a *App) handleSyncPIDs(ctx context.Context, execution *jobs.Execution, job
 	if err != nil {
 		return err
 	}
+	if payload.Account != "" {
+		ctx = client.WithRequestAccount(ctx, payload.Account)
+	}
 	if err := execution.SetTotal(ctx, len(payload.PIDs)); err != nil {
 		return err
 	}
 	completed := completedItemKeys(ctx, execution)
+	var failures []error
 	for _, pid := range payload.PIDs {
 		key := "pid:" + strconv.FormatInt(int64(pid), 10)
 		if completed[key] {
 			continue
 		}
-		result, err := a.capturePID(ctx, pid, payload.IncludeComments, payload.IncludeMedia)
+		includeMedia := payload.IncludeMedia
+		if payload.PreserveMediaOptions {
+			visible, err := a.Repository.GetVisiblePostIDs([]int32{pid})
+			if err != nil {
+				return err
+			}
+			if visible[pid] {
+				includeMedia, err = a.Repository.SavedMediaPreference(ctx, pid)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		result, err := a.capturePID(ctx, pid, payload.IncludeComments, includeMedia)
 		if err != nil {
 			_ = execution.ItemFailed(ctx, key, err)
-			return err
+			failures = append(failures, err)
+			if ctx.Err() != nil || service.IsPostUpdateInterruption(err) {
+				return err
+			}
+			continue
 		}
 		if err := execution.ItemSucceeded(ctx, key, result); err != nil {
 			return err
 		}
 	}
 	_, err = a.Repository.RebuildReferences(ctx)
-	return err
+	return errors.Join(append(failures, err)...)
 }
 
 func (a *App) capturePID(ctx context.Context, pid int32, includeComments, includeMedia bool) (capturePIDResult, error) {
+	if a.PostUpdates != nil {
+		result, err := a.PostUpdates.Capture(ctx, pid, includeComments, includeMedia)
+		return capturePIDResult{PID: result.PID, Comments: result.Comments, CommentPages: result.CommentPages, Media: result.Media, MissingMedia: result.MissingMedia}, err
+	}
 	result := capturePIDResult{PID: pid}
 	if a.Posts == nil || a.Repository == nil {
 		return result, fmt.Errorf("post capture is not configured")
@@ -496,6 +524,9 @@ func (a *App) capturePID(ctx context.Context, pid int32, includeComments, includ
 			}
 			result.Media++
 		}
+	}
+	if result.MissingMedia > 0 {
+		return result, &service.PartialPostUpdateError{Err: fmt.Errorf("正文与评论已保存，%d 张图片未保存", result.MissingMedia)}
 	}
 	return result, nil
 }

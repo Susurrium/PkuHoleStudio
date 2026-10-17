@@ -19,6 +19,8 @@ export function useOnlineSession(enabled = true) {
 
 export function setOnlineSession(client: QueryClient, value: AuthStatus) {
   client.setQueryData(onlineSessionQueryKey, value)
+	void client.invalidateQueries({ queryKey: ['post-updates'] })
+	client.removeQueries({ queryKey: ['post-auto-refresh'] })
 }
 
 export function invalidateOnlineSession(client: QueryClient) {

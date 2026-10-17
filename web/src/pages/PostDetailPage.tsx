@@ -11,12 +11,13 @@ import { PostMetrics } from '../components/PostMetrics'
 import type { Comment, Media, ReferenceGraph } from '../lib/types'
 import { errorDescription } from '../components/Feedback'
 import { useLocalPostMetadata, usePostComments, usePostDetailResource, usePostInteraction, usePostReply, useSavePostToLocal } from '../features/posts/usePostDetail'
+import { PostUpdateControls } from '../components/PostUpdateControls'
 
 export function PostDetailPage() {
   const { pid = '' } = useParams()
 	const [searchParams] = useSearchParams()
   const source = searchParams.get('source') === 'live' ? 'live' : 'local'
-  const { detail, online } = usePostDetailResource(pid, source)
+  const { detail, online, autoRefresh } = usePostDetailResource(pid, source)
 	const { comments, loadMoreComments, restoreStatus, cancelRestore, nextCommentCursor, hasMoreComments } = usePostComments(pid, source, detail.data, detail.dataUpdatedAt)
 	const saveLocal = useSavePostToLocal(pid)
 	const reply = usePostReply(pid, () => { detail.refetch() })
@@ -33,6 +34,7 @@ export function PostDetailPage() {
 	  const returnTo = requestedReturn && /^\/(online|posts|search|ai|notifications)([/?]|$)/.test(requestedReturn) ? requestedReturn : `/posts${source === 'live' ? '?source=live' : ''}`
 	  const returnLabel = requestedReturn?.startsWith('/ai') ? 'AI 研究' : requestedReturn?.startsWith('/notifications') ? '通知' : source === 'live' ? '在线树洞' : requestedReturn?.startsWith('/search') || requestedReturn?.includes('q=') ? '搜索结果' : '浏览列表'
 	  return <>
+		<PostUpdateControls pid={pid} source={source} saved={source === 'local' || detail.data.local_state === 'saved'} refreshing={autoRefresh.isFetching} refreshError={autoRefresh.error} onRefresh={() => { void detail.refetch() }} />
 	    <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><Link to={returnTo} className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-ink-soft hover:bg-white/60 hover:text-teal"><ArrowLeft size={16} />返回{returnLabel}</Link><div className="flex flex-wrap gap-2">{source === 'local' && <Link className="button-secondary" to={`/posts/${pid}?source=live&return_to=${encodeURIComponent(`/posts/${pid}`)}`}><Radio size={15} />查看线上版本</Link>}{source === 'live' && (!saveLocal.job && detail.data.local_state === 'saved' ? <span className="button-secondary cursor-default text-teal"><Check size={15} />已保存到本地</span> : <button className={`button-secondary ${saveLocal.retryable ? '!text-coral' : ''}`} disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}><Download size={15} />{saveLocal.label}</button>)}</div></div>
 	{source === 'live' && saveLocal.failure && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-coral/25 bg-coral-soft/25 px-4 py-3 text-xs text-coral" role="alert"><span>保存任务失败：{saveLocal.failure}</span><Link className="font-semibold underline" to="/tasks">查看任务详情</Link></div>}
 	<div className="grid items-start gap-7 xl:grid-cols-[minmax(0,860px)_minmax(280px,1fr)]">

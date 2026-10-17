@@ -6,6 +6,7 @@ import { layoutPresets } from './presets/registry'
 import { WorkspaceTracker } from './components/WorkspaceSwitcher'
 import { OnboardingGuide } from './components/OnboardingGuide'
 import { JobFeedbackMonitor } from './components/JobFeedbackMonitor'
+import { PostUpdateMonitor } from './components/PostUpdateControls'
 
 const SearchPage = lazy(() => import('./pages/SearchPage').then((module) => ({ default: module.SearchPage })))
 const ImportsPage = lazy(() => import('./pages/ImportsPage').then((module) => ({ default: module.ImportsPage })))
@@ -36,6 +37,7 @@ export default function App() {
         <FeedbackProvider>
           <OnboardingGuide />
           <JobFeedbackMonitor />
+          <PostUpdateMonitor />
           <Routes>
             <Route element={<Shell />}>
               <Route index element={<Dashboard />} />

@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	studioarchive "github.com/Susurrium/PkuHoleStudio/internal/archive"
+	"github.com/Susurrium/PkuHoleStudio/internal/client"
 	"github.com/Susurrium/PkuHoleStudio/internal/db"
+	"github.com/Susurrium/PkuHoleStudio/internal/jobs"
 	"github.com/Susurrium/PkuHoleStudio/internal/models"
 	"github.com/Susurrium/PkuHoleStudio/internal/service"
 )
@@ -58,6 +61,115 @@ func (r *captureRemote) CreateComment(context.Context, service.CreateCommentRequ
 func (r *captureRemote) CanWrite(context.Context) (bool, error) { return false, nil }
 
 type captureMediaRemote struct{}
+
+type failingCaptureMedia struct{}
+
+type interruptedCaptureRemote struct {
+	captureRemote
+	status   int
+	requests int
+}
+
+func (r *interruptedCaptureRemote) RefreshPost(_ context.Context, pid int32) (*models.Post, error) {
+	r.requests++
+	if pid == 12345 {
+		return nil, &client.RemoteAPIError{HTTPStatus: r.status, Message: "upstream failure"}
+	}
+	return &models.Post{Pid: pid, Text: "available"}, nil
+}
+
+func TestBatchCaptureStopsOnAuthenticationButContinuesPastMissingPost(t *testing.T) {
+	for _, status := range []int{401, 404} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			repo, err := db.NewDatabase(sqliteConfig(filepath.Join(t.TempDir(), "batch.db")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer repo.Close()
+			manager, err := jobs.NewManager(context.Background(), repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Close()
+			remote := &interruptedCaptureRemote{status: status}
+			posts := service.NewPostService(repo, remote)
+			updates := service.NewPostUpdateService(posts, repo, nil, func() (string, error) { return "test-account", nil })
+			a := &App{Repository: repo, Posts: posts, PostUpdates: updates, Jobs: manager}
+			if err := registerJobHandlers(a); err != nil {
+				t.Fatal(err)
+			}
+			job, err := manager.Create(context.Background(), jobs.CreateRequest{Type: jobs.TypeSyncPIDs, Payload: pidJobPayload{PIDs: []int32{12345, 23456}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for !job.Status.Terminal() && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+				job, err = manager.Get(context.Background(), job.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if status == 401 && (remote.requests != 1 || job.Status != jobs.StatusFailed) {
+				t.Fatalf("auth failure continued: requests=%d job=%+v", remote.requests, job)
+			}
+			if status == 404 && (remote.requests != 2 || job.Status != jobs.StatusPartial || job.CompletedItems != 1) {
+				t.Fatalf("missing post prevented other updates: requests=%d job=%+v", remote.requests, job)
+			}
+		})
+	}
+}
+
+func (failingCaptureMedia) DownloadImage(context.Context, string, int32) ([]byte, error) {
+	return nil, fmt.Errorf("image download failed")
+}
+func (failingCaptureMedia) DownloadThumbnail(context.Context, string, int32) ([]byte, error) {
+	return nil, fmt.Errorf("thumbnail download failed")
+}
+
+func TestCaptureReportsPartialWhenOnlyMediaFails(t *testing.T) {
+	repo, err := db.NewDatabase(sqliteConfig(filepath.Join(t.TempDir(), "partial.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	manager, err := jobs.NewManager(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	remote := &captureRemote{post: models.Post{Pid: 12345, Text: "saved content", MediaIds: "image-1", Type: "image"}, comments: []models.Comment{{Pid: 12345, Cid: 1, Text: "saved comment"}}}
+	posts := service.NewPostService(repo, remote)
+	media := service.NewMediaServiceWithRepository(t.TempDir(), failingCaptureMedia{}, repo)
+	updates := service.NewPostUpdateService(posts, repo, media, func() (string, error) { return "test-account", nil })
+	a := &App{Repository: repo, Posts: posts, Media: media, PostUpdates: updates, Jobs: manager}
+	if err := registerJobHandlers(a); err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.Create(context.Background(), jobs.CreateRequest{Type: jobs.TypeSyncPIDs, Payload: pidJobPayload{PIDs: []int32{12345}, IncludeComments: true, IncludeMedia: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !job.Status.Terminal() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		job, err = manager.Get(context.Background(), job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if job.Status != jobs.StatusPartial || job.Error == "" {
+		t.Fatalf("media failure job=%+v", job)
+	}
+	post, err := repo.GetPostByPid(12345)
+	if err != nil || post.Text != "saved content" {
+		t.Fatalf("post=%+v %v", post, err)
+	}
+	comments, err := repo.GetCommentsByPidCursor(12345, 0, 20, true)
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("comments=%v %v", comments, err)
+	}
+}
 
 func (captureMediaRemote) DownloadImage(context.Context, string, int32) ([]byte, error) {
 	return []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00}, nil

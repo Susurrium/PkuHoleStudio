@@ -134,6 +134,7 @@ func serverBearerAuth(token string) gin.HandlerFunc {
 func serverDependencies(application *app.App) server.Dependencies {
 	return server.Dependencies{
 		Posts:         application.Posts,
+		PostUpdates:   application.PostUpdates,
 		Search:        application.Search,
 		Media:         application.Media,
 		Dashboard:     application.Dashboard,

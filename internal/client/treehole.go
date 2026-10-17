@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Susurrium/PkuHoleStudio/internal/config"
@@ -42,6 +43,7 @@ const (
 )
 
 type Client struct {
+	sessionMu     sync.RWMutex
 	httpClient    *http.Client
 	authorization string
 	deviceUUID    string
@@ -57,7 +59,7 @@ func NewClient(deviceUUID string) (*Client, error) {
 	}
 
 	client := &http.Client{
-		Jar:     jar,
+		Jar:     &managedCookieJar{jar: jar},
 		Timeout: 300 * time.Second,
 	}
 
@@ -66,10 +68,10 @@ func NewClient(deviceUUID string) (*Client, error) {
 		deviceUUID: deviceUUID,
 	}
 
-	c.httpClient.Transport = &userAgentRoundTripper{
+	c.httpClient.Transport = newControlledTransport(&userAgentRoundTripper{
 		transport: c.httpClient.Transport,
 		userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
-	}
+	}, c)
 
 	err = c.LoadCookies()
 	if err != nil {
@@ -77,7 +79,7 @@ func NewClient(deviceUUID string) (*Client, error) {
 	}
 
 	if token := c.GetPkuToken(); token != "" {
-		c.authorization = token
+		c.setAuthorization(token)
 	}
 
 	return c, nil
@@ -132,8 +134,12 @@ func (c *Client) ClearSession() error {
 	if err != nil {
 		return err
 	}
-	c.httpClient.Jar = jar
-	c.authorization = ""
+	managed, ok := c.httpClient.Jar.(*managedCookieJar)
+	if !ok {
+		return errors.New("session cookie jar is not managed")
+	}
+	c.setAuthorization("")
+	managed.reset(jar)
 	return c.SaveCookies()
 }
 
@@ -144,8 +150,8 @@ func (c *Client) applyTreeholeHeaders(req *http.Request) {
 	if c.deviceUUID != "" {
 		req.Header.Set("uuid", c.deviceUUID)
 	}
-	if c.authorization != "" {
-		req.Header.Set("Authorization", "Bearer "+c.authorization)
+	if token := c.GetAuthorization(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if token := c.GetXSRFToken(); token != "" {
 		req.Header.Set("x-xsrf-token", token)
@@ -286,8 +292,8 @@ func (c *Client) SSOLogin(token string) error {
 		return fmt.Errorf("failed to extract token from redirect URL")
 	}
 
-	c.authorization = redirectToken
-	c.SetPkuToken(c.authorization)
+	c.setAuthorization(redirectToken)
+	c.SetPkuToken(c.GetAuthorization())
 
 	return nil
 }
@@ -603,7 +609,7 @@ func (c *Client) ReloadSessionCookies() error {
 	if err := c.LoadCookies(); err != nil {
 		return err
 	}
-	c.authorization = c.GetPkuToken()
+	c.setAuthorization(c.GetPkuToken())
 	return nil
 }
 
@@ -651,7 +657,15 @@ func (c *Client) SetLogger(w io.Writer) {
 }
 
 func (c *Client) GetAuthorization() string {
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
 	return c.authorization
+}
+
+func (c *Client) setAuthorization(token string) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	c.authorization = token
 }
 
 func randFloat() float64 {

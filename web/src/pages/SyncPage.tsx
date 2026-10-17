@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader'
 import { errorDescription } from '../components/Feedback'
 import { LoadingState } from '../components/States'
 import { setOnlineSession } from '../features/online/session'
+import { PostUpdateSettingsPanel } from '../components/PostUpdateSettingsPanel'
 
 const syncTypes = new Set(['sync_followed', 'sync_pids', 'sync_latest', 'sync_pages', 'repair_comments', 'repair_media', 'repair_thumbnails', 'rebuild_references', 'cleanup_staging', 'fetch_images', 'save_raw_json'])
 
@@ -76,6 +77,7 @@ export function SyncPage() {
       <SyncCard icon={Radio} title="保存最新时间线" description="保存公共最新时间线；这是可选资料来源。" disabled={!online || create.isPending} onSubmit={(value) => create.mutate({ type: 'sync_latest', payload: { start_page: 1, pages: value } })} />
     </section>
 	<section className="panel mt-5 flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">补全缺失图片</h2><p className="mt-1 text-sm leading-6 text-ink-soft">检查已保存的树洞，只下载本机尚未保存的图片。</p></div><button className="button-secondary shrink-0" disabled={!online || create.isPending} onClick={() => create.mutate({ type: 'repair_media', payload: {} })}>开始补全图片</button></section>
+		<PostUpdateSettingsPanel />
 		<AdvancedSync disabled={!online || create.isPending} onCreate={(type, payload) => create.mutate({ type, payload })} />
 		{create.data && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal/25 bg-teal-soft/35 px-4 py-3 text-sm"><span className="font-medium text-teal">保存任务已创建，可以离开本页继续使用。</span><Link className="font-semibold text-teal hover:underline" to="/tasks">查看任务进度 →</Link></div>}
 	</> : <section className="mt-6 rounded-2xl border border-dashed border-line bg-white/25 p-7 text-center"><KeyRound className="mx-auto text-ink-soft/45" size={25} /><h2 className="mt-3 font-semibold">登录后才能选择保存范围</h2><p className="mt-2 text-sm text-ink-soft">登录只用于读取你选择的树洞；浏览本地资料不需要登录。</p></section>}

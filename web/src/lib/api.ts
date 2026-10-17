@@ -1,4 +1,5 @@
 import type { AIProvider, AIProviderSettingUpdate, AIScope, AISession, AISessionDetail, AuthStatus, BridgeDevice, BridgeDeviceRequest, BridgePairing, BridgeTransfer, Capabilities, Comment, CommentPage, CourseScheduleRow, ExportDownload, Health, HotPostsResult, ImportCreated, Job, LocalTag, LogLine, Note, NotificationPage, ObserverConnectionProbe, ObserverSettings, ObserverSettingsUpdate, ObserverStatus, ObserverSyncResult, Post, PostDetail, PostPage, ReferenceGraph, RemovedPostDetail, RemovedPostPage, ScoreSummary, SearchHistory, Settings, SettingsUpdate, Tag, UploadedMedia } from './types'
+import type { PostUpdateSettings, PostUpdateState } from './types'
 
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error?: { code?: string; message?: string; details?: unknown } }
@@ -51,6 +52,10 @@ async function uploadMediaIDs(files: File[]) {
 }
 
 export const api = {
+	postUpdates: () => request<PostUpdateState>('/post-updates'),
+	setPostUpdates: (settings: PostUpdateSettings) => request<PostUpdateState>('/post-updates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }),
+	refreshSavedPost: (pid: string | number) => request<{ pid: number; comments: number }>(`/posts/${pid}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full: false }) }),
+	updateSavedPost: (pid: string | number) => request<Job>(`/posts/${pid}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full: true }) }),
   health: () => request<Health>('/health'),
 	hotPosts: (limit = 5) => request<HotPostsResult>(`/posts/hot${queryString({ limit })}`),
   capabilities: () => request<Capabilities>('/capabilities'),

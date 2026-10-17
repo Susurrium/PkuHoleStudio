@@ -34,9 +34,13 @@ func TestNewClientUsesSystemTLSValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	transport, ok := c.httpClient.Transport.(*userAgentRoundTripper)
+	controlled, ok := c.httpClient.Transport.(*controlledTransport)
 	if !ok {
-		t.Fatalf("transport = %T, want *userAgentRoundTripper", c.httpClient.Transport)
+		t.Fatalf("transport = %T, want *controlledTransport", c.httpClient.Transport)
+	}
+	transport, ok := controlled.base.(*userAgentRoundTripper)
+	if !ok {
+		t.Fatalf("controlled base = %T, want *userAgentRoundTripper", controlled.base)
 	}
 	if transport.transport != nil {
 		t.Fatalf("base transport = %T, want nil so requests use http.DefaultTransport with system certificate validation", transport.transport)

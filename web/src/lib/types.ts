@@ -228,6 +228,7 @@ export interface RemovedPostDetail {
   saved_locally?: boolean
 }
 export interface Capabilities {
+	post_updates?: boolean
   api_version: string
   schema_version: number
   fts5: boolean
@@ -237,6 +238,16 @@ export interface Capabilities {
   ai: boolean
   live_search: boolean
   online_sync?: boolean
+}
+
+export interface PostUpdateSettings { enabled: boolean; interval_minutes: number; pids: number[] }
+export interface PostUpdateState extends PostUpdateSettings {
+	account?: string
+	next_run: string
+	running: boolean
+	error?: string
+	revision: number
+	targets: { pid: number; page?: number; phase?: string; error?: string }[]
 }
 
 export interface AuthStatus {

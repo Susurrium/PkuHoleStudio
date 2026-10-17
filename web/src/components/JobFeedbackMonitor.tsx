@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import type { Job } from '../lib/types'
@@ -6,11 +6,13 @@ import { useUIStore } from '../store/ui'
 import { handoffLocalSelection } from '../features/library/selection'
 import { useFeedback } from './Feedback'
 import { jobTypeLabel } from './JobRow'
+import { invalidatePostContent } from '../features/posts/updates'
 
 const notifiedStorageKey = 'pkustudio:notified-job-terminals'
 const feedbackStatuses = new Set(['completed', 'partial', 'failed'])
 
 export function JobFeedbackMonitor() {
+	const client = useQueryClient()
   const layoutPreset = useUIStore((state) => state.layoutPreset)
   const { notify } = useFeedback()
   const previous = useRef(new Map<string, string>())
@@ -18,18 +20,12 @@ export function JobFeedbackMonitor() {
   const jobs = useQuery({
     queryKey: ['jobs'],
     queryFn: api.jobs,
-    enabled: layoutPreset !== 'classic',
     staleTime: 1_000,
     refetchInterval: (query) => Array.isArray(query.state.data) && query.state.data.some((job) => job.status === 'queued' || job.status === 'running') ? 2_000 : 10_000,
   })
 
   useEffect(() => {
     if (!jobs.data) return
-    if (layoutPreset === 'classic') {
-      for (const job of jobs.data) previous.current.set(job.id, job.status)
-      initialized.current = true
-      return
-    }
     if (!initialized.current) {
       for (const job of jobs.data) previous.current.set(job.id, job.status)
       initialized.current = true
@@ -38,12 +34,14 @@ export function JobFeedbackMonitor() {
     for (const job of jobs.data) {
       const before = previous.current.get(job.id)
       previous.current.set(job.id, job.status)
+			if (feedbackStatuses.has(job.status) && before !== job.status) void invalidatePostContent(client)
+			if (layoutPreset === 'classic') continue
       if (!feedbackStatuses.has(job.status) || before === job.status || alreadyNotified(job)) continue
       rememberNotified(job)
       const feedback = jobFeedback(job)
       notify(feedback)
     }
-  }, [jobs.data, layoutPreset, notify])
+  }, [client, jobs.data, layoutPreset, notify])
 
   return null
 }

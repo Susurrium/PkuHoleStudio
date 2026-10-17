@@ -27,6 +27,7 @@ type Options struct {
 	Config       *config.Config
 	Repository   *db.Database
 	Client       *client.Client
+	Remote       service.Remote
 	DataDir      string
 	DatabasePath string
 	DisableJobs  bool
@@ -57,6 +58,7 @@ type App struct {
 	Client     *client.Client
 
 	Posts         *service.PostService
+	PostUpdates   *service.PostUpdateService
 	Search        *service.SearchService
 	Sync          *service.SyncService
 	Media         *service.MediaService
@@ -166,6 +168,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 	}
 
 	remote := service.NewTreeholeRemote(application.Client)
+	if options.Remote != nil {
+		remote = options.Remote
+	}
 	application.Posts = service.NewPostService(application.Repository, remote)
 	application.Search = service.NewSearchService(application.Posts, application.Repository)
 	application.Sync = service.NewSyncService(application.Client, application.Repository, application.DataDir)
@@ -174,6 +179,7 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		service.NewTreeholeMediaRemote(application.Client),
 		application.Repository,
 	)
+	application.PostUpdates = service.NewPostUpdateService(application.Posts, application.Repository, application.Media, application.Client.AccountID)
 	application.Notifications = service.NewNotificationService(application.Client)
 	application.Logs = service.NewLogService(application.DataDir)
 	application.Library = service.NewLocalLibraryService(application.Repository)
@@ -275,6 +281,9 @@ func Open(ctx context.Context, options Options) (_ *App, err error) {
 		return nil, err
 	}
 	application.Observer.Start(ctx)
+	if !options.DisableJobs {
+		application.PostUpdates.Start(ctx)
+	}
 	completed = true
 	return application, nil
 }
@@ -295,6 +304,9 @@ func (a *App) Close() error {
 	}
 
 	a.closeOnce.Do(func() {
+		if a.PostUpdates != nil {
+			a.PostUpdates.Close()
+		}
 		if a.Observer != nil {
 			a.Observer.Close()
 		}

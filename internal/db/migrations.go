@@ -42,6 +42,9 @@ func (d *Database) runMigrations() error {
 
 func (d *Database) schemaMigrations() ([]schemaMigration, error) {
 	migrations := []schemaMigration{
+		{version: 14, name: "bounded followed post updates", apply: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&models.PostUpdateSchedule{})
+		}},
 		{
 			version: 1,
 			name:    "pkuholetui baseline",

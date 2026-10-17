@@ -22,7 +22,7 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() error = %v", err)
 	}
-	expectedVersion := 13
+	expectedVersion := 14
 	if version != expectedVersion {
 		t.Fatalf("SchemaVersion() = %d, want %d", version, expectedVersion)
 	}
@@ -34,6 +34,7 @@ func TestMigrationsCreateNewDatabaseAndRemainIdempotent(t *testing.T) {
 		"ai_runs", "ai_event_records", "ai_queries", "jobs", "job_items", "job_events",
 		"research_projects", "project_posts",
 		"observer_sync_states", "observer_event_receipts", "post_availability",
+		"post_update_schedules",
 	} {
 		if !database.db.Migrator().HasTable(table) {
 			t.Errorf("new database is missing table %q", table)
@@ -96,7 +97,7 @@ func TestMigrationsAdoptLegacyDatabaseWithoutLosingData(t *testing.T) {
 		t.Fatalf("AppliedMigrations() error = %v", err)
 	}
 	expectedCount := expectedMigrationCount(t, database)
-	if len(migrations) != expectedCount || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[len(migrations)-1].Version != 13 {
+	if len(migrations) != expectedCount || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[len(migrations)-1].Version != 14 {
 		t.Fatalf("legacy migrations = %+v", migrations)
 	}
 	if migrations[0].Name != "pkuholetui baseline (adopted)" {
@@ -119,9 +120,9 @@ func expectedMigrationCount(t *testing.T, database *Database) int {
 		t.Fatalf("FTS5Available() error = %v", err)
 	}
 	if available {
-		return 13
+		return 14
 	}
-	return 12
+	return 13
 }
 
 func TestMigrationsRejectIncompleteOrIncompatibleLegacySchema(t *testing.T) {

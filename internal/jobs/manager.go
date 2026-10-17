@@ -437,7 +437,8 @@ func (m *Manager) execute(id string) {
 	if handlerErr != nil {
 		finalStatus = StatusFailed
 		errorMessage = handlerErr.Error()
-		if latest.CompletedItems > 0 {
+		var partial interface{ Partial() bool }
+		if latest.CompletedItems > 0 || (errors.As(handlerErr, &partial) && partial.Partial()) {
 			finalStatus = StatusPartial
 		}
 	} else if latest.FailedItems > 0 {

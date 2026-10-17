@@ -19,6 +19,7 @@ scripts/
 *.db-wal
 *.db-shm
 .omx
+/work/
 
 !web/**/*.html
 !web/**/*.json

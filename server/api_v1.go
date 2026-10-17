@@ -64,6 +64,9 @@ type publicJobScope struct {
 }
 
 func registerAPIV1(group *gin.RouterGroup, dependencies Dependencies) {
+	group.GET("/post-updates", apiPostUpdateSettings(dependencies, false))
+	group.PUT("/post-updates", apiPostUpdateSettings(dependencies, true))
+	group.POST("/posts/:pid/refresh", apiRefreshSavedPost(dependencies))
 	group.GET("/health", apiHealth(dependencies))
 	group.GET("/capabilities", apiCapabilities(dependencies))
 	group.GET("/posts", apiPosts(dependencies))
@@ -1682,7 +1685,7 @@ func apiCapabilities(dependencies Dependencies) gin.HandlerFunc {
 		}
 		apiRespond(c, http.StatusOK, gin.H{
 			"api_version": "v1", "schema_version": schemaVersion, "fts5": fts,
-			"archive_import": dependencies.Archive != nil, "archive_export": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil,
+			"archive_import": dependencies.Archive != nil, "archive_export": dependencies.Archive != nil, "jobs": dependencies.Jobs != nil, "post_updates": dependencies.PostUpdates != nil,
 			"archive_contract": archive.ContractCapabilities(),
 			"ai":               aiConfigured, "live_search": liveSearch, "online_sync": dependencies.Auth != nil,
 		})
@@ -2448,7 +2451,27 @@ func apiCreateJob(dependencies Dependencies) gin.HandlerFunc {
 		if len(body.Payload) > 0 {
 			payload = body.Payload
 		}
-		job, err := dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: body.Type, Payload: payload, TotalItems: body.TotalItems})
+		if body.Type == jobs.TypeSyncPIDs && dependencies.PostUpdates != nil {
+			state, err := dependencies.PostUpdates.Status(c.Request.Context())
+			if err != nil || state.Account == "" {
+				apiFailure(c, 401, "online_login_required", "请先登录树洞", nil)
+				return
+			}
+			var bound map[string]any
+			if err := json.Unmarshal(body.Payload, &bound); err != nil || bound == nil {
+				apiFailure(c, 400, "invalid_input", "无效的保存范围", nil)
+				return
+			}
+			bound["account"] = state.Account
+			payload = bound
+		}
+		var job jobs.Job
+		var err error
+		if body.Type == jobs.TypeSyncPIDs && dependencies.PostUpdates != nil {
+			job, err = createOrReusePIDJob(c.Request.Context(), dependencies, payload, body.TotalItems)
+		} else {
+			job, err = dependencies.Jobs.Create(c.Request.Context(), jobs.CreateRequest{Type: body.Type, Payload: payload, TotalItems: body.TotalItems})
+		}
 		if err != nil {
 			apiFailure(c, http.StatusBadRequest, "job_rejected", err.Error(), nil)
 			return

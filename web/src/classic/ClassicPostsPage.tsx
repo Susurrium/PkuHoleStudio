@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PostUpdateControls } from '../components/PostUpdateControls'
 import { Bell, ChevronDown, Download, Heart, Image, ImagePlus, ListFilter, ListTodo, MessageCircle, RefreshCw, Reply, Search, Send, Settings, Sparkles, Star, ThumbsUp, X } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, isOnlineSessionError } from '../lib/api'
@@ -184,7 +185,7 @@ function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; sourc
   const [replyText, setReplyText] = useState('')
   const [quote, setQuote] = useState<Comment>()
   const [replyFiles, setReplyFiles] = useState<File[]>([])
-  const { detail, online } = usePostDetailResource(pid, source)
+  const { detail, online, autoRefresh } = usePostDetailResource(pid, source)
   const loadMore = useMutation({ mutationFn: (cursor: number) => api.comments(pid, cursor, source, 50), onSuccess: (nextPage) => { setExtraComments((current) => dedupeComments([...current, ...nextPage.items])); setPage({ cursor: nextPage.next_cursor, hasMore: nextPage.has_more }) } })
   const interact = usePostInteraction(pid, () => { detail.refetch() })
   const saveLocal = useSavePostToLocal(pid)
@@ -194,7 +195,7 @@ function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; sourc
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[aria-label="打开树洞 #${pid}"]`)?.focus())
   }, [navigate, pid, returnTo])
 
-  useEffect(() => { setExtraComments([]); setPage(null); setReverse(false); setTab('comments') }, [pid, source])
+  useEffect(() => { setExtraComments([]); setPage(null); setReverse(false); setTab('comments') }, [pid, source, detail.dataUpdatedAt])
   useEffect(() => {
     const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -239,6 +240,7 @@ function ClassicPostDetailDrawer({ pid, source, returnTo }: { pid: string; sourc
           {source === 'local' && <Link to={`/posts/${pid}?source=live&return_to=${encodeURIComponent(`/posts/${pid}`)}`}>查看线上版本</Link>}
           {canWrite && <><button type="button" disabled={interact.isPending || !detail.data} onClick={() => interact.mutate('praise')}><Heart size={14} fill={detail.data?.post.is_praise ? 'currentColor' : 'none'} />{detail.data?.post.is_praise ? '已赞' : '点赞'}</button><button type="button" disabled={interact.isPending || !detail.data} onClick={() => interact.mutate('follow')}><Star size={14} fill={detail.data?.post.is_follow ? 'currentColor' : 'none'} />{detail.data?.post.is_follow ? '已关注' : '关注'}</button></>}{source === 'live' && (!saveLocal.job && detail.data?.local_state === 'saved' ? <span className="classic-local-state"><Download size={14} />已保存到本地</span> : <button type="button" disabled={saveLocal.isPending || saveLocal.active || saveLocal.isSuccess} onClick={saveLocal.start} title={saveLocal.failure || undefined}><Download size={14} />{saveLocal.label}</button>)}
         </div>
+			<PostUpdateControls pid={pid} source={source} saved={source === 'local' || detail.data?.local_state === 'saved'} refreshing={autoRefresh.isFetching} refreshError={autoRefresh.error} onRefresh={() => { void detail.refetch() }} />
         <nav className="classic-detail-tabs" aria-label="详情区域">
           <button className={tab === 'comments' ? 'is-active' : ''} onClick={() => setTab('comments')}>评论</button>
           <button className={tab === 'personal' ? 'is-active' : ''} onClick={() => setTab('personal')}>个人资料</button>

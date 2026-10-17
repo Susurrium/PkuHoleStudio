@@ -22,12 +22,13 @@ import { preferredScrollBehavior } from '../lib/motion'
 import { errorDescription } from '../components/Feedback'
 import { useCommentNote, useLocalPostMetadata, usePostComments, usePostDetailResource, usePostInteraction, usePostReply, useSavePostToLocal } from '../features/posts/usePostDetail'
 import { GithubLoading, GithubPageHeader, GithubState } from './GithubComponents'
+import { PostUpdateControls } from '../components/PostUpdateControls'
 
 export function GithubPostDetailPage() {
   const { pid = '' } = useParams()
   const [searchParams] = useSearchParams()
   const source = searchParams.get('source') === 'live' ? 'live' : 'local'
-  const { detail, online } = usePostDetailResource(pid, source)
+  const { detail, online, autoRefresh } = usePostDetailResource(pid, source)
   const commentState = usePostComments(pid, source, detail.data, detail.dataUpdatedAt)
   const saveLocal = useSavePostToLocal(pid)
   const reply = usePostReply(pid, () => { detail.refetch() })
@@ -51,6 +52,7 @@ export function GithubPostDetailPage() {
   }
 
   return <>
+		<PostUpdateControls pid={pid} source={source} saved={source === 'local' || detail.data.local_state === 'saved'} refreshing={autoRefresh.isFetching} refreshError={autoRefresh.error} onRefresh={() => { void detail.refetch() }} />
     <Link className="github-back-link" to={returnTo}><ArrowLeftIcon size={16} />返回列表</Link>
     <GithubPageHeader
       eyebrow={source === 'live' ? 'ONLINE TREEHOLE' : 'LOCAL ARCHIVE'}
