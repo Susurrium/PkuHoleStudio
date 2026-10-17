@@ -2,7 +2,7 @@
 
 PkuHoleStudio 是一款在个人电脑上运行的北大树洞客户端。它一方面覆盖树洞的大部分日常操作，让你可以直接浏览、发布和互动；另一方面增加了 24 小时热榜、最近删除、本地资料库和研究整理等能力。只有你明确保存的内容才会进入本地资料库，标签、笔记和研究项目默认留在自己的电脑上。
 
-当前正式发布版：`v0.1.0`。前往 [最新版本下载页](https://github.com/Susurrium/PkuHoleStudio/releases/latest)，或查看 [全部变更](CHANGELOG.md)。
+当前正式发布版：`v0.1.1`。前往 [最新版本下载页](https://github.com/Susurrium/PkuHoleStudio/releases/latest)，或查看 [全部变更](CHANGELOG.md)。
 
 PkuHoleStudio 的 TUI、采集器和部分旧版兼容接口沿用并改造自 [PKUHoleTUI](https://github.com/dfshfghj/PKUHoleTUI) 的相关实现。感谢 PKUHoleTUI 作者的工作，为本项目的早期开发和兼容能力提供了重要基础。
 
